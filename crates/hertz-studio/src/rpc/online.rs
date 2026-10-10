@@ -116,6 +116,14 @@ pub async fn cover_proxy(_state: &Arc<AppState>, query: &Value) -> RpcResult {
     })))
 }
 
+/// 每日一言的 RPC 门面，与 `routes::home_quote` 共用 `online::daily_quote`。
+/// 只接 HTTP 一边的话，插件形态的首页卡片会静默回落本地句池，而独立形态一切正常
+/// ——这类「一边好一边坏」正是这个文件存在的理由。
+pub async fn home_quote(_state: &Arc<AppState>, query: &Value) -> RpcResult {
+    let q: crate::online::QuoteQuery = query_as(query)?;
+    Ok(Reply::ok(crate::online::daily_quote(&q).await?))
+}
+
 // ---------------------------------------------------------------------------
 // 整盘播放
 // ---------------------------------------------------------------------------

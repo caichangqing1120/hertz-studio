@@ -4517,7 +4517,9 @@ function initHomeDashboard() {
   bindHomeCoverMenu();
   // 名言与播放无关，独立模块：自己读一次缓存画出来，再后台抓一次。
   // 必须在 HomeDashboard 之后 —— 它要等 #home-quote 已进 DOM。
-  if (window.HomeQuote) window.HomeQuote.load();
+  // 把 transport 交给它而不是让它自己 fetch：插件形态的 CSP 拦得住直连第三方，
+  // 取句必须走后端 `/v1/home/quote`（见 home-quote.js 的 fetchRemote）。
+  if (window.HomeQuote) window.HomeQuote.load(transport);
 }
 
 // 首页那一格右键：把曲库行上那对「让封面位有图」的动作搬过来，省得为了补一张

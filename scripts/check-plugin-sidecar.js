@@ -325,6 +325,12 @@ async function main() {
     eq(noTrack.result && noTrack.result.status, 404, '查无此曲 → 404');
     eq(((noTrack.result || {}).body || {}).error?.code, 'not_found', '查无此曲的 code 是 not_found');
 
+    // 每日一言的分类白名单必须在**发上游请求之前**拒掉：这条断言因此不需要网络，
+    // 而 status 是 400 而不是 404 恰好证明 RPC 门面也接上了（只接 HTTP 一边就是 404）。
+    const badCat = await client.send('v1/home/quote', { op: 'GET', query: { c: 'https://evil/' } });
+    eq(badCat.result && badCat.result.status, 400, '未知名言分类 → 400，不是未登记的 404');
+    eq(((badCat.result || {}).body || {}).error?.code, 'bad_request', '未知分类的 code 是 bad_request');
+
     console.log('\n播放域');
     const queue = await client.send('v1/player/queue', { op: 'GET' });
     eq(queue.result && queue.result.status, 200, 'GET v1/player/queue → 200');

@@ -123,6 +123,9 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             axum::routing::delete(remove_from_playlist),
         )
         .route("/v1/settings", get(get_settings).put(put_settings))
+        // 每日一言：见 `home_quote`。放在设置之后是因为它跟播放状态无关，
+        // 前端只在启动与换分类时各打一次。
+        .route("/v1/home/quote", get(home_quote))
         // 开发者选项：播放诊断日志。开关单独走接口而不是 PUT /v1/settings，
         // 因为那条路只写库、不会让运行中的服务改变行为。
         .route(
@@ -1249,6 +1252,14 @@ async fn online_cover_proxy(
         "data": crate::rpc::encode_base64(&bytes),
         "content_type": content_type,
     })))
+}
+
+/// 每日一言：插件形态下界面不能直连第三方（宿主给插件文档注入的 CSP 是
+/// `connect-src 'none'`），所以取句挪到后端。分类白名单与字段归一在
+/// `online::quote`，HTTP 与 RPC 两个门面共用同一份，应答形状固定为
+/// `{hitokoto, from}`。
+async fn home_quote(Query(q): Query<online::QuoteQuery>) -> ApiResult<Json<serde_json::Value>> {
+    Ok(Json(online::daily_quote(&q).await?))
 }
 
 #[derive(Deserialize)]

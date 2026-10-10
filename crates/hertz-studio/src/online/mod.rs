@@ -60,6 +60,7 @@ mod qq;
 // 所以对子模块外暴露到 crate 内；平台协议细节仍关在 online 内部。
 pub(crate) mod qr;
 pub mod quality;
+mod quote;
 mod sign;
 
 // 候选类型出现在 StreamInfo 与 progressive::start 的签名上，平台模块和上层都
@@ -72,6 +73,10 @@ pub(crate) use cred::{
     clear as cred_clear, get as cred_get, is_signed_in as cred_is_signed_in,
     put_cookie as cred_put_cookie, CRED_PREFIX,
 };
+
+// 每日一言的取句对两个门面开放：routes.rs 的 HTTP 端点与 rpc 的同名方法共用这一份
+// 实现，分类白名单与字段归一只有一个 owner。
+pub(crate) use quote::{daily_quote, QuoteQuery};
 
 use std::time::Duration;
 

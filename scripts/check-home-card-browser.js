@@ -35,9 +35,14 @@ const section = (n) => console.log('\n' + n);
   await page.evaluate(() => {
     window.__quoteRequests = 0;
     window.__quoteStacks = [];
+    // 取句改走后端 /v1/home/quote 之后，界面里再出现任何直连 hitokoto 的请求都是
+    // 回归（插件形态下那条路会被 CSP 拦死），所以单独计数并断言为 0。
+    window.__externalQuoteHits = 0;
     const orig = window.fetch;
-    window.fetch = function (url, opts) {
-      if (String(url).indexOf('hitokoto') >= 0) {
+    window.fetch = function (url) {
+      const target = String(url);
+      if (target.indexOf('hitokoto') >= 0) window.__externalQuoteHits += 1;
+      if (target.indexOf('/v1/home/quote') >= 0) {
         window.__quoteRequests += 1;
         window.__quoteStacks.push(new Error().stack);
       }
@@ -253,6 +258,9 @@ const section = (n) => console.log('\n' + n);
   };
   const inFlight = await settle();
   if (inFlight > 0) console.log('  -- 首次抓取共 ' + inFlight + ' 次请求，已结束');
+  const external = await page.evaluate(() => window.__externalQuoteHits || 0);
+  ok(external === 0, '取句只走后端 /v1/home/quote，界面没有直连第三方',
+    external ? external + ' 次直连 hitokoto 的请求' : '0 次');
   await page.evaluate(() => { window.__quoteRequests = 0; window.__quoteStacks = []; });
   const swapped = await page.evaluate(() => {
     const before = document.getElementById('home-quote-text').textContent;
