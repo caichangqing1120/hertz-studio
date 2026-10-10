@@ -163,13 +163,18 @@ async function fetchRemote(cat) {
       // **必须串行 + 带间隔**：实测并发请求会被一言网 CDN 合并成同一个响应
       // （8 次并发只回 3~4 个唯一 id）。URL 尾部已经加了自增参数绕开合并，
       // 这里留一点间隔再求稳。全部在本地完成，之后「换一条」永远不打网络。
+      //
+      // 间隔为什么是 520ms 而不是原来的 140ms：一言官方限流 **QPS 2~3.5**，
+      // 140ms 一次是 ~7 QPS，本来就在超。以前浏览器直连时这条被静默吞掉，
+      // 取句挪到后端之后上游有 8s 连接 / 12s 读超时，被限流就明确回 504，
+      // 整轮抓取全失败、只剩兜底句池。按 ~2 QPS 走才既礼貌又拿得到句子。
       var got = [];
       var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
       for (var i = 0; i < 8; i += 1) {
-        if (i) await wait(140);
+        if (i) await wait(520);
         var tries = 0, one = null;
         while (tries < 2 && !one) {
-          if (tries) await wait(320);          // 撞上重复就再等一下重试
+          if (tries) await wait(700);          // 撞上重复或被限流就再等一下重试
           try { one = await fetchRemote(settings.category); } catch (_) { one = null; }
           tries += 1;
         }
