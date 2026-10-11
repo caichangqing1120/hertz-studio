@@ -135,28 +135,35 @@ float cragTop(float x) {
   y = mix(y, 400.0, clamp((x - 127.0) / 23.0, 0.0, 1.0));
   return y;
 }
-float bankTop(vec2 q, float baseY, float amp, float ph) {
-  return baseY - sin(q.x * 0.018 + ph) * amp
-    - sin(q.x * 0.041 + ph * 1.7) * amp * 0.48
-    - sin(q.x * 0.089 + ph * 2.9) * amp * 0.2;
+// 云顶：一排密集交叠的圆头鼓包压在缓起伏的基线上，整体按离基线的
+// 深度做明暗，瓣顶再点一抹高光 —— 融成带圆弧瓣的一整团积云。
+float bankBase(float x, float baseY, float amp, float ph) {
+  return baseY + sin(x * 0.021 + ph) * amp * 0.35 + sin(x * 0.047 + ph * 2.3) * amp * 0.2;
 }
-vec3 bankLayer(vec3 c, vec2 q, float baseY, float amp, float ph, float bottom,
-    vec3 lit, vec3 shade, float dx, float xMin) {
-  float top = bankTop(vec2(q.x - dx, q.y), baseY, amp, ph);
-  float d = max(top - q.y, xMin - q.x);
-  float g = clamp((q.y - top) / (bottom - top), 0.0, 1.0);
-  g = g * g * (3.0 - 2.0 * g);
-  return paint(c, d, mix(lit, shade, g));
-}
-vec3 bankGlow(vec3 c, vec2 q, float baseY, float amp, float ph, float dx,
-    vec3 col, float seed, float amount) {
+vec3 bankPaint(vec3 c, vec2 q, float baseY, float amp, float ph, float dx, float seed,
+    vec3 lit, vec3 shade, float depth, vec3 glowCol, float glowAmt) {
   vec2 s = vec2(q.x - dx, q.y);
-  for (int i = 0; i < 6; i++) {
-    float n = float(i) * 3.7 + seed;
-    float x = 20.0 + scatter(n) * 600.0;
-    float y = bankTop(vec2(x, 0.0), baseY, amp, ph) + 6.0 + scatter(n * 1.7) * 18.0;
-    float rx = 16.0 + scatter(n * 2.3) * 26.0;
-    c = mix(c, col, cover(ellipse(s - vec2(x, y), vec2(rx, rx * 0.3))) * amount);
+  float base = bankBase(s.x, baseY, amp, ph);
+  float d = base - s.y;
+  for (int i = 0; i < 12; i++) {
+    float n = float(i) * 5.1 + seed;
+    float cx = (float(i) + scatter(n) * 0.9) * 55.0 - 40.0;
+    float r = amp * (0.55 + scatter(n * 1.7) * 1.25);
+    float cy = base - r * 0.35;
+    d = min(d, length(s - vec2(cx, cy)) - r);
+  }
+  float g = clamp((s.y - baseY + amp) / depth, 0.0, 1.0);
+  g = g * g * (3.0 - 2.0 * g);
+  c = paint(c, d, mix(lit, shade, g));
+  for (int i = 0; i < 12; i++) {
+    float n = float(i) * 5.1 + seed;
+    float cx = (float(i) + scatter(n) * 0.9) * 55.0 - 40.0;
+    float r = amp * (0.55 + scatter(n * 1.7) * 1.25);
+    float cy = base - r * 0.35;
+    float dc = length(s - vec2(cx, cy)) - r;
+    float lit2 = step(0.35, scatter(n * 2.3));
+    float glow = ellipse(s - vec2(cx, cy - r * 0.55), vec2(r * 0.6, r * 0.18));
+    c = mix(c, glowCol, cover(max(glow, dc)) * glowAmt * lit2);
   }
   return c;
 }
@@ -166,7 +173,7 @@ void main() {
   vec3 c = mix(vec3(0.137, 0.482, 0.765), vec3(0.482, 0.788, 0.898), smoothstep(0.0, 154.0, q.y));
   c = mix(c, vec3(0.965, 0.855, 0.761), smoothstep(154.0, 320.0, q.y));
   float sun = length(q - vec2(518.0, 64.0));
-  c = mix(c, vec3(1.0, 0.945, 0.737), exp(-sun * sun / 39200.0) * 0.6);
+  c = mix(c, vec3(1.0, 0.945, 0.737), exp(-sun * sun / 39200.0) * 0.45);
   // 卷云：43 秒周期，完全透明时换相。
   float cyc = fract(uTime * uPaint.y / 43.0 + 0.62);
   float chop = smoothstep(0.0, 0.16, cyc) * (1.0 - smoothstep(0.8, 1.0, cyc));
@@ -179,8 +186,8 @@ void main() {
   // 远山：淡蓝紫，脊线上一点残雪。
   float dFar = max(farRidge(q.x) - q.y, 312.0 - q.x);
   c = paint(c, dFar, vec3(0.6, 0.667, 0.792));
-  float dSn = max(abs(q.x - 447.0) - 26.0, farRidge(q.x) - q.y);
-  dSn = max(dSn, q.y - farRidge(q.x) - 8.0);
+  float dSn = max(abs(q.x - 447.0) - 18.0, farRidge(q.x) - q.y);
+  dSn = max(dSn, q.y - farRidge(q.x) - 5.0);
   c = paint(c, max(dSn, dFar), vec3(0.902, 0.824, 0.808));
   // 主峰：岩体对角渐变，左坡背光、右肩受光。
   float d = max(crest(q.x) - q.y, max(q.y - 346.0, q.x - 442.0));
@@ -206,8 +213,9 @@ void main() {
   float dSnow = max(crest(q.x) - q.y, q.y - crest(q.x) - max(0.0, wedge));
   dSnow = max(dSnow, abs(q.x - 233.0) - 19.0);
   c = paint(c, max(dSnow, d), vec3(0.961, 0.937, 0.878));
-  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(233.0, 133.0), vec2(220.0, 183.0)) - 5.0, d)) * 0.85);
-  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(272.0, 116.0), vec2(287.0, 162.0)) - 4.5, dFace)) * 0.8);
+  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(233.0, 133.0), vec2(220.0, 183.0)) - 2.6, d)) * 0.85);
+  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(272.0, 116.0), vec2(287.0, 162.0)) - 2.4, dFace)) * 0.8);
+  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(247.0, 210.0), vec2(258.0, 246.0)) - 2.2, dFace)) * 0.7);
   // 岩层与沟壑的细线，密度归「云影层次」。
   float strata = 0.3 + uPaint.z * 0.5;
   c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(240.0, 112.0), vec2(247.0, 134.0)) - 0.85, dFace)) * strata);
@@ -216,26 +224,33 @@ void main() {
   c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(112.0, 226.0), vec2(142.0, 210.0)) - 0.9, d)) * strata * 0.55);
   c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(160.0, 196.0), vec2(196.0, 176.0)) - 0.9, d)) * strata * 0.55);
   c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(348.0, 230.0), vec2(370.0, 250.0)) - 0.9, d)) * strata * 0.4);
-  // 云海三带：远带灰紫、中带奶油、近带最亮，各带自去的漂移周期。
+  // 云海三带：远带灰紫、中带奶油、近带最亮，各带自去的漂移周期；
+  // 带内右侧隆起用平滑过渡衔接，不留拼接缝。
   float drift = uTime * uPaint.y * 0.2027;   // 31s
-  c = bankLayer(c, q, 252.0, 12.0, 1.3, 356.0, vec3(0.945, 0.922, 0.929), vec3(0.553, 0.647, 0.792), sin(drift) * 14.0, -999.0);
-  c = bankLayer(c, q, 232.0, 13.0, 4.2, 356.0, vec3(1.0, 0.976, 0.914), vec3(0.624, 0.706, 0.839), sin(drift + 1.1) * 12.0, 330.0);
-  c = bankGlow(c, q, 252.0, 12.0, 1.3, sin(drift) * 14.0, vec3(0.972, 0.968, 0.972), 1.0, 0.5 * (0.4 + uPaint.z * 0.6));
+  float dx = sin(drift) * 14.0;
+  float farBase = 252.0 - 20.0 * smoothstep(300.0, 390.0, q.x - dx);
+  c = bankPaint(c, q, farBase, 16.0, 1.3, dx, 1.0,
+    vec3(0.945, 0.922, 0.929), vec3(0.553, 0.647, 0.792), 90.0,
+    vec3(0.972, 0.968, 0.972), 0.5 * (0.4 + uPaint.z * 0.6));
   drift = uTime * uPaint.y * 0.2732;         // 23s
-  c = bankLayer(c, q, 292.0, 14.0, 2.6, 354.0, vec3(1.0, 0.976, 0.914), vec3(0.624, 0.706, 0.839), sin(drift) * 17.0, -999.0);
-  c = bankLayer(c, q, 318.0, 15.0, 0.7, 354.0, vec3(1.0, 0.976, 0.914), vec3(0.624, 0.706, 0.839), sin(drift + 2.4) * 13.0, 250.0);
-  c = bankGlow(c, q, 292.0, 14.0, 2.6, sin(drift) * 17.0, vec3(1.0, 0.984, 0.929), 2.0, 0.55 * (0.4 + uPaint.z * 0.6));
+  dx = sin(drift) * 17.0;
+  float midBase = 292.0 + 26.0 * smoothstep(230.0, 320.0, q.x - dx);
+  c = bankPaint(c, q, midBase, 17.0, 2.6, dx, 2.0,
+    vec3(1.0, 0.976, 0.914), vec3(0.624, 0.706, 0.839), 80.0,
+    vec3(1.0, 0.984, 0.929), 0.55 * (0.4 + uPaint.z * 0.6));
   drift = uTime * uPaint.y * 0.3307;         // 19s
-  c = bankLayer(c, q, 348.0, 13.0, 5.1, 401.0, vec3(1.0, 0.984, 0.929), vec3(0.624, 0.706, 0.839), sin(drift) * 16.0, 190.0);
-  c = bankLayer(c, q, 340.0, 12.0, 2.2, 401.0, vec3(1.0, 0.984, 0.929), vec3(0.624, 0.706, 0.839), sin(drift + 3.6) * 12.0, 430.0);
-  c = bankGlow(c, q, 348.0, 13.0, 5.1, sin(drift) * 16.0, vec3(1.0, 0.961, 0.871), 3.0, 0.6 * (0.4 + uPaint.z * 0.6));
+  dx = sin(drift) * 16.0;
+  float nearBase = 348.0 - 8.0 * smoothstep(410.0, 470.0, q.x - dx);
+  c = bankPaint(c, q, nearBase, 14.0, 5.1, dx, 3.0,
+    vec3(1.0, 0.984, 0.929), vec3(0.624, 0.706, 0.839), 70.0,
+    vec3(1.0, 0.961, 0.871), 0.6 * (0.4 + uPaint.z * 0.6));
   // 左下角岩壁：冷青色，压住云海的一角。
   float dCrag = max(cragTop(q.x) - q.y, q.y - 400.0);
   float ct = clamp((q.y - 284.0) / 116.0, 0.0, 1.0);
   vec3 crag = mix(vec3(0.404, 0.549, 0.565), vec3(0.149, 0.310, 0.400), ct);
   c = paint(c, dCrag, crag);
-  c = mix(c, vec3(0.831, 0.776, 0.624), cover(max(ellipse(q - vec2(10.0, 310.0), vec2(15.0, 8.0)), dCrag)) * 0.66);
-  c = mix(c, vec3(0.831, 0.776, 0.624), cover(max(ellipse(q - vec2(58.0, 332.0), vec2(17.0, 10.0)), dCrag)) * 0.6);
+  c = mix(c, vec3(0.831, 0.776, 0.624), cover(max(ellipse(q - vec2(10.0, 310.0), vec2(11.0, 4.5)), dCrag)) * 0.5);
+  c = mix(c, vec3(0.831, 0.776, 0.624), cover(max(ellipse(q - vec2(58.0, 332.0), vec2(12.0, 5.5)), dCrag)) * 0.45);
   c = mix(c, vec3(0.153, 0.298, 0.380), cover(max(segment(q, vec2(23.0, 322.0), vec2(27.0, 355.0)) - 1.4, dCrag)) * (0.4 + uPaint.z * 0.5));
   c = mix(c, vec3(0.153, 0.298, 0.380), cover(max(segment(q, vec2(52.0, 326.0), vec2(62.0, 364.0)) - 1.4, dCrag)) * (0.4 + uPaint.z * 0.5));
   c = mix(c, vec3(0.902, 0.824, 0.675), cover(max(segment(q, vec2(6.0, 306.0), vec2(17.0, 311.0)) - 0.8, dCrag)) * (0.3 + uPaint.z * 0.4));
@@ -295,9 +310,9 @@ float sandTop(float x) {
 vec3 lighthouse(vec3 c, vec2 q) {
   // 塔身微收分，暗面朝右，塔顶灯室一点琥珀。
   float body = max(abs(q.x - 47.0 + (115.0 - q.y) * 0.055) - 6.5, q.y - 115.0);
-  body = max(body, q.y - 76.0);
+  body = max(body, 76.0 - q.y);
   c = outline(c, body, vec3(0.973, 0.867, 0.749), vec3(0.4, 0.345, 0.42));
-  c = paint(c, max(q.x - 47.5, max(body, q.y - 112.0)), vec3(0.722, 0.624, 0.624));
+  c = paint(c, max(47.5 - q.x, max(body, q.y - 112.0)), vec3(0.722, 0.624, 0.624));
   float cap = max(abs(q.x - 47.0) - 8.0, max(q.y - 78.0, 68.0 - q.y));
   c = paint(c, cap, vec3(0.325, 0.329, 0.467));
   c = paint(c, max(abs(q.x - 47.5) - 6.5 * (78.0 - q.y) / 12.0, max(q.y - 70.0, 62.0 - q.y)), vec3(0.286, 0.286, 0.412));
@@ -313,7 +328,7 @@ void main() {
   c = mix(c, vec3(0.961, 0.690, 0.600), smoothstep(82.0, 141.0, q.y));
   c = mix(c, vec3(1.0, 0.878, 0.655), smoothstep(141.0, 186.0, q.y));
   float glow = length(q - vec2(461.0, 164.0));
-  c = mix(c, vec3(1.0, 0.871, 0.690), exp(-glow * glow / 57800.0) * 0.7);
+  c = mix(c, vec3(1.0, 0.871, 0.690), exp(-glow * glow / 26000.0) * 0.55);
   // 高层云带，静止。
   vec2 w = q - vec2(150.0, 53.0);
   c = mix(c, vec3(0.439, 0.431, 0.667), cover(ellipse(w, vec2(120.0, 5.0))) * 0.36);
@@ -334,7 +349,7 @@ void main() {
   vec3 water = mix(vec3(0.843, 0.694, 0.714), vec3(0.545, 0.604, 0.757), smoothstep(0.0, 0.24, wt));
   water = mix(water, vec3(0.259, 0.424, 0.600), smoothstep(0.24, 0.7, wt));
   water = mix(water, vec3(0.157, 0.361, 0.471), smoothstep(0.7, 1.0, wt));
-  c = paint(c, q.y - 181.0, water);
+  c = paint(c, 181.0 - q.y, water);
   // 右侧小屿剪影。
   float isle = max(182.0 - sin(q.x * 0.05) * 2.0 - (q.x - 527.0) * 0.03 - q.y, q.y - 188.0);
   c = paint(c, max(isle, 525.0 - q.x), vec3(0.576, 0.580, 0.694));
@@ -365,11 +380,12 @@ void main() {
   }
   // 左岩壁：受光面暖紫、暗面冷蓝。
   float dCliff = max(cliffTop(q.x) - q.y, max(q.y - cliffBase(q.x), q.x - 199.0));
-  float kt = clamp((q.y - 110.0) * 0.62 + (199.0 - q.x) * 0.34, 0.0, 1.0) ;
+  float kt = clamp((q.y - 110.0) * 0.62 + (199.0 - q.x) * 0.34, 0.0, 160.0) / 160.0;
   vec3 cliff = mix(vec3(0.643, 0.604, 0.678), vec3(0.396, 0.373, 0.514), smoothstep(0.0, 0.45, kt));
   cliff = mix(cliff, vec3(0.208, 0.294, 0.431), smoothstep(0.45, 1.0, kt));
   c = paint(c, dCliff, cliff);
-  c = paint(c, max(cliffTop(q.x) - q.y - 8.0, max(q.y - cliffTop(q.x) - 1.0, max(95.0 - q.x, dCliff))), vec3(0.435, 0.506, 0.490));
+  float grass = max(cliffTop(q.x) - q.y - 2.0, q.y - cliffTop(q.x) - 7.0);
+  c = paint(c, max(max(grass, q.x - 95.0), dCliff), vec3(0.435, 0.506, 0.490));
   // 岩壁裂隙与受光棱线。
   float rock = 0.35 + uPaint.z * 0.4;
   c = mix(c, vec3(0.706, 0.627, 0.647), cover(max(segment(q, vec2(4.0, 142.0), vec2(25.0, 155.0)) - 2.2, dCliff)) * rock);
@@ -491,7 +507,7 @@ void main() {
   c = mix(c, vec3(0.667, 0.737, 0.890), exp(-moon * moon / 102400.0) * 0.34);
   // 新月：一弯 #fff1ce，暗侧朝左下。
   float disc = length(q - vec2(449.0, 48.0)) - 21.0;
-  float bite = length(q - vec2(441.0, 55.0)) - 19.0;
+  float bite = length(q - vec2(440.0, 54.0)) - 17.0;
   c = mix(c, vec3(1.0, 0.945, 0.808), cover(disc) * (1.0 - cover(bite)));
   vec2 w = q - vec2(456.0, 104.0);
   c = mix(c, vec3(0.659, 0.718, 0.843), cover(ellipse(w, vec2(104.0, 7.0))) * 0.19);
@@ -505,10 +521,10 @@ void main() {
   c = paint(c, dHill, mix(vec3(0.275, 0.369, 0.537), vec3(0.149, 0.247, 0.400), clamp((q.y - 235.0) / 90.0, 0.0, 1.0)));
   // 山腰薄雾：17 秒漂移。
   float hm = 0.5 + 0.5 * sin(uTime * uPaint.y * 0.3696);
-  vec2 mz = q - vec2(320.0 + mix(-22.0, 22.0, hm), 231.0);
-  c = mix(c, vec3(0.745, 0.776, 0.882), cover(ellipse(mz, vec2(240.0, 26.0))) * mix(0.10, 0.2, hm) * (0.5 + uPaint.z * 0.5));
-  mz = q - vec2(430.0 + mix(-22.0, 22.0, hm), 347.0);
-  c = mix(c, vec3(0.745, 0.776, 0.882), cover(ellipse(mz, vec2(190.0, 22.0))) * mix(0.14, 0.26, hm) * (0.5 + uPaint.z * 0.5));
+  vec2 mz = q - vec2(320.0 + mix(-22.0, 22.0, hm), 238.0);
+  c = mix(c, vec3(0.745, 0.776, 0.882), cover(ellipse(mz, vec2(260.0, 18.0))) * mix(0.06, 0.13, hm) * (0.5 + uPaint.z * 0.5));
+  mz = q - vec2(430.0 + mix(-22.0, 22.0, hm), 330.0);
+  c = mix(c, vec3(0.745, 0.776, 0.882), cover(ellipse(mz, vec2(210.0, 15.0))) * mix(0.08, 0.17, hm) * (0.5 + uPaint.z * 0.5));
   // 谷底地面。
   c = paint(c, groundTop(q.x) - q.y, vec3(0.145, 0.263, 0.392));
   // 石拱桥：桥身渐变，六个拱洞透出雾谷。
@@ -542,8 +558,10 @@ void main() {
   c = paint(c, abs(q.y - wy - 11.0) - 0.35, wire);
   c = paint(c, max(abs(q.x - 61.5) - 1.5, max(q.y - 273.0, wy - q.y)), wire);
   c = paint(c, max(abs(q.x - 554.0) - 1.5, max(q.y - 273.0, catenary(554.0) - q.y)), wire);
-  c = paint(c, max(abs(q.y - wy) - 1.6, abs(q.x - 61.5) - 43.0) * step(q.y, wy) * step(wy - 11.0, q.y), wire);
-  c = paint(c, max(abs(q.y - catenary(554.0)) - 1.6, abs(q.x - 554.0) - 43.0) * step(q.y, catenary(554.0)) * step(catenary(554.0) - 11.0, q.y), wire);
+  float armA = max(abs(q.y - catenary(61.5)) - 1.2, max(q.x - 104.0, 58.5 - q.x));
+  c = paint(c, armA, wire);
+  float armB = max(abs(q.y - catenary(554.0)) - 1.2, max(q.x - 597.0, 552.5 - q.x));
+  c = paint(c, armB, wire);
   for (int i = 0; i < 5; i++) {
     float n = float(i);
     float x = 105.0 + n * 100.0;
@@ -559,8 +577,8 @@ void main() {
   body = mix(body, vec3(0.349, 0.620, 0.678), smoothstep(0.22, 0.5, bt));
   body = mix(body, vec3(0.220, 0.416, 0.514), smoothstep(0.5, 1.0, bt));
   c = outline(c, dBody, body, vec3(0.133, 0.208, 0.290));
-  c = paint(c, max(dBody, 243.0 - u.y), vec3(0.741, 0.839, 0.839));
-  c = paint(c, max(dBody, u.y - 262.0), vec3(0.133, 0.298, 0.408));
+  c = paint(c, max(dBody, u.y - 243.0), vec3(0.741, 0.839, 0.839));
+  c = paint(c, max(dBody, 262.0 - u.y), vec3(0.133, 0.298, 0.408));
   c = paint(c, max(dBody, abs(u.y - 258.0) - 0.7), vec3(0.910, 0.757, 0.565));
   // 车窗带：三节车厢的琥珀窗。
   float bandX = min(min(max(15.0 - u.x, u.x - 104.0), max(136.0 - u.x, u.x - 225.0)), max(257.0 - u.x, u.x - 338.0));
@@ -588,11 +606,9 @@ void main() {
   c = rainField(c, q, 12.6, 0.55, 11.0, 0.25, 1.0);
   c = rainField(c, q, 9.6, 0.7, 15.0, 0.32, 9.0);
   // 前景灌木剪影。
-  float bushL = 370.0 - sin(q.x * 0.06) * 5.0 - sin(q.x * 0.021) * 4.0;
-  bushL = min(bushL, 400.0 - (q.x - 185.0) * 0.7);
-  c = paint(c, max(bushL - q.y, 185.0 - q.x), vec3(0.094, 0.192, 0.286));
+  float bushL = 368.0 + sin(q.x * 0.05) * 4.0 + sin(q.x * 0.013) * 3.0;
+  c = paint(c, max(bushL - q.y, q.x - 185.0), vec3(0.094, 0.192, 0.286));
   float bushR = 388.0 + sin(q.x * 0.05 + 2.0) * 5.0;
-  bushR = min(bushR, 400.0 - (640.0 - q.x) * 0.06);
   c = paint(c, max(bushR - q.y, q.x - 428.0), vec3(0.094, 0.192, 0.286));
   frag = vec4(finishPaint(c, q), 1.0);
 }`;
@@ -615,9 +631,9 @@ float pathX(float y) {
 }
 float pathW(float y) {
   float w = 9.0;
-  w = mix(w, 22.0, clamp((y - 263.0) / 31.0, 0.0, 1.0));
-  w = mix(w, 58.0, clamp((y - 294.0) / 43.0, 0.0, 1.0));
-  w = mix(w, 150.0, clamp((y - 337.0) / 63.0, 0.0, 1.0));
+  w = mix(w, 20.0, clamp((y - 263.0) / 31.0, 0.0, 1.0));
+  w = mix(w, 52.0, clamp((y - 294.0) / 43.0, 0.0, 1.0));
+  w = mix(w, 124.0, clamp((y - 337.0) / 63.0, 0.0, 1.0));
   return w;
 }
 float groundTop(float x) {
@@ -658,13 +674,13 @@ void main() {
   c = paint(c, groundTop(q.x) - q.y, vec3(0.267, 0.529, 0.408));
   float pt = clamp((q.y - 263.0) / 137.0, 0.0, 1.0);
   vec3 path = mix(vec3(0.827, 0.773, 0.545), vec3(0.620, 0.667, 0.463), smoothstep(0.0, 0.42, pt));
-  path = mix(path, vec3(0.345, 0.494, 0.357), smoothstep(0.42, 1.0, pt));
-  float dPath = max(abs(q.x - pathX(q.y)) - pathW(q.y) * 0.5, q.y - 401.0);
+  path = mix(path, vec3(0.404, 0.533, 0.365), smoothstep(0.42, 1.0, pt));
+  float dPath = max(abs(q.x - pathX(q.y) - sin(q.y * 0.08) * 5.0) - pathW(q.y) * 0.5, q.y - 401.0);
   dPath = max(dPath, 263.0 - q.y);
   c = paint(c, dPath, path);
   c = mix(c, vec3(0.843, 0.808, 0.592), cover(max(abs(q.x - pathX(q.y) + pathW(q.y) * 0.5 - 2.5) - 1.0, dPath)) * (0.25 + uPaint.z * 0.25));
   float bushL = 334.0 + sin(q.x * 0.03 + 1.0) * 7.0 - q.x * 0.06;
-  c = paint(c, max(bushL - q.y, 178.0 - q.x), vec3(0.157, 0.396, 0.298));
+  c = paint(c, max(bushL - q.y, q.x - 178.0), vec3(0.157, 0.396, 0.298));
   float bushR = 344.0 + sin(q.x * 0.024 + 3.0) * 6.0 + (q.x - 500.0) * 0.05;
   c = paint(c, max(bushR - q.y, q.x - 356.0), vec3(0.157, 0.396, 0.298));
   // 斜光：三束从右上切入林隙，23.3 秒明暗。
@@ -674,8 +690,9 @@ void main() {
   c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 6.0, beamD(q, vec2(435.0, -10.0), vec2(317.0, 331.0), 5.0, 12.0))) * 0.24 * 0.65 * rayOp);
   c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 5.0, beamD(q, vec2(371.0, 6.0), vec2(237.0, 281.0), 4.0, 10.0))) * 0.24 * 0.45 * rayOp);
   // 近景大干：左、右两根与画框两根，树皮渐变。
-  vec3 barkL = mix(vec3(0.071, 0.247, 0.239), vec3(0.145, 0.369, 0.314), clamp((q.x - 91.0) / 19.0, 0.0, 1.0));
-  barkL = mix(barkL, vec3(0.267, 0.529, 0.420), step(0.8, clamp((q.x - 91.0) / 19.0, 0.0, 1.0)));
+  float btL = clamp((q.x - 91.0) / 19.0, 0.0, 1.0);
+  vec3 barkL = mix(vec3(0.071, 0.247, 0.239), vec3(0.208, 0.455, 0.365), btL);
+  barkL = mix(barkL, vec3(0.267, 0.529, 0.420), smoothstep(0.75, 1.0, btL));
   c = paint(c, trunk(q, 100.5, 9.5, -10.0, 292.0), barkL);
   c = paint(c, segment(q, vec2(106.0, 118.0), vec2(140.0, 96.0)) - 1.8, vec3(0.133, 0.357, 0.298));
   c = paint(c, segment(q, vec2(104.0, 190.0), vec2(76.0, 168.0)) - 1.6, vec3(0.133, 0.357, 0.298));
@@ -693,7 +710,7 @@ void main() {
   for (int i = 0; i < 12; i++) {
     float n = float(i);
     float x = 14.0 + n * 54.0 + sin(n * 2.3) * 10.0;
-    c = mix(c, vec3(0.224, 0.514, 0.416), cover(ellipse(q - vec2(x, canopyTop(x) + 3.0), vec2(26.0, 10.0))) * 0.7);
+    c = mix(c, vec3(0.224, 0.514, 0.416), cover(ellipse(q - vec2(x, canopyTop(x) - 5.0), vec2(26.0, 10.0))) * 0.7);
   }
   // 叶簇点缀。
   float leaf = 0.3 + uPaint.z * 0.5;
@@ -707,7 +724,7 @@ void main() {
   float halo = length(q - vec2(448.0, 181.0));
   c = mix(c, vec3(1.0, 0.894, 0.627), exp(-halo * halo / 1800.0) * lampGlow);
   c = mix(c, vec3(1.0, 0.894, 0.627), exp(-halo * halo / 7400.0) * lampGlow * 0.5);
-  c = paint(c, segment(q, vec2(448.0, 155.0), vec2(448.0, 84.0)) - 0.7, vec3(0.624, 0.675, 0.522));
+  c = paint(c, segment(q, vec2(448.0, 155.0), vec2(448.0, 46.0)) - 0.7, vec3(0.624, 0.675, 0.522));
   c = paint(c, segment(q, vec2(448.0, 86.0), vec2(462.0, 76.0)) - 0.7, vec3(0.624, 0.675, 0.522));
   float housing = max(abs(q.x - 448.5) - 13.5, abs(q.y - 181.0) - 15.0);
   c = outline(c, housing, vec3(0.196, 0.306, 0.259), vec3(0.161, 0.243, 0.208));
@@ -736,7 +753,7 @@ void main() {
     c = mix(c, vec3(1.0, 0.910, 0.631), cover(length(q - at) - (1.3 - n * 0.18)) * shine);
   }
   // 底部暗坡与蕨叶（8.3 秒轻转）。
-  c = paint(c, max(372.0 + sin(q.x * 0.03) * 6.0 - q.y, 168.0 - q.x), vec3(0.090, 0.247, 0.200));
+  c = paint(c, max(372.0 + sin(q.x * 0.03) * 6.0 - q.y, q.x - 168.0), vec3(0.090, 0.247, 0.200));
   c = paint(c, max(392.0 + sin(q.x * 0.04 + 2.0) * 4.0 - q.y, q.x - 452.0), vec3(0.090, 0.247, 0.200));
   float fernA = 0.0105 * sin(uTime * uPaint.y * 0.7565);
   vec2 fq = vec2(q.x - 82.0, q.y - 400.0);
@@ -776,10 +793,15 @@ void main() {
     <radialGradient id="cx-sky-shadow" cx=".4" cy="0" r="1"><stop stop-color="#f1ebed"/><stop offset=".48" stop-color="#c2cbe3"/><stop offset="1" stop-color="#8da5ca"/></radialGradient>
     <linearGradient id="cx-sky-crag" x1="1" y1="0" x2="0" y2="1"><stop stop-color="#678c90"/><stop offset="1" stop-color="#264f66"/></linearGradient>`, `
     <path fill="url(#cx-sky-air)" d="M0 0h640v400H0z"/>
-    <path fill="url(#cx-sky-sun)" d="M0 0h640v400H0z"/>
+    <path class="cx-motion cx-sky-glow" fill="url(#cx-sky-sun)" d="M0 0h640v400H0z"/>
     <g class="cx-motion cx-sky-cirrus" fill="#eef9f7" opacity=".55">
       <path d="M337 48c41-16 66-12 87-19 25-9 46-8 72-14-30 13-54 14-74 21-23 8-42 5-85 12Z"/>
       <path d="M377 60c40-9 55-6 80-13 27-7 44-9 65-11-37 12-47 11-63 16-23 7-52 6-82 8Z" opacity=".5"/>
+    </g>
+    <g class="cx-motion cx-sky-birds" fill="none" stroke="#3d5a7a" stroke-width="2" stroke-linecap="round" opacity=".62">
+      <g class="cx-motion cx-sky-bob">
+        <path d="M96 74c6-5 12-5 17 0m10-9c5-4 10-4 14 0"/>
+      </g>
     </g>
     <path d="m315 214 24-25 11 5 18-16 14 3 21-26 13 6 22-20 15 9 11-6 14 20 12-4 22 25 15-5 25 20 13-5 25 20 12-6 18 11 20-5v179H315Z" fill="#99aaca"/>
     <path d="m438 141-9 28 14 10-5 14 21 7-10-28 4-22 11-6 14 20 12-4 22 25-44-14 25 41-49-23-30-26Z" fill="#e6d2ce" opacity=".68"/>
@@ -831,7 +853,7 @@ void main() {
     <linearGradient id="cx-coast-sun" x2="0" y2="1"><stop stop-color="#fff9d5"/><stop offset="1" stop-color="#ffdf94"/></linearGradient>
     <linearGradient id="cx-coast-wet" x2=".65" y2="1"><stop stop-color="#788eb0"/><stop offset="1" stop-color="#deb4b5"/></linearGradient>`, `
     <path d="M0 0h640v400H0z" fill="url(#cx-coast-sky)"/>
-    <path d="M0 0h640v300H0z" fill="url(#cx-coast-glow)"/>
+    <path class="cx-motion cx-coast-glow" d="M0 0h640v300H0z" fill="url(#cx-coast-glow)"/>
     <path d="M-10 53c95-6 110 17 179 13 61-4 80 12 131 9-48 13-72 1-126 4-71 4-100-13-184-9Zm364-17c53-10 70-2 113-8 32-4 51-3 70 1-54 2-66 15-100 12-30-3-47-2-83-5Z" fill="#706eaa" opacity=".36"/>
     <path d="M310 95c69-6 86 4 140 2 48-2 62 7 101 4-44 10-74 4-109 6-61 2-85-8-132-12ZM36 112c56-4 85 2 123 4 39 1 64-1 97 5-69 4-161-3-220-9Z" fill="#ffc5af" opacity=".74"/>
     <circle cx="456" cy="154" r="28" fill="url(#cx-coast-sun)"/>
@@ -839,7 +861,7 @@ void main() {
     <path d="M0 181h640v219H0z" fill="url(#cx-coast-water)"/>
     <path d="M198 181h442" stroke="#ffe3b5" stroke-width=".8"/>
     <path d="m539 179 16-4 9 1 21-5 16 4 15-2 24 5v4H527Z" fill="#9394b1"/>
-    <g fill="none" stroke-linecap="round">
+    <g class="cx-motion cx-coast-waves" fill="none" stroke-linecap="round">
       <path d="M227 188h99m16 3h29m167-2h98m-465 11 64-2m25 7 43-1m234-1h59m-392 11 55-2m61 7 30-2m216 0 58 2m-491 11 71-6m264 5 43 1m54 7 74 3" stroke="#f1cfce" stroke-width=".7" opacity=".66"/>
       <path d="M124 244c43-8 72-8 100-11m48 4 44-1m229-3 75 4M-9 275c76-4 102-16 160-23m37-2 58-5m204 2 46 2m-482 43 56-4 51-9m25-3 35-6m-165 46 71-15 44-6m-116 41 49-13 60-12" stroke="#c0cfde" stroke-width=".8" opacity=".5"/>
       <path d="M291 198h29m55 5h20m105-5h25m-357 37 65-7m93-9 36-1m202 0 55 3m-455 42 74-10m76-14 48-3m-332 70 73-12m8 14 61-15m-129 47 58-16" stroke="#45658d" stroke-width="1.3" opacity=".4"/>
@@ -882,7 +904,7 @@ void main() {
     <path d="m550 326 15-6 19 7-19 1Z" fill="#d3b8b5"/>
     <path d="m325 365 9-3 10 4-10 3Zm45-25 6-2 6 3-6 2Zm215 51 10-3 9 5-11 2Z" fill="#bc9fa6"/>
     <path d="m244 382 3-1m39-20 4-1m104 15 5 1m23-35 4-1m112 16 5 2m51 15 4-1m-244-30 3-1m-97 46 3-1" stroke="#927f94" stroke-width="1" stroke-linecap="round"/>
-    <path d="m265 104 5-2 5 2m30 13 4-2 4 1" fill="none" stroke="#736b91" stroke-width=".85" stroke-linecap="round"/>
+    <path class="cx-motion cx-coast-gulls" d="m265 104 5-2 5 2m30 13 4-2 4 1" fill="none" stroke="#736b91" stroke-width=".85" stroke-linecap="round"/>
   `);
 
   // 03 / Rain transit. The stone viaduct, overhead wires and valley are fixed;
@@ -895,10 +917,12 @@ void main() {
     <linearGradient id="cx-rail-car" x2="0" y2="1"><stop stop-color="#c5d8d4"/><stop offset=".2" stop-color="#86c5cb"/><stop offset=".45" stop-color="#599ead"/><stop offset="1" stop-color="#386a83"/></linearGradient>
     <linearGradient id="cx-rail-glass" x2="0" y2="1"><stop stop-color="#ffe4a0"/><stop offset="1" stop-color="#e9ad65"/></linearGradient>
     <linearGradient id="cx-rail-mist" x2="0" y2="1"><stop stop-color="#b9c6e1" stop-opacity="0"/><stop offset=".55" stop-color="#b9c6e1" stop-opacity=".35"/><stop offset="1" stop-color="#b9c6e1" stop-opacity="0"/></linearGradient>
+    <radialGradient id="cx-rail-halo"><stop stop-color="#cfd9f2" stop-opacity=".38"/><stop offset="1" stop-color="#cfd9f2" stop-opacity="0"/></radialGradient>
     <path id="cx-rail-rain-far" d="m21 12-1 12m89 39-1 9m121-40-1 13m81 45-1 10m91-63-1 12m129 40-1 11m99-54-1 13M57 150l-1 11m105 22-1 13m102-29-1 9m98 39-1 12m85-52-1 11m126 20-1 13m103-18-1 12M19 287l-1 11m100 31-1 10m91-25-1 12m137 32-1 9m104-24-1 12m104 28-1 11m89-32-1 10M70 411l-1 10m124-14-1 11m101 19-1 12m96-22-1 13m122 18-1 9m103-20-1 10"/>
     <path id="cx-rail-rain-near" d="m43 24-1.5 18m127 72-1.5 20m154-63-1.5 16m122 62-1.5 18m137-76-1.5 20M-11 219l-1.5 18m143-38-1.5 17m127 75-1.5 21m159-58-1.5 16m129 68-1.5 18m119-63-1.5 20M66 369l-1.5 18m135 24-1.5 19m139-49-1.5 17m120 54-1.5 20m131-48-1.5 18"/>`, `
     <path d="M0 0h640v400H0z" fill="url(#cx-rail-night)"/>
     <path d="M0 0h640v400H0z" fill="url(#cx-rail-moonlight)"/>
+    <circle class="cx-motion cx-rail-halo" cx="449" cy="48" r="47" fill="url(#cx-rail-halo)"/>
     <path d="M449 48a21 21 0 1 0 19 31 23 23 0 0 1-19-31Z" fill="#fff1ce"/>
     <path d="M353 106c24-9 44-5 64-9 29-7 51-4 69-8 31-6 70-2 88-6-35 14-73 9-99 15-23 6-46 3-64 7-22 4-38-1-58 1Z" fill="#a8b7d7" opacity=".19"/>
     <path d="m0 201 25-11 19-3 22-19 13 1 21-24 12 3 15-13 13 4 30-26 16 8 11-3 18 24 16 5 18 24 18 2 15 15 21 4 25 20 30 7 27-5 25 12 37-4 24 7 29-9 36 2 25-8 23 5 39-3 26 7 21-4v183H0Z" fill="#687ba6"/>
@@ -926,7 +950,7 @@ void main() {
       <path d="M5 258h369" stroke="#e8c190" stroke-width="1.2"/>
       <path d="M125 241v25m121-25v25" stroke="#2a455f" stroke-width="3.5"/>
       <path d="M15 246h89v10H15zm121 0h89v10h-89zm121 0h81v10h-81Z" fill="#253e58"/>
-      <path d="M18 247h15v8H18zm19 0h15v8H37zm19 0h15v8H56zm19 0h15v8H75zm19 0h7v8h-7zm45 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15zm19 0h7v8h-7zm45 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15Z" fill="url(#cx-rail-glass)"/>
+      <path class="cx-motion cx-rail-windows" d="M18 247h15v8H18zm19 0h15v8H37zm19 0h15v8H56zm19 0h15v8H75zm19 0h7v8h-7zm45 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15zm19 0h7v8h-7zm45 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15zm19 0h15v8h-15Z" fill="url(#cx-rail-glass)"/>
       <path d="M28 251h4v4h-4zm31 1h5v3h-5zm24-2h4v5h-4zm62 1h4v4h-4zm36 0h4v4h-4zm23 1h5v3h-5zm59-1h4v4h-4zm39-1h4v5h-4zm23 2h5v3h-5Z" fill="#746e70" opacity=".63"/>
       <path d="M110 244h8v18h-8zm121 0h8v18h-8Zm109 1h7v18h-7Z" fill="#6693a4" stroke="#bad6d5" stroke-width=".5"/>
       <path d="M112 246h4v7h-4zm121 0h4v7h-4zm109 0h3v7h-3Z" fill="#e1c298"/>

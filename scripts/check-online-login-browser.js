@@ -142,6 +142,38 @@ async function main() {
     assert.equal(await page.locator('#qr-modal').isVisible(), true);
     assert.match(await page.locator('#qr-title').textContent(), /汽水/);
     await page.close();
+    // cookie 取证说明。单独一页、且把 poll_ms 放到 60s：说明是渲染期一次性产物，
+    // 而票态会自己往前推——上一版把这两组断言塞进同一个 40ms 轮询的夹具里，
+    // 几个 locator 往返之间票已经从 waiting 走到 rejected，把终态那组的断言吃掉了。
+    const gp = await browser.newPage({ viewport: { width: 900, height: 760 } });
+    await gp.setContent('<span id="online-account-face"></span><span id="online-account-dot"></span>' + html.slice(from, to));
+    await gp.evaluate(() => {
+      window.VMusicTransport = {
+        async get(url) {
+          if (url.endsWith('/sources')) return { sources: [{ id: 'qishui', label: '汽水音乐',
+            caps: ['cookie_login', 'qr_login'],
+            login: { site: 'https://www.qishui.com', keys: ['sessionid', 'sid_guard', 'sid_tt'] } }] };
+          if (url.includes('/account?')) throw { status: 401, code: 'auth_required', message: '未登录' };
+          return { state: 'waiting' };
+        },
+        async put() {},
+        async post() { return { ticket: 'fixture', poll_ms: 60000, qr_text: 'https://bff-pc.qishui.com/light/invoke/scan_login?token=fixture' }; },
+      };
+    });
+    await gp.addScriptTag({ content: read('vendor/qrcode.js') });
+    await gp.addScriptTag({ content: read('online-login.js') });
+    await gp.evaluate(async () => { await OnlineLogin.start('qishui'); });
+    const guide = await gp.locator('#qr-login-guide').textContent();
+    assert.match(guide, /https:\/\/www\.qishui\.com/, '面板要给出官网地址，光说「去官网」等于没说：' + guide.slice(0, 60));
+    assert.match(guide, /sid_tt/, '面板要给出判登录态认的字段名，用户才知道自己拷全没有');
+    assert.match(guide, /document\.cookie/, '要写明不能用 document.cookie——httpOnly 字段拷不到');
+    assert.equal(await gp.locator('#qr-login-guide .qr-guide-copy').count(), 1,
+      '官网地址给复制按钮，不给链接：插件 iframe 没有 allow-popups，<a> 会被静默丢弃');
+    assert.equal(await gp.locator('#qr-login-guide a').count(), 0, '面板里不放 <a>');
+    assert.ok(!/['"]migu['"]/.test(read('online-login.js')),
+      'online-login.js 不许按音源名特判——SourceInfo 的契约是「前端只认这张表」');
+    await gp.close();
+
     // 扫码终态：上游把这枚票判死（汽水的 2156 交付失败）之后，前端必须停轮询
     // 并指向 cookie 导入。回归形态是把它当可重试错误，刷「请求失败（3s 后重试）」
     // 对同一枚死票无限重问，用户永远等不到那句「改用 cookie」。

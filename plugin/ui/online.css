@@ -40,6 +40,26 @@ html.qr-modal-open .app{visibility:hidden}
 .qr-cookie-fallback button:hover{border-color:var(--accent)}
 .qr-cookie-fallback button:disabled{opacity:.5;cursor:default}
 
+/* cookie 取证说明：官网地址 + 六个站通用的 DevTools 取法。数据来自
+   /v1/online/sources 的 login 字段（每个源只有站点与字段名不同）。弹窗只有
+   320px 宽，字号与行高都收紧，别把它撑成说明书。 */
+.qr-login-guide{margin:0 0 8px;padding:8px 10px;border-radius:8px;text-align:left;
+  background:var(--panel-2);border:1px solid rgba(255,255,255,.1)}
+.qr-guide-site{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.qr-guide-url{flex:1;min-width:0;overflow-wrap:anywhere;user-select:all;
+  -webkit-user-select:all;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:11.5px}
+/* 选择器要压过上面那条 `.qr-cookie-fallback button`（它给保存按钮定的
+   margin-top:6px），所以这里带上面板名，不是随手多写一层。 */
+.qr-cookie-fallback .qr-guide-copy{margin:0;flex:none;padding:3px 9px;
+  font-size:11px;border-radius:6px}
+.qr-guide-steps{margin:0;padding-left:18px}
+.qr-guide-steps li{margin:3px 0;line-height:1.5}
+.qr-guide-steps kbd{padding:0 4px;border-radius:4px;font-size:11px;
+  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);font:inherit}
+.qr-guide-steps code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px}
+.qr-guide-keys{margin:6px 0 0;line-height:1.5}
+
 /* QQ 扫码/微信扫码 切换条。高度与 .qr-source 对齐：两行 chip 在同一个弹窗里，
    一行 34px 一行 29px 会一眼看出来（QQ 选中时这两行是上下紧挨着的）。 */
 .qr-channels{display:flex;gap:6px;justify-content:center;margin:10px 0 2px}

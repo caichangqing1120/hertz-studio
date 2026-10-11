@@ -3597,6 +3597,10 @@ async function writeClipboard(text) {
   await navigator.clipboard.writeText(text);
 }
 
+/// 挂给其它前端模块（在线登录弹窗要拷官网地址）。插件形态必须走宿主 copy 通道
+/// 这条约束只在这里记一份——各模块自己实现一遍，早晚漏掉它变成「按钮没反应」。
+window.HertzClipboard = { write: writeClipboard };
+
 /// 存一个文本文件到磁盘。
 ///
 /// 插件 iframe 没有 allow-downloads，`<a download>` 点了没反应（宿主代码里也

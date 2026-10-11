@@ -1846,8 +1846,12 @@
     <div id="qr-status" class="qr-status">正在生成二维码…</div>
     <details id="qr-cookie-panel" class="qr-cookie-fallback">
       <summary>手动粘贴 cookie</summary>
+      <!-- 取证说明按音源渲染，数据是 /v1/online/sources 的 login 字段（官网地址 +
+           后端判登录态实际认的 cookie 字段名）。官网地址给「可选中文本 + 复制」
+           而不是 <a target=_blank>：插件 iframe 没有 allow-popups，点链接会被静默
+           丢弃，看着像按钮坏了。 -->
+      <div id="qr-login-guide" class="qr-login-guide" hidden></div>
       <p id="qr-cookie-help">先在平台官网完成登录，再复制该平台的 cookie。</p>
-      <a id="qr-official-login" href="https://music.migu.cn/v5" target="_blank" rel="noopener noreferrer" hidden>打开咪咕音乐官网</a>
       <textarea id="qr-cookie-input" rows="3" placeholder="粘贴该平台的完整 cookie"></textarea>
       <button id="qr-cookie-save" type="button">保存</button>
     </details>
