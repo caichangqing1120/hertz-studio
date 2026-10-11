@@ -2597,6 +2597,7 @@ function renderQueue() {
     row.dataset.trackId = id;
     row.innerHTML = `
       <span class="q-grip" aria-hidden="true"></span>
+      <span class="q-art t-art" aria-hidden="true"></span>
       <span class="q-num">${index + 1}</span>
       <span class="q-main"><span class="q-title"></span><span class="q-sub"></span></span>
       <span class="q-dur"></span>
@@ -2606,6 +2607,11 @@ function renderQueue() {
     row.querySelector('.q-title').textContent = track.title;
     row.querySelector('.q-sub').textContent = track.artist || '未知艺术家';
     row.querySelector('.q-dur').textContent = fmt(track.duration_ms);
+    // 封面走与曲库行同一套 paintArt（懒加载 / 远程代理 / 稳定色占位）。
+    // 本地曲有 has_cover 才给 URL；在线曲的元数据自带远程封面地址；
+    // 都没有就画占位。行列表的轨道按无封面排的，.q-art 默认由 style.css
+    // 隐藏，黑胶的卡片几何显式放开它（skin.heijiao.css）。
+    paintArt(row, track.has_cover ? transport.coverUrl(track.id) : (track.cover || null));
     if (id.startsWith('online:') && window.Online) {
       // 与歌单详情同一套平台徽标：混合队列里一眼分清本地与在线。
       // 重启后内存快照没了（行退化为「未知曲目」），源仍能从虚拟 id 里解析出来。

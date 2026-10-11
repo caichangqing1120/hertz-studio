@@ -62,7 +62,20 @@ async function main() {
       var PlaybackIntent = { generation: 0, queueRevision: 0,
         begin: function () { return ++this.generation; },
         current: function (ticket) { return ticket === this.generation; } };
-      var transport = { post: function (url, body) { requests.push({ url: url, body: body }); return Promise.resolve({}); } };
+      var transport = { post: function (url, body) { requests.push({ url: url, body: body }); return Promise.resolve({}); },
+        // 队列行现在也画封面（.q-art，黑胶卡片里可见）：本地曲走这个同步 URL。
+        // 本沙箱的曲目元数据都不带 has_cover，实际不会命中 —— 桩只为"函数存在"。
+        coverUrl: function (id) { return '/v1/tracks/' + encodeURIComponent(id) + '/cover'; } };
+      // renderQueue 里的封面绘制与曲库行同一套 paintArt；本沙箱只关心队列身份
+      // 与播放接线，画图管线（远程代理/懒加载）不在被测面 —— 给一个同签名的
+      // 桩：把占位态落到 .q-art/.t-art 上，其余省略。
+      var paintArt = function (row, url) {
+        var art = row.querySelector('.q-art, .t-art');
+        if (!art || art.dataset.src === String(url)) return;
+        art.dataset.src = String(url);
+        art.classList.remove('is-loaded', 'is-missing');
+        if (!url) art.classList.add('is-missing');
+      };
       var Online = window.Online = {
         getMeta: function (id) { return state.byId.get(id); },
         safeCoverUrl: function (url) { return url; },

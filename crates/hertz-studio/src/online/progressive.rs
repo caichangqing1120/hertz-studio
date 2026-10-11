@@ -765,7 +765,19 @@ pub fn start(
                     // （0.8 是给 VBR 与容器开销留的余量）。谎称无损、实给 128k 的
                     // 直链在这里就被换掉，而不是落进缓存从此被当无损反复命中。
                     // 时长与档位任一未知都不参与——未知绝不按 0 处理。
-                    if let (Some(d), Some(bps)) = (duration_ms.filter(|d| *d > 0), cand.bitrate) {
+                    //
+                    // 无损容器不参与这条比值：FLAC 交付多少字节是内容熵的函数，平台
+                    // 标的 `br` 是它对源的要求，两者之间没有固定比例可卡（实测一张
+                    // 44.1k/16bit 流行乐 FLAC 的真实平均码率只有网易标称的 70%）。
+                    // 拿比值判它，等于把一首完整、真无损的曲子永久判死，而且它每次
+                    // 都重下同一份字节、重撞同一个结论。谎称无损的直链交的是 mp3/m4a，
+                    // 比值对它们照旧生效。
+                    let declared = if matches!(ext, "flac" | "wav") {
+                        None
+                    } else {
+                        cand.bitrate
+                    };
+                    if let (Some(d), Some(bps)) = (duration_ms.filter(|d| *d > 0), declared) {
                         // 平均 bps×10 与声明 bps×8（=80%）比较；两边同乘 d 消去除法。
                         if written * 80_000 < bps * d * 8 {
                             crate::diaglog!(
@@ -955,6 +967,13 @@ mod tests {
     fn mp3_bytes(len: usize) -> Vec<u8> {
         let mut v = b"ID3\x03\x00\x00\x00\x00\x00\x00".to_vec();
         v.resize(len.max(9), 0x55);
+        v
+    }
+
+    /// 假 FLAC 载荷：只要 `fLaC` 魔数就能被嗅成无损容器（闸门不看容器内部）。
+    fn flac_bytes(len: usize) -> Vec<u8> {
+        let mut v = b"fLaC\x00\x00\x00\x22".to_vec();
+        v.resize(len.max(8), 0x55);
         v
     }
 
@@ -1339,6 +1358,40 @@ mod tests {
             index.find("netease", "6", "standard").await.as_deref(),
             Some(path.as_path())
         );
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    /// 完整的无损容器不参与码率比值闸门。网易给《追光者》这张 44.1k/16bit FLAC
+    /// 标了 1061k，文件真实平均码率只有 738k（占标称 70%）——字节是 Content-Length
+    /// 那么多、时长与平台标称逐毫秒一致，一首好歌却按比值被判死。
+    /// 落盘档位仍按实测反推（640k → 无损），所以放行不会把低档挂到无损键下。
+    #[tokio::test]
+    async fn a_complete_flac_is_not_rejected_for_its_compression_ratio() {
+        let addr = spawn_routes(&[("/flac", "audio/mpeg", flac_bytes(160_000))]).await;
+        let dir = tmp_cache_dir().await;
+        let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
+        let dl = start(
+            "netease",
+            dir.clone(),
+            "netease-8-lossless".into(),
+            vec![Candidate {
+                url: format!("http://{addr}/flac"),
+                // 2s 的 80% 下限要 212200 字节，160000 在旧闸门里必死。
+                bitrate: Some(1_061_000),
+                container: None,
+                referer: None,
+            }],
+            Some(2_000),
+            index.clone(),
+        )
+        .unwrap();
+        let path = dl.join().await.unwrap();
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            "netease-8-lossless.flac",
+            "实测 640k 仍是无损档，键与容器都要照原样落盘"
+        );
+        assert!(index.find("netease", "8", "lossless").await.is_some());
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 

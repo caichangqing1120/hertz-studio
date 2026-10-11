@@ -43,8 +43,8 @@
      网格卡片的意义（一眼扫到更多首）就没了。 */
   --skin-card-min: 168px;
 
-  /* 顶部通栏高度：它是 fixed 的，栅格里没有它的位置，由外壳 padding 让出。
-     与 .rail 的 padding/条目高度同源（8×2 + 32 = 48）。 */
+  /* 导航抽屉把手行高度：把手是 fixed 的浮件，栅格里没有它的位置，
+     由外壳 padding 让出。把手 38px + 上下各 5px 呼吸 = 48。 */
   --skin-nav-h: 48px;
 
   /* 播放条实高兜底。不能只写 --bar-h（那只是 min-height，真实高度随断点重排：
@@ -52,8 +52,10 @@
      面板底边会插进播放条上沿，而两块都是暗玻璃，不量 rect 根本看不出来。 */
   --skin-bar-foot: 80px;
 
-  /* 唱片可点尺寸。这是**上限**不是定值：左卡宽度 = 中部宽度的 1/3，窄了就得缩。 */
-  --skin-disc-max: 300px;
+  /* 唱片可点尺寸。这是**上限**不是定值：左卡宽度 = 中部宽度的 1/3，窄了就得缩。
+     用户实测 300px 偏小（封面是这套皮肤的主角），放到 360 —— 1440 宽屏下
+     左卡内容区约 410px，360 恰好留下呼吸边；再窄由 min(100%,…) 自己收。 */
+  --skin-disc-max: 360px;
 
   /* ==== 排版令牌 ==== */
   --skin-h1: var(--skin-title);
@@ -88,7 +90,7 @@
 }
 
 /* ==========================================================================
-   2. 外壳：顶部通栏 + 中部双卡片
+   2. 外壳：抽屉式导航 + 中部双卡片
    ========================================================================== */
 
 [data-skin="heijiao"] .app {
@@ -153,22 +155,26 @@
   }
 }
 
-/* --- 导航：顶部通栏（沿用潮汐，含那两处踩坑的补丁） -------------------- */
+/* --- 导航：抽屉式可折叠 -------------------------------------------------
+   用户要求把整条通栏换成抽屉：收起时只剩一枚居中把手（显示当前视图名），
+   展开时导航项从把手下方落下一块浮卡。收起态用 visibility 而不是 opacity：
+   check-skin-matrix 对「可见的 .rail」查实底 alpha，opacity:0 会被误判成
+   “导航条没实底”；visibility:hidden 让矩阵探针读到的就是不可见，绕开它。
+   visibility 参与过渡时的插值语义正好是想要的：展开立刻可见、收起等
+   transform 播完才真隐藏。 */
 
 /* ⚠ 材质规则必须对**所有主题**生效，不能按 data-look 族挑。
    踩过的坑：先写成 html:is([data-look=…])[data-skin="chaoxi"] .rail，
    结果 161 个「主题 × 皮肤」组合里 18 个坏掉 —— 那些不带族的主题
-   （data-look="plain"，共 18 套）压根不匹配，通栏又变回玻璃渐变，
-   而它们恰恰是用户截图里那套。教训：族是装饰层的概念，皮肤不该依赖它。
+   （data-look="plain"，共 18 套）压根不匹配，抽屉又变回玻璃渐变。
+   教训：族是装饰层的概念，皮肤不该依赖它。
    压过装饰层靠 html[data-skin] 前缀：(0,3,1) > 装饰层的 (0,2,1)。 */
 html[data-skin="heijiao"] .rail,
 html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   /* 只管材质：圆角、边框、底色、模糊、投影。布局在下一条，不重复 ——
-     重复的代价是日后改一处忘另一处，症状是同一通栏在两套主题下宽度不同。 */
-  border-radius: 0;
-  border-width: 0 0 1px;
-  border-style: solid;
-  border-color: var(--skin-line-soft);
+     重复的代价是日后改一处忘另一处，症状是同一个抽屉在两套主题下形状不同。 */
+  border-radius: var(--skin-radius);
+  border: 1px solid var(--skin-line-soft);
   /* 必须写成 background **简写**：简写会把 background-image 一并重置掉，
      而装饰层给 .rail 设的正是 background-image（玻璃渐变）。早先一版为了
      少写一层改成 background-color，装饰层的 image 就残留了下来 ——
@@ -184,19 +190,68 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 /* 不带族的选择器只管布局。布局对所有主题一致、材质才需要压过装饰层。 */
 [data-skin="heijiao"] .rail {
   position: fixed;
-  top: var(--topbar-h);
-  left: 0;
-  right: 0;
+  top: calc(var(--topbar-h) + var(--skin-nav-h) + 2px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-10px);
+  width: max-content;
+  max-width: min(92vw, 880px);
   flex-direction: row;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
   gap: 6px;
-  padding: 8px var(--skin-pad);
-  z-index: 55;
+  padding: 8px 10px;
+  z-index: 56;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  overflow: visible;
+  visibility: hidden;
+  transition: transform 0.28s var(--ease, ease), visibility 0.28s;
+}
+
+[data-skin="heijiao"] body.hj-nav-open .rail {
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 把手：收起态唯一的常驻浮件。显示当前视图名 —— 导航收起来之后
+   「我在哪」全靠它说。z 高于抽屉一层，抽屉从它正下方展开。 */
+[data-skin="heijiao"] .hj-nav-handle {
+  position: fixed;
+  top: calc(var(--topbar-h) + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 57;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--skin-ctl-radius);
+  border: 1px solid var(--skin-line-soft);
+  background:
+    linear-gradient(var(--skin-rail-veil), var(--skin-rail-veil)),
+    var(--skin-surface);
+  backdrop-filter: blur(24px) saturate(1.1);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--skin-h3);
+  font-weight: var(--skin-h2-w);
+  letter-spacing: var(--skin-track-wide);
+  cursor: pointer;
+  box-shadow: var(--skin-shadow);
+}
+
+[data-skin="heijiao"] .hj-nav-handle svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  flex: none;
+  transition: transform 0.28s var(--ease, ease);
+}
+
+[data-skin="heijiao"] body.hj-nav-open .hj-nav-handle svg {
+  transform: rotate(180deg);
 }
 
 [data-skin="heijiao"] .rail-item {
@@ -211,11 +266,18 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 
 [data-skin="heijiao"] .rail-item svg { margin: 0; flex: none; }
 
+/* 基础样式在 ≤900px 把条目文字藏掉（classic 的侧栏收成图标列）。
+   抽屉恰恰相反：收起态连图标都看不见，展开再没有文字就只剩猜。 */
 [data-skin="heijiao"] .rail-item span {
+  display: inline;
   font-size: var(--skin-h3);
   font-weight: var(--skin-h2-w);
   line-height: var(--skin-lh-tight);
 }
+
+/* active 的左侧竖条是 classic 纵向侧栏的产物；横向抽屉里它会从胶囊
+   左缘探出去，摘掉 —— 选中态由胶囊底色自己说。 */
+[data-skin="heijiao"] .rail-item.active::before { content: none; }
 
 /* 横向栏里没有"把设置顶到底部"这回事，弹簧没有意义。 */
 [data-skin="heijiao"] .rail-spacer { display: none; }
@@ -226,11 +288,11 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   padding-inline: var(--skin-pad);
 }
 
-/* 晴空族把 .topbar/.column 画成浮起卡片（16px 圆角 + 整圈描边 + 阴影）。
-   通栏导航是满宽的，一旦被画成卡片就比内缩的内容卡左右各探出一个
-   --skin-pad，又读成"顶部和下面没对齐"。这里只还原浮卡外形、保留实底。 */
-html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar,
-html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
+/* 晴空族把 .topbar 画成浮起卡片（16px 圆角 + 整圈描边 + 阴影）。
+   顶栏仍是满宽的，一旦被画成卡片就比内缩的内容卡左右各探出一个
+   --skin-pad，又读成"顶部和下面没对齐"。这里只还原浮卡外形、保留实底。
+   （.rail 已改成抽屉浮卡，从这条通栏复位里摘出去了。） */
+html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   border-radius: 0;
   border-width: 0 0 1px;
   box-shadow: none;
@@ -362,11 +424,14 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   opacity: calc(0.1 + var(--stage-energy) * 0.1);
 }
 
-/* 头部只留模式切换，去掉"正在播放/队列"那两枚（队列在右侧面板里是独立选项卡，
-   这里再放一个是重复入口）。隐藏用 display:none 而非 hidden：
-   舞台是 display:flex 的 flex 列，hidden 在部分实现下仍参与布局判断。 */
+/* 头部只留全屏一枚。模式切换（封面/卡拉OK）与"正在播放/队列"一并摘掉：
+   封面⇄歌词的翻面在本皮肤里就是「点唱片」这一个动作（下方 hj-lyrics-open），
+   再摆一对模式按钮等于同一件事两个开关，且互相打架 ——
+   卡拉OK 模式会让收起态的歌词区顶开一个 120px 的空条（用户截图里
+   "歌词未展示"的那块空地就是它）。 */
 [data-skin="heijiao"] .stage-kicker { display: none; }
 [data-skin="heijiao"] .stage-queue { display: none; }
+[data-skin="heijiao"] .stage-modes { display: none; }
 [data-skin="heijiao"] .stage-head { margin-bottom: 0; justify-content: flex-end; }
 [data-skin="heijiao"] .stage-head-fs { margin-left: auto; }
 
@@ -382,7 +447,11 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 [data-skin="heijiao"] .disc-wrap {
   width: min(100%, var(--skin-disc-max));
   aspect-ratio: 1;
-  margin: 0 auto;
+  /* margin-top:auto：收起态把「唱片+曲名+按钮」整块在卡内垂直居中
+     （free space 一半在唱片上方、一半在按钮下方）。展开态由
+     hj-lyrics-open 那条归零，让小唱片回到顶部。
+     margin-left/right 的 auto 是横向居中，不能丢。 */
+  margin: auto auto 0;
   flex: none;
   display: grid;
   place-items: center;
@@ -488,15 +557,11 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   display: none;
 }
 
-/* 歌词区：左卡的余量全部归它。
-   min-height 是必需的 —— flex:1 但没有地板时会被压到内容那么高，
-   缺口则落到仅剩的可收缩项上（曲名/艺人已在上面钉成 flex:none，
-   于是缺口会落到 .stage::before 之外的 padding 与 border 上，
-   表现是"歌词整块不见了"，页面不报错）。 */
+/* 歌词区：**收起态整块隐藏**。网易云式的语义是"封面即一切，歌词点封面
+   再看"——收起态再露一条 120px 的歌词尾巴，等于同一屏说两遍，还把
+   唱片可用的最大尺寸压掉一截。展开态整块回来（见下一条）。 */
 [data-skin="heijiao"] .stage-lyrics {
-  flex: 1 1 auto;
-  min-height: 120px;
-  margin-top: 14px;
+  display: none;
   text-align: center;
 }
 
@@ -505,20 +570,21 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 
 /* --- 展开态：点封面 → 歌词全高 ---------------------------------------- */
 /* 类名由 skin.heijiao.js 挂在 body 上（业务 HTML 里没有这层）。
-   展开不是位移而是**把唱片收起来、歌词吃满整卡**：
-   唱片从 300px 缩到 0 需要 transition，而 transform 缩到 0 会让
-   "再点一下收回去"的命中区消失 —— 所以收起的唱片保留 opacity 归零
-   而不是 display:none（见下面那条），点击目标全程稳定。 */
+   翻面不是位移而是**把唱片收成一枚小唱片按钮、歌词吃满整卡**：
+   小唱片保持可见（opacity:1）——网易云式翻面需要一个常驻的"翻回去"
+   把手，收成 0 就只能靠文字按钮了；它仍是点击目标，点它=收起。 */
 [data-skin="heijiao"] body.hj-lyrics-open .disc-wrap {
-  width: min(52px, 40%);
-  opacity: 0;
-  /* pointer-events 保留：唱片区仍可点（点它=收起），
-     只是它不再挡歌词的命中。 */
+  width: 56px;
+  /* 从收起态的垂直居中回到顶部：小唱片贴着头部排，歌词从它下面起。
+     margin 的 auto → 0 不可插值，这一步是跳变 —— 被宽度的收缩动画
+     盖住，观感上就是一次"翻面"。 */
   margin-top: 0;
   margin-bottom: 0;
 }
 
 [data-skin="heijiao"] body.hj-lyrics-open .stage-lyrics {
+  display: block;
+  flex: 1 1 auto;
   /* 展开态把让位给唱片的那份高度还给歌词，但**下限不能一起归零** ——
      flex:1 无地板时它会被压到内容那么高，缺口落到别的可收缩项上；
      矮屏（≤820px 那类）上就表现为"展开后歌词只剩两行"。 */
@@ -536,17 +602,23 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   justify-content: flex-start;
 }
 
+[data-skin="heijiao"] body.hj-lyrics-open .hj-lyric-toggle {
+  margin-bottom: 0;
+}
+
 [data-skin="heijiao"] .disc-wrap {
-  transition: width 0.32s var(--ease, ease), opacity 0.24s linear,
-              margin 0.32s var(--ease, ease);
+  transition: width 0.32s var(--ease, ease), opacity 0.24s linear;
 }
 
 /* 封面卡底部的操作行。业务 HTML 里没有这层，是 skin.heijiao.js 自建的
    （make/remove 那一套，卸载时统一摘掉）。它只提供"展开/收起歌词"这一个
-   动作 —— 播放控制在底部那条，队列在右侧面板。 */
+   动作 —— 播放控制在底部那条，队列在右侧面板。
+   margin-bottom:auto 与唱片上的 margin-top:auto 成对：收起态把整块内容
+   垂直居中（上自由空间顶唱片、下自由空间顶按钮）。 */
 [data-skin="heijiao"] .hj-lyric-toggle {
   flex: none;
   margin-top: 10px;
+  margin-bottom: auto;
   height: 34px;
   padding: 0 16px;
   align-self: center;
@@ -574,12 +646,16 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
    ========================================================================== */
 
 /* 列表容器转网格。列头（.lib-head / .q-head / .fav-head）在卡片模式下没有
-   对应的一行刻度，收起来 —— 它的作用是给行列表当标尺。 */
+   对应的一行刻度，收起来 —— 它的作用是给行列表当标尺。
+   ⚠ .online-body **不在**这份名单里：在线视图往 body 里放的是
+   .search-summary / .search-results / .search-source-statuses 三个 wrapper，
+   不是裸行。把网格套在 body 上，wrapper 们会各占一条 minmax 轨道 ——
+   实测摘要、结果、音源状态被拆进三条 200px 窄缝，一屏只看得下一张卡。
+   网格必须落在真正装卡片的那层（下方 .search-results 规则）。 */
 [data-skin="heijiao"] .lib-list,
 [data-skin="heijiao"] .q-list,
 [data-skin="heijiao"] .fav-list,
 [data-skin="heijiao"] .op-history-list,
-[data-skin="heijiao"] .online-body,
 [data-skin="heijiao"] .pd-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
@@ -591,6 +667,25 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   min-height: 0;
   flex: none;
   padding-bottom: 0;
+}
+
+/* 在线视图（单曲搜索 / 分类浏览如"热门"）的卡片网格。
+   歌单/歌手/专辑搜索走 .playlist-results，基础样式已是网格，不重复钉。 */
+[data-skin="heijiao"] .online-body .search-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
+  gap: var(--skin-gap);
+  align-content: start;
+}
+
+/* 加载骨架也跟着卡片化：不给最小高度的话，网格里会挤进几条 40px 的细条，
+   载入瞬间整片塌下去又弹回来。 */
+[data-skin="heijiao"] .online-body .search-skeleton {
+  min-height: 150px;
+  padding: 12px;
+  border-radius: var(--skin-radius);
+  background: var(--skin-surface-card);
+  border: 1px solid var(--skin-line-soft);
 }
 
 [data-skin="heijiao"] .lib-head,
@@ -721,26 +816,26 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   color: var(--brand);
 }
 
-/* --- 队列行（.q-row）：结构更简单，卡片化同理 --------------------------
-   直接子节点五个：.q-grip / .q-num / .q-main / .q-dur / .t-act。
-   三行两列，格子与子节点一一对应（没有绝对定位的例外）：
-     行1  num | act
-     行2  main（跨两列）
-     行3  dur（跨两列）
+/* --- 队列行（.q-row）：卡片化 + 封面 -----------------------------------
+   直接子节点六个：.q-grip / .q-art / .q-num / .q-main / .q-dur / .t-act。
+   .q-art 是业务层统一渲染的封面节点（app.js 队列行模板，与曲库行同一套
+   paintArt），基础样式默认 display:none（行列表的轨道按无封面排的）；
+   卡片把它放到左列并跨三行 —— 用户反馈"队列没显示封面"，卡片模式下
+   一张 48px 的小封面足够认清是哪首，又不破坏队列的"有序清单"密度。
    拖拽把手 .q-grip 是**行列表专属**的产物（卡片模式下拖不动），
-   display:none 摘掉，否则隐式格会在 num 上方插一条空轨道。 */
+   display:none 摘掉，否则隐式格会在最前面插一条空轨道。 */
 
 [data-skin="heijiao"] .q-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
   grid-template-areas:
-    "num act"
-    "main main"
-    "dur dur";
+    "art num  act"
+    "art main main"
+    "art dur  dur";
   grid-template-rows: auto auto auto;
-  gap: 4px 6px;
+  gap: 4px 8px;
   height: auto;
-  padding: 12px;
+  padding: 10px;
   border-radius: var(--skin-radius);
   background: var(--skin-surface-card);
   border: 1px solid var(--skin-line-soft);
@@ -749,6 +844,17 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 }
 
 [data-skin="heijiao"] .q-row .q-grip { display: none; }
+
+[data-skin="heijiao"] .q-row .q-art {
+  grid-area: art;
+  display: block;
+  width: 48px;
+  height: 48px;
+  align-self: center;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
 [data-skin="heijiao"] .q-row .q-num { grid-area: num; }
 [data-skin="heijiao"] .q-row .q-main { grid-area: main; min-width: 0; }
 [data-skin="heijiao"] .q-row .q-dur {
@@ -798,6 +904,17 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
   border-radius: var(--skin-radius);
 }
 
+/* 左侧「正在播放」摘要列给个上限。基础模板是 minmax(140px, 1fr)，宽屏下
+   这一列会拉出五六百像素 —— 曲名/艺人早就省略完了，剩下一长条死空间
+   （用户截图圈的就是它）。压到 280px：两行文字各自省略，控制键整体左移，
+   让出的宽度归进度条。只写在 ≥901px —— ≤900px 基础样式把播放条重排成
+   两行（grid-template-areas 三列），轨道数不同，别去动它。 */
+@media (min-width: 901px) {
+  [data-skin="heijiao"] .bar {
+    grid-template-columns: minmax(140px, 280px) auto minmax(240px, 1fr) auto;
+  }
+}
+
 /* ==========================================================================
    6. 设置
    ==========================================================================
@@ -843,13 +960,12 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
    宁可让卡片内部滚，也不能让内容被 overflow:hidden 静默裁掉。 */
 @media (max-height: 860px) {
   [data-skin="heijiao"] {
-    --skin-disc-max: 232px;
+    --skin-disc-max: 280px;
   }
   [data-skin="heijiao"] .stage {
     overflow-x: hidden;
     overflow-y: auto;
   }
-  [data-skin="heijiao"] .stage-lyrics { min-height: 80px; }
   [data-skin="heijiao"] body.hj-lyrics-open .stage-lyrics { min-height: 160px; }
 }
 
@@ -935,7 +1051,7 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 @media (pointer: coarse) {
   [data-skin="heijiao"] .disc-wrap {
     /* 唱片本身是宽高比 1 的方块，宽屏下已远大于 44px；抬这条是为了在
-       展开态（唱片缩到 52px）时仍有一个可点的目标。 */
+       展开态（唱片缩到 56px）时仍有一个可点的目标。 */
     min-height: 44px;
   }
   [data-skin="heijiao"] .rail-item { min-height: 44px; }
@@ -953,6 +1069,8 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 
 @media (prefers-reduced-motion: reduce) {
   [data-skin="heijiao"] .disc-wrap,
+  [data-skin="heijiao"] .rail,
+  [data-skin="heijiao"] .hj-nav-handle svg,
   [data-skin="heijiao"] .track,
   [data-skin="heijiao"] .q-row {
     transition: none !important;

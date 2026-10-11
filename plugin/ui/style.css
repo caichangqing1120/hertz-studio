@@ -1669,6 +1669,10 @@ body.reduce-motion .shelf-vinyl { transition: none; }
 .q-dur { color: var(--muted); font-size: var(--skin-h3); text-align: right; font-variant-numeric: tabular-nums; }
 .q-row.playing { background: color-mix(in srgb, var(--accent) 13%, transparent); }
 .q-row.playing .q-title { color: var(--accent); font-weight: 600; }
+/* 队列行的封面由业务层统一渲染（与曲库行同一套 .t-art 管线），但行列表的
+   轨道是按无封面排的 —— 默认整格隐藏，零影响；黑胶皮肤的卡片几何显式
+   放开它（skins/skin.heijiao.css 的 .q-row .q-art）。 */
+.q-row .q-art { display: none; }
 
 /* 设置 */
 

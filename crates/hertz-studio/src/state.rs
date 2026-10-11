@@ -1000,6 +1000,29 @@ impl AppState {
         });
     }
 
+    /// 记一次「这一档放不出来」，并回答该不该**重投同一首**：只有这一轮请求的档位
+    /// 真的降下来一格才重投。
+    ///
+    /// 基准恒取请求档位，不取交付档位。平台会把 44.1k/16bit 的 FLAC 标成 Hi-Res
+    /// 码率（网易《追光者》：标称 1061k、实测 738k），这首歌请求的是无损、失败证据
+    /// 里却是 hires —— 拿交付档位当基准，`lower_ceiling` 落下来的上限正好等于请求
+    /// 那一格，可重投条件永远成立，同一首、同一份字节就能重投到永远（实测 689 次
+    /// / 7 小时：既听不响，也跳不走）。
+    async fn downgrade_for_retry(
+        &self,
+        track_id: &str,
+        code: &str,
+        failed_at: crate::online::quality::Quality,
+    ) -> bool {
+        let Some((source, _)) = crate::online::split_virtual_id(track_id) else {
+            return false;
+        };
+        let requested = self.online_quality_for(&source, track_id).await;
+        self.note_quality_failure(track_id, code, failed_at).await;
+        let next = self.online_quality_for(&source, track_id).await;
+        next.rank() < requested.rank()
+    }
+
     /// 在线曲在当前档位下应下的增益（已含防削波），与本地曲同一条规则。
     ///
     /// current_loudness（对外汇报「用了多少增益」）与播放落地（apply_online_loudness）
@@ -3359,10 +3382,10 @@ impl AppState {
                 let _ = tokio::fs::remove_file(path).await;
             }
             if let Some(tier) = failed_at {
-                self.note_quality_failure(&track_id, "decode_stalled", tier)
-                    .await;
-                let next = self.online_quality_for(&source, &track_id).await;
-                if next.rank() < tier.rank() {
+                if self
+                    .downgrade_for_retry(&track_id, "decode_stalled", tier)
+                    .await
+                {
                     let index = *self.cursor.lock().await;
                     self.set_buffering(false, None).await;
                     drop(commit);
@@ -4976,6 +4999,48 @@ pub(crate) mod tests {
             state.online_quality_for("netease", &vid).await,
             Quality::Standard,
             "改偏好不是这首能放高档的证据"
+        );
+    }
+
+    /// 「退一格重投同一首」的基准必须是**这一轮请求的档位**，不是交付档位。
+    /// 网易把一张 44.1k/16bit 的 FLAC 标成 Hi-Res 码率，于是请求无损、实测报
+    /// Hi-Res：`lower_ceiling(Hires)` 落下来的上限正好是无损那一格，请求档位一动
+    /// 没动。按实测档位判「还能不能再退」就永远为真，同一首、同一份字节无限重投
+    /// （实测 689 次 / 7 小时：既听不响，也跳不走）。
+    #[tokio::test]
+    async fn an_inflated_actual_tier_does_not_earn_a_replay() {
+        use crate::online::quality::Quality;
+        let (state, _handle) = playback_state().await;
+        state
+            .quality
+            .lock()
+            .await
+            .insert("netease".to_string(), Quality::Lossless);
+        let vid = crate::online::virtual_id("netease", "inflated");
+        assert!(
+            !state
+                .downgrade_for_retry(&vid, "decode_stalled", Quality::Hires)
+                .await,
+            "请求那一格没降，就不该重投同一首"
+        );
+        assert_eq!(
+            state.quality_caps.lock().await.get(&vid).copied(),
+            Some(Quality::Lossless),
+            "上限落在无损：重投也只会拿回同一份字节，这正是旧判据恒真的来源"
+        );
+
+        // 真降得动的那一格照旧重投：偏好 hires、失败在 hires → 请求退到无损。
+        state
+            .quality
+            .lock()
+            .await
+            .insert("netease".to_string(), Quality::Hires);
+        let real = crate::online::virtual_id("netease", "genuine");
+        assert!(
+            state
+                .downgrade_for_retry(&real, "decode_stalled", Quality::Hires)
+                .await,
+            "降了一格就该重投，否则 B4 的降档自愈整个失效"
         );
     }
 

@@ -1,20 +1,28 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 皮肤：heijiao（黑胶）—— 生命周期 + 唱片拖转
+// 皮肤：heijiao（黑胶）—— 生命周期 + 唱片拖转 + 导航抽屉
 // --------------------------------------------------------------------------
-// 这套皮肤要两件事，都必须由 JS 做，理由各自不同：
+// 这套皮肤要三件事，都必须由 JS 做，理由各自不同：
 //
 // 1) **封面卡可点开歌词**（生命周期的一部分）
 //    展开/收起是一个**用户动作**，而皮肤 CSS 有一条纪律：不许写交互状态
 //    选择器，状态语义由 style.css 全站统一（见 skin.heijiao.css 文件头）。
 //    于是"点一下展开"只能由生命周期来做，CSS 只负责两个状态各自的几何。
+//    展开有两条路：点「展开歌词」按钮，或**直接点唱片**（网易云式翻面）——
+//    后者复用同一套指针事件：拖转必须越过横向阈值，没越过的按下-抬起
+//    就是一次点击，翻面。
 //
 // 2) **唱片可拖转 + 惯性**（本文件的主体）
 //    转一个元素的最直接办法是 pointer 事件 + requestAnimationFrame。
 //    CSS 动画做不到"跟着手指走"：style.css 里那条 disc-spin 的 transform
 //    会与 JS 写的 transform 互相覆盖（表现是"唱片每帧被拽回 0°"），
 //    所以 CSS 里把它停掉，角度一律走 --hj-turn 这一个通道。
+//
+// 3) **导航抽屉**（通栏换抽屉之后的新增件）
+//    把手按钮与展开状态类都是皮肤自造的，业务 HTML 里没有；「当前视图名」
+//    跟着业务层 setView 走，靠 MutationObserver 盯 .rail 的类变化同步 ——
+//    业务层没有（也不该有）"通知皮肤"的钩子。
 //
 // 关键实现决策（都是踩过才知道的，写下来免得日后重犯）：
 //
@@ -46,6 +54,8 @@
   var OPEN_CLASS = 'hj-lyrics-open';
   var GRAB_CLASS = 'hj-grabbing';
   var STORE_KEY = 'vmusic.heijiao.lyrics';
+  var NAV_OPEN_CLASS = 'hj-nav-open';
+  var NAV_STORE_KEY = 'vmusic.heijiao.nav';
 
   var AUTO_DEG_PER_SEC = 14;      // 播放中自转：约 26s 一圈，与基础 disc-spin 同速
   var FLICK_DEG_PER_SEC = 720;    // 惯性初速上限：1 圈/秒
@@ -59,6 +69,8 @@
   var mounted = false;
   var discWrap = null;
   var toggleBtn = null;
+  var navHandle = null;
+  var navObserver = null;
 
   // 旋转状态。全部收在闭包里，不挂 window —— 挂上去就成了全局可变状态，
   // 切皮肤时清不干净（这类"漏一处就在别的皮肤里继续转"的残留最难查）。
@@ -128,6 +140,92 @@ var lastFrame = 0;
   }
 
   // ---------------------------------------------------------------------------
+  // 导航抽屉
+  // ---------------------------------------------------------------------------
+
+  function isNavOpen() {
+    return document.body.classList.contains(NAV_OPEN_CLASS);
+  }
+
+  /// 与歌词展开同一个模式：唯一写入口 + 持久化写在这里。抽屉是**用户的选择**
+  /// 而不是临时状态 —— 切走再切回来，开着的还开着。
+  function setNavOpen(open) {
+    document.body.classList.toggle(NAV_OPEN_CLASS, !!open);
+    if (navHandle) navHandle.setAttribute('aria-expanded', String(!!open));
+    try { localStorage.setItem(NAV_STORE_KEY, open ? 'open' : 'closed'); } catch (e) { /* 隐私模式 */ }
+  }
+
+  function readNavStored() {
+    try { return localStorage.getItem(NAV_STORE_KEY); } catch (e) { return null; }
+  }
+
+  /// 把手的文字 = 当前视图名。来源只能是 DOM：setView 在业务层切 active 类，
+  /// 皮肤没有（也不该有）被通知的钩子；aria-label 优先 —— 队列条目上挂着
+  /// 角标 <em>，textContent 会把数字也捞进来。
+  function syncNavLabel() {
+    if (!navHandle) return;
+    var label = navHandle.querySelector('.hj-nav-label');
+    if (!label) return;
+    var rail = el('rail');
+    var active = rail ? rail.querySelector('.rail-item.active') : null;
+    var text = active
+      ? (active.getAttribute('aria-label') || active.textContent || '').trim()
+      : '导航';
+    if (label.textContent !== text) label.textContent = text;
+  }
+
+  /// 点把手之外的任何地方都收起（点导航项也一样：导航完成，抽屉就该回去）。
+  /// 把手自己的 onclick 先于文档级 click 执行，toggle 完才轮到这里 ——
+  /// isNavOpen 那道闸保证两个处理器不会互相打架。
+  function onDocClick(e) {
+    if (!isNavOpen()) return;
+    var t = e.target;
+    if (navHandle && t && navHandle.contains(t)) return;
+    setNavOpen(false);
+  }
+
+  function onDocKeyDown(e) {
+    if (e.key === 'Escape' && isNavOpen()) setNavOpen(false);
+  }
+
+  function mountNavDrawer() {
+    var rail = el('rail');
+    if (!rail || navHandle) return;
+    navHandle = document.createElement('button');
+    navHandle.type = 'button';
+    navHandle.className = 'hj-nav-handle';
+    navHandle.setAttribute('aria-controls', 'rail');
+    navHandle.setAttribute('aria-expanded', 'false');
+    navHandle.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-down"/></svg>' +
+      '<span class="hj-nav-label"></span>';
+    navHandle.onclick = function () { setNavOpen(!isNavOpen()); };
+    document.body.appendChild(navHandle);
+    syncNavLabel();
+    // 视图切换（点击、快捷键、命令面板）最终都落在 .rail 条目的 active 类上，
+    // 盯类变化就覆盖了全部入口；hidden 变化（设置里关掉某个导航项）也要跟。
+    if (typeof MutationObserver === 'function') {
+      navObserver = new MutationObserver(syncNavLabel);
+      navObserver.observe(rail, {
+        subtree: true, childList: true,
+        attributes: true, attributeFilter: ['class', 'hidden']
+      });
+    }
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onDocKeyDown);
+    setNavOpen(readNavStored() === 'open');
+  }
+
+  function unmountNavDrawer() {
+    document.removeEventListener('click', onDocClick);
+    document.removeEventListener('keydown', onDocKeyDown);
+    if (navObserver) { navObserver.disconnect(); navObserver = null; }
+    document.body.classList.remove(NAV_OPEN_CLASS);
+    if (navHandle && navHandle.parentNode) navHandle.parentNode.removeChild(navHandle);
+    navHandle = null;
+  }
+
+  // ---------------------------------------------------------------------------
   // 旋转：指针
   // ---------------------------------------------------------------------------
 
@@ -186,6 +284,11 @@ var lastFrame = 0;
     if (discWrap) discWrap.classList.remove(GRAB_CLASS);
     try { discWrap.releasePointerCapture(e.pointerId); } catch (err) { /* 未捕获 */ }
 
+    // 没越过横向阈值的按下-抬起 = 一次点击 → 翻面（网易云式：点封面看歌词，
+    // 再点小唱片翻回去）。越过阈值的（真拖转）与被滚动判定接管的纵向手势
+    // （onMove 里已把 dragging 置 false，走不到这里）都不算点击。
+    if (!wasTurned) setOpen(!isOpen());
+
     // 松手时的角速度（度/秒），供惯性用。
     var vel = 0;
     if (wasTurned && samples.length >= 2) {
@@ -223,12 +326,17 @@ var lastFrame = 0;
   // 键盘旋转
   // ---------------------------------------------------------------------------
   // 唱片是这套皮肤唯一的交互，不能只绑指针 —— 否则纯键盘用户手里
-  // 它就是一张静态图。用方向键旋转、Home 归零。
+  // 它就是一张静态图。用方向键旋转、Home 归零、Enter/Space 翻面。
   function onKey(e) {
     var step = e.shiftKey ? KEY_STEP_FAST : KEY_STEP;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') angle -= step;
     else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') angle += step;
     else if (e.key === 'Home') angle = 0;
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setOpen(!isOpen());
+      return;
+    }
     else return;
     e.preventDefault();
     spinVel = 0;          // 键盘操作不该引发自转
@@ -332,10 +440,11 @@ var lastFrame = 0;
       discWrap.addEventListener('pointerup', onUp);
       discWrap.addEventListener('pointercancel', onCancel);
       discWrap.addEventListener('keydown', onKey);
-      // 键盘可达。role=slider + aria-valuenow 让读屏能播报当前角度。
+      // 键盘可达。role=slider + aria-valuenow 让读屏能播报当前角度；
+      // Enter/Space 是翻面，标签里说清楚。
       discWrap.tabIndex = 0;
       discWrap.setAttribute('role', 'slider');
-      discWrap.setAttribute('aria-label', '唱片，可拖动或用方向键旋转');
+      discWrap.setAttribute('aria-label', '唱片，可拖动或用方向键旋转，回车展开或收起歌词');
       discWrap.setAttribute('aria-valuemin', '0');
       discWrap.setAttribute('aria-valuemax', '360');
     }
@@ -364,6 +473,10 @@ var lastFrame = 0;
     // 而歌词还没展开。
     setOpen(readStored() === 'open');
 
+    // 导航抽屉：把手挂 body 上（fixed 浮件，不参与 .app 的栅格），
+    // 卸载时统一摘掉。
+    mountNavDrawer();
+
     // 设置浮层与所有皮肤共用一份（skins/skin-settings-sheet.js）：
     // #view-settings 搬进浮层，setView('settings') 被拦截成开浮层，
     // 持久化逻辑与其它皮肤完全一致。
@@ -378,6 +491,7 @@ var lastFrame = 0;
     // 设置浮层是共用的业务节点载体，必须先于自己的节点归还，否则
     // 锚点还原会把 #view-settings 留在已被删除的浮层里。
     if (window.SkinSettingsSheet) window.SkinSettingsSheet.unmount();
+    unmountNavDrawer();
     document.body.classList.remove(OPEN_CLASS);
 
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
@@ -431,6 +545,11 @@ var lastFrame = 0;
     angle: function () { return angle; },
     hasDisc: function () { return !!discWrap; },
     isDragging: function () { return dragging; },
-    isReducingMotion: function () { return reduceMotion; }
+    isReducingMotion: function () { return reduceMotion; },
+    isNavOpen: isNavOpen,
+    navLabel: function () {
+      var label = navHandle ? navHandle.querySelector('.hj-nav-label') : null;
+      return label ? label.textContent : '';
+    }
   };
 })();
