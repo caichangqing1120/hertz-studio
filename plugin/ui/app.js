@@ -2219,6 +2219,31 @@ function applyMotionSurfaces() {
 // 两个变量必须声明在 onSkinChangedForViews **之前**：函数体在启动早期就要执行
 // （Skins.init 的广播），那时若它们还在 TDZ 里，读 `pendingSkinViewHandoff`
 // 会抛 ReferenceError —— 正是这个 bug 最初「无报错」表现不出来的那类坑。
+// 默认视图：**所有皮肤**一致，都是在线曲库。
+// ---------------------------------------------------------------------------
+// 为什么不是本地曲库：本地库要用户先填一个音乐目录才有内容，新装/刚迁移的
+// 机器点开就是「曲库还是空的」大引导卡；在线曲库开机就有可听的东西。
+//
+// 边界（这条最容易做错）：只改「回首页」语义 —— 启动、换肤后回默认、
+// 当前视图被隐藏后的兜底。**不改显式导航**：用户点导航里的「曲库」仍然去
+// 本地曲库，那是他自己的选择，不是默认值该替他做的决定。
+// 把 rail 的点击也改掉的表现是「本地曲库再也回不去了」。
+var DEFAULT_VIEW = 'online';
+const DEFAULT_VIEW_KEY = 'vmusic.defaultView';
+
+function defaultView() {
+  try {
+    const saved = localStorage.getItem(DEFAULT_VIEW_KEY);
+    // 存过但不认识（视图被删/改名）就回落默认：setView 会把不匹配的视图
+    // 一起 hidden，落在一个不存在的 id 上 = 整页空白且不报错。
+    if (saved && ui.views && Object.prototype.hasOwnProperty.call(ui.views, saved)) return saved;
+  } catch (e) { /* 隐私模式 */ }
+  return DEFAULT_VIEW;
+}
+
+// 两个变量必须声明在 onSkinChangedForViews **之前**：函数体在启动早期就要执行
+// （Skins.init 的广播），那时若它们还在 TDZ 里，读 `pendingSkinViewHandoff`
+// 会抛 ReferenceError —— 正是这个 bug 最初「无报错」表现不出来的那类坑。
 var dailyStripBound = false;
 var pendingSkinViewHandoff = false;
 
@@ -2228,7 +2253,7 @@ function onSkinChangedForViews() {
     pendingSkinViewHandoff = true;
     return;
   }
-  setView('library');
+  setView(defaultView());
 }
 
 /// Daily.bind() 之后调用：若启动期攒下了换肤广播，这里补上对账。
@@ -2236,7 +2261,7 @@ function bindDailyStrip() {
   dailyStripBound = true;
   if (!pendingSkinViewHandoff) return;
   pendingSkinViewHandoff = false;
-  setView('library');
+  setView(defaultView());
 }
 
 function applyNavVisibility() {
@@ -2248,7 +2273,10 @@ function applyNavVisibility() {
     if (ui[uiKey]) ui[uiKey].checked = visible;
     if (!visible && state.view === view) hidCurrent = true;
   }
-  if (hidCurrent && state.view !== 'library') setView('library');
+  // 兜底的判据是"有没有东西被藏起来"，不是"是不是首页"：
+  // 默认视图自己被关掉时（nav_visible_online=false）也必须有地方去，
+  // 那时落回 library —— 它是唯一一定还在的视图。
+  if (hidCurrent) setView(ui.views[DEFAULT_VIEW] ? DEFAULT_VIEW : 'library');
   // 皮肤层（清风的胶囊主菜单等）跟着同步；没有监听方时是空投事件。
   document.dispatchEvent(new CustomEvent('nav:changed'));
 }
@@ -8023,7 +8051,9 @@ async function startApp() {
 
   bindMediaSession();
 
-  setView('library');
+  // 启动落在默认视图（在线曲库）—— 见 defaultView() 上方的边界说明：
+  // 这里只改"回首页"语义，rail 的显式点击仍去本地曲库。
+  setView(defaultView());
   // 先把封面票签好再拉列表：coverUrl() 是同步契约，票没到位就只能退回 ?token=，
   // 那第一屏封面又会把长期凭据带进 URL（正是这一步要消掉的东西）。
   await refreshCoverTicket();
