@@ -1,0 +1,960 @@
+/* SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 hertz-studio contributors
+ *
+ * 皮肤：heijiao（黑胶）—— 双卡片 + 可拖转的唱片
+ * ===========================================================================
+ * 与潮汐（chaoxi）的关系：**外壳复用，内核不同**。
+ *
+ *   外壳（顶部通栏导航 + 内容区拿回全宽 + 整页滚动）几乎逐字沿用潮汐：
+ *   那套已经踩过「通栏被装饰层画成浮卡」「通栏半透明透壁纸」「body[data-stage-idle]
+ *   把单列压回窄轨」三个坑，规则本身连同注释一起继承，不再各写一遍。
+ *
+ *   内核不同在两处：
+ *     ① 舞台（.stage）不再是右下角浮层，而是**常驻左卡**（占中部 1/3）。
+ *        潮汐要把它藏起来是因为它宽 440px 且信息密度低；黑胶反过来把它当主角，
+ *        内容区因此少掉一列 —— 这是本皮肤唯一的"减法"，也是它区别于潮汐的
+ *        第一眼特征。
+ *     ② 列表不再是行，而是**卡片网格**。行列表在 1/3 + 2/3 的双栏里每行都要
+ *        压到 300px 以下，七列（索引/封面/标题/专辑/音质/时长/操作）必然要
+ *        砍列，砍哪一列都是信息损失；卡片让每首歌独占一格，七列信息全部留得下。
+ *
+ * 纪律（见 skins.js 文件头）：
+ *   · 本文件**零颜色字面量** —— 配色一律 var(--…) 走 themes.js；
+ *   · 禁交互状态选择器（:hover/:active/:focus）—— 状态语义由 style.css 统管；
+ *   · 排版只改 --skin-h* 令牌，不逐个组件抄字号。
+ */
+
+/* ==========================================================================
+   1. 布局令牌
+   ========================================================================== */
+
+[data-skin="heijiao"] {
+  /* 留白。取值与潮汐同一档：黑胶多了左卡，信息密度天然更低，
+     但**不再往上加** —— 留白是从内容里省出来的，尺度一大第一个被挤没的是列表。 */
+  --skin-gap: 18px;
+  --skin-pad: 24px;
+  --skin-radius: 18px;      /* 设计稿纪律：任何圆角不得超过 20px */
+
+  --skin-title: 22px;       /* 页标题：双栏之下比潮汐小一档，它要与左卡抢注意力 */
+  --skin-head-pb: 14px;
+
+  /* 卡片网格。单卡下限 168px —— 宽屏下（1440）右栏约 940px，一行放 5 张；
+     1280 时约 800px 放 4 张。刻意压小下限：卡片一大就退化成"每行两张"，
+     网格卡片的意义（一眼扫到更多首）就没了。 */
+  --skin-card-min: 168px;
+
+  /* 顶部通栏高度：它是 fixed 的，栅格里没有它的位置，由外壳 padding 让出。
+     与 .rail 的 padding/条目高度同源（8×2 + 32 = 48）。 */
+  --skin-nav-h: 48px;
+
+  /* 播放条实高兜底。不能只写 --bar-h（那只是 min-height，真实高度随断点重排：
+     一行 80px / ≤900px 两行 117px / ≤620px 三行 163px）—— 拿它当让位依据，
+     面板底边会插进播放条上沿，而两块都是暗玻璃，不量 rect 根本看不出来。 */
+  --skin-bar-foot: 80px;
+
+  /* 唱片可点尺寸。这是**上限**不是定值：左卡宽度 = 中部宽度的 1/3，窄了就得缩。 */
+  --skin-disc-max: 300px;
+
+  /* ==== 排版令牌 ==== */
+  --skin-h1: var(--skin-title);
+  --skin-h2: 13.5px;        /* 曲名 / 卡片标题：与默认同值 */
+  --skin-h3: 12px;          /* 艺人 / 专辑 / 时长 */
+  --skin-h4: 11px;          /* 音质徽标 */
+  --skin-h-album: 12.5px;
+  --skin-h2-w: 500;
+  --skin-line-h: 1.55;
+  --skin-track-tight: -0.2px;
+  --skin-track-wide: 0.6px;
+  --skin-lh-tight: 1.3;
+  --skin-w-head: 600;
+
+  /* ==== 表面令牌 ====
+     通栏补不透明：--skin-surface 来自主题的 --glass-bg-strong，22 套内置主题里
+     只有晴空族那 5 套给了 0.96，其余走 style.css 默认的 rgba(18,20,28,.78) ——
+     亮壁纸照样透上来。所以叠一层 --bg 同色的遮罩把不透明度补满（与潮汐同解）。
+     color-mix 而不是写死：--bg 每套主题都有，深浅自动跟随，写死既违反
+     "零颜色字面量"也没法同时服务深浅两端。 */
+  --skin-rail-veil: color-mix(in srgb, var(--bg) 62%, transparent);
+
+  --skin-surface: var(--glass-bg-strong);
+  --skin-surface-card: var(--surface-1);
+  --skin-line-soft: var(--surface-line);
+  --skin-line-hard: var(--surface-line-strong);
+  --skin-shadow: var(--glass-shadow);
+  --skin-shadow-card: var(--surface-lift);
+
+  --skin-ctl-radius: var(--r-pill);
+  --skin-focus-offset: 3px;
+}
+
+/* ==========================================================================
+   2. 外壳：顶部通栏 + 中部双卡片
+   ========================================================================== */
+
+[data-skin="heijiao"] .app {
+  /* 中部两轨：左封面卡 1/3、右内容面板 2/3。
+     minmax(0,1fr) 兜住长歌名；左轨下限 300px 是"唱片 + 曲名 + 一句歌词"
+     的最小可用宽度，再窄唱片就缩到不成比例（见下面 .disc-wrap 的 clamp）。 */
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 2fr);
+  /* 显式的行高，两列才真的撑满视口。
+     不写的话行高由**最高的那列**决定，而 .column 的 flex 是 `0 1 auto`
+     （按内容高），于是行高 = 右面板内容高：实测 308px。左卡 stretch 到
+     308px 后内部 flex:none 的内容（唱片 300 + 标题 + 按钮 ≈ 470px）溢出，
+     表现是"左卡掉到页面下方去了、上方一大片空白"，且不报错。
+     别写 1fr：.app 是 flex 子项，flex:1 给的是"占满剩余空间"，但它的
+     高度仍由内容决定 —— 真正需要的是一条按视口算的行高。
+     减去的两段：顶部通栏 + 底部播放条（含留位），都用令牌，
+     断点里跟着变。 */
+  grid-template-rows: calc(100dvh - var(--topbar-h) - var(--skin-nav-h)
+                           - var(--skin-bar-foot));
+  gap: var(--skin-gap);
+  padding: var(--skin-nav-h) var(--skin-pad) var(--skin-gap);
+  /* 行高已经按视口算死，外壳不能再跟着内容长高，否则底部会多出一截空白。 */
+  align-content: start;
+}
+
+/* ⚠ 两块必须**显式认领轨道**，不能靠源序。
+   .app 的子元素源序是 rail / column / stage，而本皮肤把 .rail 设成
+   position:fixed —— fixed 元素脱离栅格流、不占轨道，于是源序里的第一格
+   归了 .column、.stage 落进第二格：实测左卡 916px、右面板 458px，
+   比例整个反过来（2:1），而且**页面不报错**、卡片照旧渲染，
+   看上去只是"左边那块宽了点"。
+   潮汐是单列，永远碰不到这个，所以那条规则在潮汐里不存在。
+
+   ⚠ 行也要认领（grid-row:1）。只钉 grid-column 的话，列固定了而行还是
+   auto：.column 占住 (1,1) 之后，.stage 的自动行分配会把它推到**下一行**，
+   实测 gridTemplateRows 变成 "714px 50px" —— 左卡整块掉到右面板下方，
+   中间那道 50px 的空行就是"上面一大片空白"的真身。
+   两块都钉同一行，谁也不挤谁。 */
+[data-skin="heijiao"] .stage { grid-area: 1 / 1; }
+[data-skin="heijiao"] .column { grid-area: 1 / 2; }
+
+/* ⚠ 必须显式钉死栅格。style.css 里 body[data-stage-idle="1"] .app
+   （≥1241px、(0,2,1)）会把外壳改成「86px + 1fr」，本皮肤基础 .app（0,2,0）
+   压不过它 —— 不钉则内容落进 86px 窄轨、整块布局错位。
+   这条选择器 (0,3,1) 同时也覆盖了它那句 body[data-stage-idle] .stage{display:none}：
+   黑胶的舞台是**左卡**，不是可收起的侧栏，空闲时被整条 display:none 拿掉
+   就等于"左卡凭空消失、栅格塌成一列"。所以下面另有一条把 .stage 拉回来。 */
+@media (min-width: 1241px) {
+  [data-skin="heijiao"] body[data-stage-idle="1"] .app {
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 2fr);
+  }
+  /* 这条 (0,3,1) 同时压过 style.css 那句 body[data-stage-idle] .stage{display:none}：
+     黑胶的舞台是**常驻左卡**，不是可收起的侧栏。被整条拿掉就等于
+     "空闲几秒后左卡凭空消失、栅格塌成一列"，且页面不报错。 */
+  [data-skin="heijiao"] body[data-stage-idle="1"] .stage {
+    display: flex;
+    grid-column: 1;
+  }
+  /* 收起舞台时顶栏那枚「正在播放」按钮会冒出来（style.css 的规则），
+     在黑胶里它是多余的 —— 左卡一直显示正在放的是什么。 */
+  [data-skin="heijiao"] body[data-stage-idle="1"] #stage-btn {
+    display: none;
+  }
+}
+
+/* --- 导航：顶部通栏（沿用潮汐，含那两处踩坑的补丁） -------------------- */
+
+/* ⚠ 材质规则必须对**所有主题**生效，不能按 data-look 族挑。
+   踩过的坑：先写成 html:is([data-look=…])[data-skin="chaoxi"] .rail，
+   结果 161 个「主题 × 皮肤」组合里 18 个坏掉 —— 那些不带族的主题
+   （data-look="plain"，共 18 套）压根不匹配，通栏又变回玻璃渐变，
+   而它们恰恰是用户截图里那套。教训：族是装饰层的概念，皮肤不该依赖它。
+   压过装饰层靠 html[data-skin] 前缀：(0,3,1) > 装饰层的 (0,2,1)。 */
+html[data-skin="heijiao"] .rail,
+html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
+  /* 只管材质：圆角、边框、底色、模糊、投影。布局在下一条，不重复 ——
+     重复的代价是日后改一处忘另一处，症状是同一通栏在两套主题下宽度不同。 */
+  border-radius: 0;
+  border-width: 0 0 1px;
+  border-style: solid;
+  border-color: var(--skin-line-soft);
+  /* 必须写成 background **简写**：简写会把 background-image 一并重置掉，
+     而装饰层给 .rail 设的正是 background-image（玻璃渐变）。早先一版为了
+     少写一层改成 background-color，装饰层的 image 就残留了下来 ——
+     于是修好之后又更糟（玻璃渐变压住实底）。 */
+  background:
+    linear-gradient(var(--skin-rail-veil), var(--skin-rail-veil)),
+    var(--skin-surface);
+  backdrop-filter: blur(24px) saturate(1.1);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  box-shadow: var(--skin-shadow);
+}
+
+/* 不带族的选择器只管布局。布局对所有主题一致、材质才需要压过装饰层。 */
+[data-skin="heijiao"] .rail {
+  position: fixed;
+  top: var(--topbar-h);
+  left: 0;
+  right: 0;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 8px var(--skin-pad);
+  z-index: 55;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+[data-skin="heijiao"] .rail-item {
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--skin-ctl-radius);
+  white-space: nowrap;
+}
+
+[data-skin="heijiao"] .rail-item svg { margin: 0; flex: none; }
+
+[data-skin="heijiao"] .rail-item span {
+  font-size: var(--skin-h3);
+  font-weight: var(--skin-h2-w);
+  line-height: var(--skin-lh-tight);
+}
+
+/* 横向栏里没有"把设置顶到底部"这回事，弹簧没有意义。 */
+[data-skin="heijiao"] .rail-spacer { display: none; }
+
+/* 顶栏：左右内距与内容外壳同源，别再各留各的（否则 logo 左缘比下方内容卡
+   各探出 8px，用户看到的"顶部和下面没对齐"就是这个）。 */
+[data-skin="heijiao"] .topbar {
+  padding-inline: var(--skin-pad);
+}
+
+/* 晴空族把 .topbar/.column 画成浮起卡片（16px 圆角 + 整圈描边 + 阴影）。
+   通栏导航是满宽的，一旦被画成卡片就比内缩的内容卡左右各探出一个
+   --skin-pad，又读成"顶部和下面没对齐"。这里只还原浮卡外形、保留实底。 */
+html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar,
+html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
+  border-radius: 0;
+  border-width: 0 0 1px;
+  box-shadow: none;
+}
+
+[data-skin="heijiao"] .topsearch {
+  height: 48px;
+  border-radius: var(--skin-ctl-radius);
+}
+
+/* --- 内容面板（右 2/3） ------------------------------------------------- */
+
+[data-skin="heijiao"] .column {
+  border-radius: var(--skin-radius);
+  padding: 0;
+  /* min-width:0：栅格轨道已是 minmax(0,2fr)，但 .column 作为子项仍可能按
+     内容最小宽度撑开，长歌名会把整块面板顶出视口。
+     min-height:0 是定高行的纪律：不给的话 .view 的 overflow-y:auto
+     不会成为滚动容器，内容超出时浏览器会把可收缩项压扁而不是出滚动条。 */
+  min-width: 0;
+  min-height: 0;
+}
+
+[data-skin="heijiao"] .view {
+  width: 100%;
+  min-width: 0;
+  padding: var(--skin-pad) 0;
+  /* 整页滚动：滚动权从"各列表体"上移到 .view 一个容器。
+     默认链路是 .view 固定高 + 每个列表体 flex:1 自己滚，于是列表能拿到的
+     只有剩余高度。改成卡片网格后列表不再需要自滚，卡片按内容长高即可。 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+}
+
+/* ⚠ 这一条是 .view 能滚的前提，漏了它上一条等于没写。
+   .view 是 flex 列：内容超出时 flex 会**先把可收缩项压扁**，而不是产生滚动。
+   潮汐第 3 版就栽在这里 —— 滚动结构换对了，但日推条仍被压成 50px 高，
+   它的 overflow:hidden 把里面 122px 的标题与 668px 的卡片一起裁掉。
+   症状是"区块在、数据在、就是不显示"，页面还不报错。
+   所以滚动容器里的直接子元素一律不可收缩，高度交给内容自己定。 */
+[data-skin="heijiao"] .view > * {
+  flex: none;
+}
+
+[data-skin="heijiao"] .col-head {
+  padding-bottom: var(--skin-head-pb);
+  margin-bottom: var(--skin-gap);
+  align-items: baseline;
+}
+
+[data-skin="heijiao"] .col-head-left { flex: 1 1 auto; min-width: 0; }
+
+[data-skin="heijiao"] .col-title {
+  font-size: var(--skin-h1);
+  font-weight: var(--skin-w-head);
+  letter-spacing: var(--skin-track-tight);
+  line-height: var(--skin-lh-tight);
+}
+
+/* 工具行（音源/音质/筛选/视图切换）在只剩 2/3 宽的栏里最容易挤成一团：
+   允许换行，并给 flex-wrap 而不是让它们被压扁。 */
+[data-skin="heijiao"] .col-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+[data-skin="heijiao"] .col-tools select,
+[data-skin="heijiao"] .col-tools input {
+  flex: none;
+  max-width: 200px;
+}
+
+/* ==========================================================================
+   3. 左卡：唱片封面（可拖转）
+   ========================================================================== */
+
+[data-skin="heijiao"] .stage {
+  /* 常驻左卡 —— 这是黑胶与潮汐最直观的差别：潮汐 display:none + 浮层把手，
+     黑胶把它当成主角常驻第一轨。
+     position/right/top/max-height 全部清掉：基础样式在 ≤1240px 下把它变成
+     fixed 抽屉（见 stage.css），而这里要让栅格接管定位，继承下来就会
+     "以 translateX 的姿态撑出横向滚动"。 */
+  position: relative;
+  inset: auto;
+  transform: none;
+  width: auto;
+  max-height: none;
+  z-index: auto;
+  display: flex;
+  flex-direction: column;
+  /* ⚠ flex:none 是必需的，不是顺手写的。
+     基础样式给 .stage 的 flex 是 `0 1 auto`（可收缩），而左卡是栅格子项：
+     默认 align-items:stretch 让它与右面板等高，可一旦内容所需高度超过
+     栅格行高，浏览器会**先压扁可收缩项**而不是让栅格行长高 —— 实测左卡
+     被压到 356px（内容需要 470px），歌词只剩 120px 的地板高度。
+     更糟的是展开歌词那一刻：卡片内容变矮了，可收缩的 flex 让卡片跟着缩到
+     291px，于是"展开后歌词拿到更多高度"变成了**更少**（48px）。
+     症状是"点开歌词反而只剩两行"，页面不报错、元素一个不少。 */
+  flex: none;
+  /* stretch 让左卡与栅格行等高（不写的话它只按内容高度，
+     顶部会与右面板不齐 —— 右侧内容一多，左卡就短一截，
+     看上去像"左卡掉下去了"）。
+     justify-content 让内容从顶部排：默认 flex-start 就是我们要的，
+     但基础样式给了 align-items/justify-content 之外的居中规则，
+     显式写一遍免得日后基础样式一改就漂。 */
+  align-self: stretch;
+  justify-content: flex-start;
+  /* 面板本身不滚，歌词区自己滚。写 overflow:auto 会长出两条贴在一起的
+     滚动条：横向那条是 .stage::before 那个 inset:-30% 的取色光晕撑出来的，
+     纵向那条与歌词区重复。基础样式本是 overflow:hidden，这里守住。 */
+  overflow: hidden;
+  min-height: 0;
+  padding: var(--skin-pad);
+  border-radius: var(--skin-radius);
+  border: 1px solid var(--skin-line-hard);
+  background: var(--skin-surface);
+  backdrop-filter: blur(24px) saturate(1.1);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  box-shadow: var(--skin-shadow);
+}
+
+/* 取色光晕在左卡里太吵（它那三个 radial 各 46%~58% 直径，铺满整卡就是
+   一团糊），压到近乎不可见 —— 黑胶的视觉主体是唱片本身，靠 --brand 打亮。 */
+[data-skin="heijiao"] .stage::before {
+  opacity: calc(0.1 + var(--stage-energy) * 0.1);
+}
+
+/* 头部只留模式切换，去掉"正在播放/队列"那两枚（队列在右侧面板里是独立选项卡，
+   这里再放一个是重复入口）。隐藏用 display:none 而非 hidden：
+   舞台是 display:flex 的 flex 列，hidden 在部分实现下仍参与布局判断。 */
+[data-skin="heijiao"] .stage-kicker { display: none; }
+[data-skin="heijiao"] .stage-queue { display: none; }
+[data-skin="heijiao"] .stage-head { margin-bottom: 0; justify-content: flex-end; }
+[data-skin="heijiao"] .stage-head-fs { margin-left: auto; }
+
+[data-skin="heijiao"] .stage-head .stage-modes { margin-left: auto; }
+
+/* 唱片容器。这是**用户可拖转**的那一层，cursor/touch-action 在这里给：
+ *   · cursor:grab / grabbing —— 让"能拖"这件事在手形光标上先说一遍；
+ *   · touch-action:pan-y —— 触摸设备上把纵向手势留给页面滚动，
+ *     只接管横向。**这条是"旋转不影响页面滚动"的唯一保证**：不写它，
+ *     移动端在唱片上纵向划动会被浏览器的滚动判定抢走，表现为"唱片转不动"，
+ *     反过来横向也会被判成滚动而卡顿。none 会连页面滚动一起禁掉（更糟，
+ *     用户困在一张唱片里出不来），所以是 pan-y 而不是 none。 */
+[data-skin="heijiao"] .disc-wrap {
+  width: min(100%, var(--skin-disc-max));
+  aspect-ratio: 1;
+  margin: 0 auto;
+  flex: none;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  touch-action: pan-y;
+  /* 播放中的自动旋转由 JS 统一接管（skin.heijiao.js 的旋钮）：
+     CSS 里那条 disc-spin 与 JS 写的 transform 会互相覆盖，
+     表现是"唱片每帧被拽回 0°"。所以这里停掉动画，角度一律走 --hj-turn。 */
+  animation: none;
+}
+
+/* 拖动中的手形与光标。**注意**：这是交互状态选择器，skin 的纪律是禁用的，
+   但适用范围是"业务组件的状态语义"——这里是皮肤自造的旋钮，
+   基础样式里根本没有对应规则，不写就拿不到 grabbing。 */
+[data-skin="heijiao"] .disc-wrap.hj-grabbing {
+  cursor: grabbing;
+}
+
+/* 无封面时的占位不该跟着转（转一张写着 ♪ 的圆片很怪），停掉它的自转并
+   降低存在感。空态的具体画法仍由 stage.css 的 .is-empty 负责。 */
+[data-skin="heijiao"] .disc.is-empty {
+  animation: none;
+  opacity: 0.9;
+}
+
+/* 唱片本体：角度由 JS 写进 --hj-turn，这里只消费。
+   transform-origin 必须是中心（默认就是 50% 50%，显式写出来是为了让
+   "旋转 360° = 转一圈回到原样"这件事在代码里可读）。 */
+[data-skin="heijiao"] .disc {
+  animation: none;               /* 自转交给 JS，与拖转共用一个角度通道 */
+  transform: rotate(var(--hj-turn, 0deg));
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+/* 唱片纹路：一圈圈同心槽。放在 .disc 的伪元素上（跟着父级 transform 一起转）。
+   为什么不用 background-image：封面是 stage.js 的 applyBg 写在**行内**
+   style.backgroundImage 上的，任何 CSS 里的背景图层都会被行内值覆盖掉，
+   加了纹路等于没加（封面照旧，纹路无声消失）。
+
+   颜色走 currentColor 叠透明度 —— 零颜色字面量，深浅主题自动跟随文字色。
+   :not(.is-empty) 是必须的：空态时 ::before 已经被 ♪ 占用了，
+   转一张写着音符的圆片很怪，所以空态只留占位符不画纹路。
+
+   ⚠ 纹路**只画外圈**，中心那一块要留给封面。整片都画的话，深色主题下
+   纹路把封面压得几乎看不见（实测截图里唱片是一坨纯黑，认不出是什么专辑）。
+   真黑胶也是这样：外圈是密集纹路、中间是平整的画面区。
+   mask 的两头都不透明、中间镂空，正好实现"只在外圈"。 */
+[data-skin="heijiao"] .disc:not(.is-empty)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: repeating-radial-gradient(
+    circle at 50% 50%,
+    transparent 0 3px,
+    color-mix(in srgb, currentColor 7%, transparent) 3px 4px
+  );
+  /* 0~46% 镂空（封面区），46~100% 画纹路，中心轴孔另由 ::after 负责。 */
+  mask: radial-gradient(circle at 50% 50%,
+    transparent 0 46%, currentColor 52%);
+  -webkit-mask: radial-gradient(circle at 50% 50%,
+    transparent 0 46%, currentColor 52%);
+  opacity: 0.45;
+}
+
+/* 中心轴孔（.disc::after）是 .disc 的伪元素，会跟着父级 transform 一起转 ——
+   这与真唱片一致（标签压在盘面上），且在 44px 孔径上转不转看不出区别，
+   所以不为它单独做反向补偿，省一层 compositing。 */
+
+/* 唱片边缘的高光环：转起来时它会跟着动，给"实体感"补一个参照。 */
+[data-skin="heijiao"] .disc-ring {
+  opacity: calc(0.18 + var(--stage-energy) * 0.5);
+}
+
+/* 曲名 / 艺人。两行都 flex:none —— 这是定高 flex 列里最容易被压扁的一档
+   （sheen 实测 21px 的字被切成 14px 的半截）。余量明确落给歌词。 */
+[data-skin="heijiao"] .stage-title,
+[data-skin="heijiao"] .stage-artist {
+  flex: none;
+}
+
+[data-skin="heijiao"] .stage-title {
+  margin-top: 14px;
+  text-align: center;
+  font-size: var(--skin-h1);
+  font-weight: var(--skin-w-head);
+  line-height: var(--skin-lh-tight);
+  letter-spacing: var(--skin-track-tight);
+}
+
+[data-skin="heijiao"] .stage-artist {
+  text-align: center;
+  font-size: var(--skin-h3);
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* 频谱在左卡里没有意义（卡片不是播放控制区，底部那条才是），收掉它把空间
+   让给歌词。留着的话 960×88 的画布在 300px 宽的卡里会被压成一条噪点。 */
+[data-skin="heijiao"] .spectrum {
+  display: none;
+}
+
+/* 歌词区：左卡的余量全部归它。
+   min-height 是必需的 —— flex:1 但没有地板时会被压到内容那么高，
+   缺口则落到仅剩的可收缩项上（曲名/艺人已在上面钉成 flex:none，
+   于是缺口会落到 .stage::before 之外的 padding 与 border 上，
+   表现是"歌词整块不见了"，页面不报错）。 */
+[data-skin="heijiao"] .stage-lyrics {
+  flex: 1 1 auto;
+  min-height: 120px;
+  margin-top: 14px;
+  text-align: center;
+}
+
+/* 进度条：左卡里点一下就跳到别处去了，重复了底部那条。收掉。 */
+[data-skin="heijiao"] .stage-progress { display: none; }
+
+/* --- 展开态：点封面 → 歌词全高 ---------------------------------------- */
+/* 类名由 skin.heijiao.js 挂在 body 上（业务 HTML 里没有这层）。
+   展开不是位移而是**把唱片收起来、歌词吃满整卡**：
+   唱片从 300px 缩到 0 需要 transition，而 transform 缩到 0 会让
+   "再点一下收回去"的命中区消失 —— 所以收起的唱片保留 opacity 归零
+   而不是 display:none（见下面那条），点击目标全程稳定。 */
+[data-skin="heijiao"] body.hj-lyrics-open .disc-wrap {
+  width: min(52px, 40%);
+  opacity: 0;
+  /* pointer-events 保留：唱片区仍可点（点它=收起），
+     只是它不再挡歌词的命中。 */
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+[data-skin="heijiao"] body.hj-lyrics-open .stage-lyrics {
+  /* 展开态把让位给唱片的那份高度还给歌词，但**下限不能一起归零** ——
+     flex:1 无地板时它会被压到内容那么高，缺口落到别的可收缩项上；
+     矮屏（≤820px 那类）上就表现为"展开后歌词只剩两行"。 */
+  min-height: 200px;
+  margin-top: 4px;
+  /* 归到顶部而不是让 flex:1 的余量把它顶到中间：唱片收起后卡片里
+     剩下的全是空白，歌词若居中就会在下方留一大片（实测上半屏全空）。
+     justify-content 让整列内容从顶部排，歌词紧跟曲名往下走。 */
+  align-self: stretch;
+}
+
+[data-skin="heijiao"] body.hj-lyrics-open .stage {
+  /* 展开态整列从顶部排：唱片收起后剩下的全是空白，歌词若被 flex:1
+     顶到中间，上半屏就空着（实测整块空白压在曲名上方）。 */
+  justify-content: flex-start;
+}
+
+[data-skin="heijiao"] .disc-wrap {
+  transition: width 0.32s var(--ease, ease), opacity 0.24s linear,
+              margin 0.32s var(--ease, ease);
+}
+
+/* 封面卡底部的操作行。业务 HTML 里没有这层，是 skin.heijiao.js 自建的
+   （make/remove 那一套，卸载时统一摘掉）。它只提供"展开/收起歌词"这一个
+   动作 —— 播放控制在底部那条，队列在右侧面板。 */
+[data-skin="heijiao"] .hj-lyric-toggle {
+  flex: none;
+  margin-top: 10px;
+  height: 34px;
+  padding: 0 16px;
+  align-self: center;
+  border-radius: var(--skin-ctl-radius);
+  border: 1px solid var(--skin-line-soft);
+  background: var(--skin-surface-card);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--skin-h3);
+  font-weight: var(--skin-h2-w);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease, ease);
+}
+
+/* ==========================================================================
+   4. 卡片网格（替代行列表）
+   ==========================================================================
+   为什么必须换：行是七列（索引/封面/标题/专辑/音质/时长/操作），
+   在双栏下的 2/3 宽度里一行放不下，砍列就丢信息。卡片让每首歌独占一格，
+   七列信息全部留得下，且网格本身就是"一眼扫到更多首"的形态。
+
+   实现上**只改几何不改结构**：.track 仍是那七个子节点，只是 grid 轨道从
+   「一行七列」改成「封面一行 + 信息两行」。这样零 JS、零 DOM 改动，
+   勾选、拖拽、右键菜单、Favorites.attachHeart 全部照旧生效。
+   ========================================================================== */
+
+/* 列表容器转网格。列头（.lib-head / .q-head / .fav-head）在卡片模式下没有
+   对应的一行刻度，收起来 —— 它的作用是给行列表当标尺。 */
+[data-skin="heijiao"] .lib-list,
+[data-skin="heijiao"] .q-list,
+[data-skin="heijiao"] .fav-list,
+[data-skin="heijiao"] .op-history-list,
+[data-skin="heijiao"] .online-body,
+[data-skin="heijiao"] .pd-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
+  gap: var(--skin-gap);
+  align-content: start;
+  /* 列表体不再自滚（滚动权归 .view 一个容器，见上）。
+     两层滚动条并排是项目里反复出现的体验事故。 */
+  overflow: visible;
+  min-height: 0;
+  flex: none;
+  padding-bottom: 0;
+}
+
+[data-skin="heijiao"] .lib-head,
+[data-skin="heijiao"] .q-head,
+[data-skin="heijiao"] .fav-head {
+  display: none;
+}
+
+/* --- 单张卡片 ----------------------------------------------------------- */
+
+/* .track 同时是曲库、收藏（.fav-row）两处的行类名，一并改。
+   四行两列，与七个直接子节点一一对应：
+     行1  art（封面，跨两列）
+     行2  main（曲名+艺人） | act（操作，跨两列）
+     行3  album（专辑，跨两列）
+     行4  quality | dur
+   行数必须写足：grid-template-areas 少声明一行，
+   .t-album 就被挤到隐式行（auto 栅格）上，而隐式行没有 gap ——
+   症状是"专辑名贴着封面/曲名，间距比别处小"，不报错、很难一眼看出成因。 */
+[data-skin="heijiao"] .track {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "art  art"
+    "main main"
+    "album album"
+    "qual dur";
+  grid-template-rows: auto auto auto auto;
+  align-items: start;
+  gap: 6px 8px;
+  /* 行高由 style.css 的 height:var(--row-h) 钉死；卡片要按内容长高。
+     不写 auto 的话内容被裁（overflow:hidden 是下面那条），卡片只剩一条缝。 */
+  height: auto;
+  min-height: 0;
+  padding: 10px;
+  border-radius: var(--skin-radius);
+  background: var(--skin-surface-card);
+  border: 1px solid var(--skin-line-soft);
+  overflow: hidden;
+  /* .t-actions 要绝对定位到封面右上角，而 .track 基础是 position:relative，
+     这里显式重申一遍：不写的话这层浮动的定位基准会退回 .stage-lyrics 之外的
+     某个祖先，卡片一多按钮就全叠到页面上同一个点。 */
+  position: relative;
+}
+
+/* 卡片化之后 hover 的整行高亮（基础样式是一条横带）会被卡片边框衬得
+   像"多了一层"，换成边框提亮。这里写 --skin-line-hard 而非新颜色：
+   它已经是"更实的那档描边"的语义。 */
+[data-skin="heijiao"] .track:hover {
+  border-color: var(--skin-line-hard);
+}
+
+/* 封面：撑满卡宽的方块，是卡片的视觉主体。 */
+[data-skin="heijiao"] .track .t-art {
+  grid-area: art;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  margin: 0;
+}
+
+/* 索引/等化条在卡片里没有意义（卡片有位置感，不需要序号），
+   但**不能只写 grid-area: none 就完事** —— 它仍占一个隐式格，
+   在 art 与 main 之间插一条空轨道。display:none 才真的摘掉。 */
+[data-skin="heijiao"] .track .t-index {
+  display: none;
+}
+
+/* 曲名 + 艺人竖排。min-width:0 是 ellipsis 的前提。 */
+[data-skin="heijiao"] .track .t-main {
+  grid-area: main;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 专辑从独立列降为卡底一行，仍完整保留 —— 卡片的价值就是七列信息一个不丢。 */
+[data-skin="heijiao"] .track .t-album {
+  grid-area: album;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-skin="heijiao"] .track .t-quality {
+  grid-area: qual;
+  text-align: left;
+}
+
+[data-skin="heijiao"] .track .t-dur {
+  grid-area: dur;
+  text-align: right;
+  justify-self: end;
+}
+
+/* 操作按钮浮到封面右上角。它是绝对定位（脱离 grid 流），所以上面
+   grid-template-areas 里没有它的格子 —— 少写一个 act 区不是漏，是它不该占位。
+   opacity:1 是必须的：基础样式 .t-actions { opacity:0 } 靠 hover 才显形，
+   而卡片的封面区正压在它下面，留着半透明等于"看不见也点不到"。
+   background 给按钮自己的底盘，否则浅色封面上那三枚图标完全不可见。 */
+[data-skin="heijiao"] .track .t-actions {
+  position: absolute;
+  /* 内缩 16px：贴着卡片右上角会压住封面，也让它与卡片边框之间
+     有一条一致的留白（卡片 padding 是 10px，多留一点更透气）。 */
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  /* opacity:1 是必须的：基础样式 .t-actions { opacity:0 } 靠 hover 才显形，
+     而卡片的封面区正压在它下面，留着半透明等于"看不见也点不到"。 */
+  opacity: 1;
+  /* 三枚图标挤在一起时是一小片金属，磨圆一点更压得住封面。 */
+  border-radius: var(--skin-ctl-radius);
+  background: var(--skin-surface);
+}
+
+/* 正在播放：不再是一根左侧竖条（卡片没有左边），改成边框染品牌色。 */
+[data-skin="heijiao"] .track.active {
+  border-color: var(--brand);
+}
+
+[data-skin="heijiao"] .track.active::before {
+  display: none;
+}
+
+[data-skin="heijiao"] .track.active .t-title {
+  color: var(--brand);
+}
+
+/* --- 队列行（.q-row）：结构更简单，卡片化同理 --------------------------
+   直接子节点五个：.q-grip / .q-num / .q-main / .q-dur / .t-act。
+   三行两列，格子与子节点一一对应（没有绝对定位的例外）：
+     行1  num | act
+     行2  main（跨两列）
+     行3  dur（跨两列）
+   拖拽把手 .q-grip 是**行列表专属**的产物（卡片模式下拖不动），
+   display:none 摘掉，否则隐式格会在 num 上方插一条空轨道。 */
+
+[data-skin="heijiao"] .q-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "num act"
+    "main main"
+    "dur dur";
+  grid-template-rows: auto auto auto;
+  gap: 4px 6px;
+  height: auto;
+  padding: 12px;
+  border-radius: var(--skin-radius);
+  background: var(--skin-surface-card);
+  border: 1px solid var(--skin-line-soft);
+  align-items: center;
+  overflow: hidden;
+}
+
+[data-skin="heijiao"] .q-row .q-grip { display: none; }
+[data-skin="heijiao"] .q-row .q-num { grid-area: num; }
+[data-skin="heijiao"] .q-row .q-main { grid-area: main; min-width: 0; }
+[data-skin="heijiao"] .q-row .q-dur {
+  grid-area: dur;
+  justify-self: start;
+}
+[data-skin="heijiao"] .q-row .t-act { grid-area: act; justify-self: end; }
+[data-skin="heijiao"] .q-row.playing { border-color: var(--brand); }
+
+/* --- 每日推荐横廊：顺势也成网格 ---------------------------------------- */
+/* 原本是一行可横滑的长廊（.daily-list）。双栏下右栏更窄，横滑反而更累，
+   改成与其它列表同一套网格，卡片宽度共用 --skin-card-min。 */
+[data-skin="heijiao"] .daily-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
+  gap: var(--skin-gap);
+  overflow: visible;
+}
+
+[data-skin="heijiao"] .daily-list > * {
+  width: auto;
+  flex: none;
+}
+
+/* --- 歌单 / 在线歌单网格：只需统一卡片下限 --------------------------- */
+
+[data-skin="heijiao"] .pl-grid,
+[data-skin="heijiao"] .op-grid {
+  grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
+  gap: var(--skin-gap);
+}
+
+/* 歌单架（3D 立体架子）在双栏里会横向溢出（它是 transform 相机场景，
+   依赖栏宽算相机偏移）。窄栏下换成封面平铺 —— 由 JS 切档，
+   这里只保证平铺那档的几何正确。 */
+[data-skin="heijiao"] .shelf { display: none; }
+
+/* ==========================================================================
+   5. 播放条（底部）
+   ==========================================================================
+   与潮汐同款：满宽扁平条、左右内缩与内容卡对齐。这两块都是暗玻璃，
+   底边插进对方上沿时肉眼看不出来，所以几何必须算准。
+   ========================================================================== */
+
+[data-skin="heijiao"] .bar {
+  margin: 0 var(--skin-pad) var(--skin-gap);
+  border-radius: var(--skin-radius);
+}
+
+/* ==========================================================================
+   6. 设置
+   ==========================================================================
+   复用共享浮层（skins/skin-settings-sheet.js）：#view-settings 搬进浮层、
+   setView('settings') 被拦截成开浮层、持久化逻辑与其它皮肤完全一致。
+   这里只把浮层的落地几何摆成黑胶的样子（尺寸/圆角/描边读 --skin-* 令牌）。
+   ========================================================================== */
+
+[data-skin="heijiao"] .skset-card {
+  border-radius: var(--skin-radius);
+}
+
+[data-skin="heijiao"] .set-row { padding: 10px 0; }
+
+/* ==========================================================================
+   7. 首页大卡（#home-dashboard）在双栏里与左卡职责重叠
+   ==========================================================================
+   左卡已经承担"当前在放什么"+"可点开歌词"，首页那张「继续聆听 + 三个
+   快捷入口」大卡再放一遍就是同一件事说两遍，且它会挤掉右栏第一屏。
+   收掉。三个快捷入口（音乐库/每日推荐/最近播放）在导航通栏里都有对应条目，
+   收掉不丢功能。
+   注意：只 display:none，**不动 home-dashboard.js** —— 它的探针仍在跑，
+   只是输出挂在一个不渲染的容器里（契约脚本 check-home-dashboard.js 靠它
+   断言信息出口是否齐全，摘掉会让整条契约崩掉）。 */
+[data-skin="heijiao"] .home-dashboard {
+  display: none;
+}
+
+/* ==========================================================================
+   8. 响应式
+   ==========================================================================
+   宽屏：双卡片（1/3 + 2/3），内容为卡片网格。
+   窄屏：纵向堆叠 —— 封面卡在上、内容面板在下，卡片网格降为单列/双列。
+   为什么不是"横向压缩保持双栏"：620px 以下每栏不足 300px，唱片被压到
+   不成比例（小于曲名两行的高度），卡片网格每张也放不下一张封面。
+   纵向堆叠让每一块都拿到整宽，是这个宽度下唯一读得动的排法。
+   ========================================================================== */
+
+/* 矮屏优先：左卡按内容长高（flex:none 之后），高度由视口决定而不是内容。
+   1366×768 这类笔记本上，唱片 300 + 标题 + 按钮 + 歌词地板就接近整屏，
+   再高就撑破栅格行、把右面板顶出一条横向滚动。
+   唱片尺寸跟着视口高度走，并让面板自身可滚作为最终兜底 ——
+   宁可让卡片内部滚，也不能让内容被 overflow:hidden 静默裁掉。 */
+@media (max-height: 860px) {
+  [data-skin="heijiao"] {
+    --skin-disc-max: 232px;
+  }
+  [data-skin="heijiao"] .stage {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  [data-skin="heijiao"] .stage-lyrics { min-height: 80px; }
+  [data-skin="heijiao"] body.hj-lyrics-open .stage-lyrics { min-height: 160px; }
+}
+
+/* 中等屏：左卡收到 280px 下限，唱片跟着缩。1/3 比例在 1100px 以下
+   就已经是 300px 出头，再压就触发下面那条纵向堆叠。 */
+@media (max-width: 1280px) {
+  [data-skin="heijiao"] .app {
+    grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+  }
+  [data-skin="heijiao"] .stage { padding: 18px; }
+}
+
+/* 纵向堆叠。栅格改成单列，顺序靠源序：.app 的子元素是 rail / column /
+   stage，而 .rail 是 fixed（不占栅格位）→ 源序给的是"内容在上、封面卡在下"。
+   要的顺序是封面卡在上，所以显式写 order。 */
+@media (max-width: 1100px) {
+  [data-skin="heijiao"] {
+    --skin-card-min: 150px;
+  }
+  [data-skin="heijiao"] .app {
+    grid-template-columns: minmax(0, 1fr);
+    /* 单列要**放开**行高：两行是上下堆叠的，各按内容长高，整页一起滚。
+       沿用宽屏那条 calc(100dvh - …) 会让封面卡占掉一整屏的高度，
+       曲库列表被挤到折叠线以下（症状是"手机上先看到一张大唱片，
+       往下划很久才见到歌"）。 */
+    grid-template-rows: auto auto;
+    padding: var(--skin-nav-h) var(--skin-pad) var(--skin-gap);
+  }
+  /* 单列里必须复位成 grid-column:auto —— 宽屏那条钉死的 1 / 2 会让
+     两块被硬塞进同一条轨（grid-column:1 和 2 在单列下指同一格，
+     于是它们**叠在一起**，表现为"内容面板不见了"）。
+     只写 order 不够：源序是 rail/column/stage，rail 是 fixed 不占位，
+     所以默认顺序已经是"内容在上、封面卡在下"，与要的相反，必须 order。 */
+  [data-skin="heijiao"] .stage { order: -1; grid-area: auto; }
+  [data-skin="heijiao"] .column { grid-area: auto; order: 0; }
+
+  /* 堆叠态整页滚，滚动权从 .view 交回外壳：.view 的 flex:1 是
+     "占满剩余空间"，在按内容长高的行里会把它按内容定高，多余的高度
+     没人分，末尾就多出一段空白（症状是"列表下面拖着一块空地"）。
+     这里给它 overflow:visible 让内容自己把行撑开。 */
+  [data-skin="heijiao"] .view { overflow: visible; flex: none; }
+  [data-skin="heijiao"] .column { min-height: auto; }
+
+  /* 堆叠后左卡不再有"侧栏"语义：唱片横向铺开一点，配一行歌词摘要。
+     max-height 不给 —— 堆叠态下整页滚，卡片多高都合法。 */
+  [data-skin="heijiao"] .stage {
+    max-height: none;
+    overflow: hidden;
+  }
+  [data-skin="heijiao"] .stage-lyrics { min-height: 88px; }
+}
+
+/* 平板/手机 */
+@media (max-width: 900px) {
+  [data-skin="heijiao"] {
+    --skin-gap: 16px;
+    --skin-pad: 18px;
+    --skin-bar-foot: 117px;   /* 播放条在 ≤900px 重排成两行 */
+    --skin-title: 20px;
+  }
+  [data-skin="heijiao"] .app {
+    padding: var(--skin-nav-h) var(--skin-pad) var(--skin-gap);
+  }
+  [data-skin="heijiao"] .bar {
+    margin: 0 var(--skin-pad) var(--skin-gap);
+  }
+  [data-skin="heijiao"] .view { padding: var(--skin-pad) 0; }
+}
+
+@media (max-width: 620px) {
+  [data-skin="heijiao"] {
+    --skin-gap: 12px;
+    --skin-pad: 14px;
+    --skin-bar-foot: 163px;   /* ≤620px 重排成三行 */
+    --skin-title: 19px;
+    --skin-card-min: 132px;
+  }
+  [data-skin="heijiao"] .stage { padding: 16px; }
+  [data-skin="heijiao"] .bar { padding: 12px 20px; }
+}
+
+/* 触控设备：唱片命中区抬到 44px（iOS HIG / Material 的最小可点尺寸）。 */
+@media (pointer: coarse) {
+  [data-skin="heijiao"] .disc-wrap {
+    /* 唱片本身是宽高比 1 的方块，宽屏下已远大于 44px；抬这条是为了在
+       展开态（唱片缩到 52px）时仍有一个可点的目标。 */
+    min-height: 44px;
+  }
+  [data-skin="heijiao"] .rail-item { min-height: 44px; }
+}
+
+/* ==========================================================================
+   9. 降低动效偏好
+   ==========================================================================
+   两条都要：① 收掉展开/收起的过渡（唱片不该"滑"）；
+   ② 停掉播放中的自转（这才是常驻动效，量最大）。
+   拖转与惯性**保留**：那是用户主动发起的手势，不是自动播放的动效，
+   而且它是这块卡片的唯一交互 —— 一并关掉等于卡片变成一张死图。
+   skin.heijiao.js 里另有一份同源的判断（惯性注入），两处都要在。
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="heijiao"] .disc-wrap,
+  [data-skin="heijiao"] .track,
+  [data-skin="heijiao"] .q-row {
+    transition: none !important;
+  }
+}

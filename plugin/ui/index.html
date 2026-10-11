@@ -52,6 +52,7 @@
 <link rel="stylesheet" href="skins/skin.ios.css" data-skin-css="ios" disabled>
 <link rel="stylesheet" href="skins/skin.qingfeng.css" data-skin-css="qingfeng" disabled>
 <link rel="stylesheet" href="skins/skin.chaoxi.css" data-skin-css="chaoxi" disabled>
+<link rel="stylesheet" href="skins/skin.heijiao.css" data-skin-css="heijiao" disabled>
 </head>
 <body>
 <script>
@@ -1971,6 +1972,9 @@
 <!-- 潮汐登记生命周期（播放面板的展开/收起把手）；不重编排业务节点，
      但把手的挂载要在 app.js 之前登记完。 -->
 <script defer src="skins/skin.chaoxi.js"></script>
+<!-- 黑胶同款：唱片卡的歌词展开 + 唱片拖转旋钮。必须在 app.js 初始化
+     皮肤宿主之前加载（registerLifecycle 要先于 Skins.init）。 -->
+<script defer src="skins/skin.heijiao.js"></script>
 <script defer src="themes.js"></script>
 <script defer src="anime-interactions.js"></script>
 <script defer src="perf-probe.js"></script>
