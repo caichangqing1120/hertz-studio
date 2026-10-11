@@ -66,6 +66,10 @@ async function main() {
       Stage3D.open('aurora');
     });
     await page.waitForFunction(() => document.querySelector('.fl-tempera-canvas'));
+    // chrome 静止 CHROME_HIDE_MS 后自动打烊（.s3d-head 变 pointer-events:none），
+    // 无头下没有指针活动，点击前必须像真实用户那样先动一下鼠标唤醒 chrome。
+    await page.mouse.move(720, 500);
+    await page.waitForTimeout(80);
     await page.locator('#s3d-settings-toggle').click();
     for (const visual of ['classic', 'cadenza', 'sonnet', 'tempera', 'starborn']) {
       await page.selectOption('#s3d-lyric-visual', visual);
@@ -210,6 +214,8 @@ async function main() {
     await page.screenshot({ path: path.join(out, 'starborn-desktop.png') });
     console.log('PASS starborn cinematic host wiring and pause freeze');
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.mouse.move(200, 400);
+    await page.waitForTimeout(80);
     await page.locator('#s3d-settings-toggle').click();
     await page.selectOption('#s3d-lyric-visual', 'tempera');
     await page.waitForFunction(() => document.getElementById('s3d-settings').getAnimations().every(a => a.playState === 'finished'));

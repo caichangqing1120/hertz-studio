@@ -1,17 +1,19 @@
 /* SPDX-License-Identifier: MIT
- * Original flat-painted scenery and its workshop gallery. */
+ * Four atmospheric vector studies and their workshop gallery. */
 
 .ws-anime-gallery {
-  --ws-anime-ink: #f0ebdc;
-  --ws-anime-muted: #acb8cf;
-  --ws-anime-gold: #dbc595;
-  --ws-anime-cyan: #91bfcb;
+  --ws-anime-ink: #f1ece5;
+  --ws-anime-muted: #b0bbcb;
+  --ws-anime-gold: #e7c08c;
+  --ws-anime-cyan: #9ecde6;
+  container-type: inline-size;
   margin: 16px 0 32px;
   color: var(--ws-anime-ink);
   font-family: var(--font-ui, "Aptos", "Century Gothic", "Microsoft YaHei UI", sans-serif);
 }
 
 .ws-anime-heading { margin-bottom: 24px; }
+.ws-anime-gallery:focus-visible { outline: 1px solid var(--ws-anime-gold); outline-offset: 7px; border-radius: 9px; }
 .ws-anime-kicker {
   display: block;
   margin-bottom: 16px;
@@ -26,7 +28,6 @@
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: .04em;
-  text-shadow: 0 0 14px rgb(233 216 176 / 10%);
 }
 .ws-anime-heading p {
   margin: 12px 0 0;
@@ -34,38 +35,35 @@
   font-size: 12px;
   line-height: 1.8;
 }
-.ws-anime-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+.ws-anime-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .ws-anime-card {
   display: flex;
   min-width: 0;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  border: 1px solid rgb(148 176 203 / 25%);
-  border-radius: 14px;
-  background: linear-gradient(150deg, rgb(42 56 85 / 80%), rgb(26 33 61 / 86%));
-  box-shadow: inset 0 1px 0 rgb(246 231 200 / 7%), 0 6px 16px rgb(12 20 48 / 10%);
+  border: 1px solid rgb(164 189 222 / 20%);
+  border-radius: 9px;
+  background: #1b2433;
+  box-shadow: 0 5px 16px rgb(9 17 32 / 9%);
   color: var(--ws-anime-ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  transition: transform 240ms ease-in-out, border-color 240ms ease-in-out,
-    box-shadow 240ms ease-in-out, background-color 240ms ease-in-out;
+  transition: border-color 240ms ease-in-out,
+    box-shadow 240ms ease-in-out;
 }
 .ws-anime-card:hover {
-  transform: translateY(-3px);
   border-color: var(--ws-anime-cyan);
-  box-shadow: inset 0 0 16px rgb(145 191 203 / 9%), 0 10px 24px rgb(12 20 48 / 19%);
+  box-shadow: 0 9px 22px rgb(9 17 32 / 16%);
 }
-.ws-anime-card:active { transform: translateY(-1px) scale(.985); }
+.ws-anime-card:active { border-color: var(--ws-anime-gold); }
 .ws-anime-card[aria-pressed="true"] {
   border-color: var(--ws-anime-gold);
-  box-shadow: inset 0 0 18px rgb(219 197 149 / 8%), 0 6px 18px rgb(12 20 48 / 15%);
+  box-shadow: 0 0 0 1px rgb(231 192 140 / 22%);
 }
 .ws-panel .ws-anime-card:focus-visible { outline: 2px solid var(--ws-anime-cyan); outline-offset: 4px; }
-.ws-anime-preview { position: relative; display: block; width: 100%; overflow: hidden; aspect-ratio: 8 / 5; }
+.ws-anime-preview { position: relative; display: block; width: 100%; overflow: hidden; aspect-ratio: 8 / 5; contain: paint; background: #345c7f; }
 .ws-anime-preview .ws-scene-art { display: block; width: 100%; height: 100%; }
 .ws-anime-selected {
   position: absolute;
@@ -78,18 +76,79 @@
   border: 1px solid rgb(249 237 210 / 50%);
   border-radius: 50%;
   background: var(--ws-anime-gold);
-  color: #253551;
+  color: #25334a;
   opacity: 0;
   transform: scale(.85);
   transition: opacity 240ms ease-in-out, transform 240ms ease-in-out;
 }
 .ws-anime-selected svg { width: 18px; height: 18px; }
 .ws-anime-card[aria-pressed="true"] .ws-anime-selected { opacity: 1; transform: scale(1); }
-.ws-anime-caption { display: flex; flex: 1; flex-direction: column; padding: 16px 14px 18px; }
+.ws-anime-caption { display: flex; flex: 1; flex-direction: column; padding: 17px 18px 19px; }
 .ws-anime-tag { color: var(--ws-anime-gold); font-size: 8px; font-weight: 500; letter-spacing: .09em; }
-.ws-anime-caption strong { margin-top: 10px; font-size: 14px; font-weight: 500; letter-spacing: .035em; }
-.ws-anime-description { margin-top: 10px; color: var(--ws-anime-muted); font-size: 10px; line-height: 1.8; text-wrap: pretty; }
-.ws-anime-note { margin: 24px 0 0; color: var(--ws-anime-muted); font-size: 10px; letter-spacing: .06em; line-height: 1.8; }
+.ws-anime-caption strong { margin-top: 9px; font-size: 15px; font-weight: 500; letter-spacing: .035em; }
+.ws-anime-description { margin-top: 8px; color: var(--ws-anime-muted); font-size: 11px; line-height: 1.8; text-wrap: pretty; }
+.ws-anime-footer { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; margin-top: 18px; }
+.ws-anime-note { margin: 0; color: var(--ws-anime-muted); font-size: 10px; letter-spacing: .06em; line-height: 1.8; }
+.ws-anime-controls { display: inline-flex; align-items: center; gap: 16px; }
+.ws-anime-motion-toggle, .ws-anime-speed { flex: none; padding: 6px 0; border: 0; border-bottom: 1px solid rgb(231 192 140 / 35%); background: transparent; color: var(--ws-anime-gold); font: inherit; font-size: 11px; cursor: pointer; }
+.ws-anime-speed { min-width: 3em; font-variant-numeric: tabular-nums; }
+.ws-anime-controls button:focus-visible { outline: 2px solid var(--ws-anime-cyan); outline-offset: 4px; }
+.ws-anime-controls button:hover { color: var(--ws-anime-ink); }
+
+/* Vector motion has no JS frame loop, filters, layout animation or hover gate.
+ * All periods start at negative phases. Closed oscillations have zero velocity
+ * at their seams; linear travel wraps only outside the SVG's clipped viewport. */
+.ws-anime-preview .celx { overflow: hidden; isolation: isolate; }
+.celx .cx-motion { animation-play-state: paused; }
+.ws-anime-preview[data-motion="running"] .cx-motion { animation-play-state: running; }
+
+.cx-sky-cirrus { animation: cx-sky-cirrus 43s linear -17s infinite; }
+.cx-sky-bank-far { animation: cx-sky-far 31s ease-in-out -9s infinite; }
+.cx-sky-bank-mid { animation: cx-sky-mid 23s ease-in-out -16s infinite; }
+.cx-sky-bank-near { animation: cx-sky-near 19s ease-in-out -4s infinite; }
+.cx-sky-haze { animation: cx-sky-haze 13s ease-in-out -6s infinite; }
+@keyframes cx-sky-cirrus { 0% { opacity: 0; transform: translateX(-38px); } 20%,75% { opacity: .55; } 100% { opacity: 0; transform: translateX(42px); } }
+@keyframes cx-sky-far { 0%,100% { transform: translateX(-12px); } 50% { transform: translateX(16px); } }
+@keyframes cx-sky-mid { 0%,100% { transform: translateX(8px); } 50% { transform: translateX(-18px); } }
+@keyframes cx-sky-near { 0%,100% { transform: translateX(-20px); } 50% { transform: translateX(14px); } }
+@keyframes cx-sky-haze { 0%,100% { opacity: .25; transform: translateX(-15px); } 50% { opacity: .85; transform: translateX(26px); } }
+
+.cx-coast-reflection { animation: cx-coast-reflection 11s ease-in-out -4s infinite; transform-origin: 456px 181px; }
+.cx-coast-swell-far { animation: cx-coast-swell-far 7.3s linear -5.7s infinite; }
+.cx-coast-swell-mid { animation: cx-coast-swell-mid 9.7s linear -2.9s infinite; }
+.cx-coast-wash { animation: cx-coast-wash 13.1s ease-in-out -8.1s infinite; }
+@keyframes cx-coast-reflection { 0%,100% { opacity: .52; transform: scaleX(.96); } 50% { opacity: .94; transform: scaleX(1.04); } }
+@keyframes cx-coast-swell-far { 0% { opacity: 0; transform: translate(9px,-12px); } 22% { opacity: .65; } 68% { opacity: .48; } 100% { opacity: 0; transform: translate(-11px,21px); } }
+@keyframes cx-coast-swell-mid { 0% { opacity: 0; transform: translate(12px,-14px); } 30% { opacity: .6; } 66% { opacity: .45; } 100% { opacity: 0; transform: translate(-18px,18px); } }
+@keyframes cx-coast-wash { 0%,100% { opacity: .4; transform: translate(0,3px); } 54% { opacity: .85; transform: translate(-5px,-4px); } }
+
+.cx-rail-train { animation: cx-rail-train 37.7s linear -11s infinite; }
+.cx-rail-mist { animation: cx-rail-mist 17s ease-in-out -10s infinite; }
+.cx-rail-rain-far { animation: cx-rail-rain 7.1s linear -4.2s infinite; }
+.cx-rail-rain-near { animation: cx-rail-rain 5.3s linear -1.6s infinite; }
+@keyframes cx-rail-train { from { transform: translateX(-410px); } to { transform: translateX(660px); } }
+@keyframes cx-rail-mist { 0%,100% { transform: translateX(-20px); opacity: .55; } 50% { transform: translateX(24px); opacity: .9; } }
+@keyframes cx-rail-rain { from { transform: translate(0,0); } to { transform: translate(-36px,440px); } }
+
+.cx-forest-rays { animation: cx-forest-rays 23.3s ease-in-out -7s infinite; }
+.cx-forest-lantern { animation: cx-forest-lantern 7.7s ease-in-out -2.1s infinite; }
+.cx-forest-fern { animation: cx-forest-fern 8.3s ease-in-out -5s infinite; transform-origin: 82px 400px; }
+.cx-forest-drift-a { animation: cx-forest-drift 11.3s ease-in-out -4s infinite; }
+.cx-forest-drift-b { animation: cx-forest-drift 17.9s ease-in-out -11s infinite reverse; }
+.cx-forest-drift-c { animation: cx-forest-drift 13.7s ease-in-out -6s infinite; }
+.cx-forest-rise-a { animation: cx-forest-rise 7.9s ease-in-out -1s infinite; }
+.cx-forest-rise-b { animation: cx-forest-rise 11.1s ease-in-out -5s infinite; }
+.cx-forest-rise-c { animation: cx-forest-rise 9.1s ease-in-out -3s infinite reverse; }
+.cx-forest-glow-a { animation: cx-forest-glow 4.7s ease-in-out -2s infinite; }
+.cx-forest-glow-b { animation: cx-forest-glow 6.1s ease-in-out -4s infinite; }
+.cx-forest-glow-c { animation: cx-forest-glow 5.9s ease-in-out -1s infinite; }
+@keyframes cx-forest-rays { 0%,100% { opacity: .55; } 50% { opacity: .9; } }
+@keyframes cx-forest-lantern { 0%,100% { opacity: .64; } 50% { opacity: .92; } }
+@keyframes cx-forest-fern { 0%,100% { transform: rotate(-.6deg); } 50% { transform: rotate(.6deg); } }
+@keyframes cx-forest-drift { 0%,100% { transform: translateX(-17px); } 50% { transform: translateX(19px); } }
+@keyframes cx-forest-rise { 0%,100% { transform: translateY(11px); } 50% { transform: translateY(-16px); } }
+@keyframes cx-forest-glow { 0%,100% { opacity: .12; } 44% { opacity: .85; } }
+
 
 /* These drawings are opaque paint. Additive blending would wash out the ink. */
 .s3d-creative-source #s3d-creative[data-scene-family="anime"] .creative-canvas { mix-blend-mode: normal; }
@@ -120,16 +179,14 @@
   text-shadow: 0 2px 5px rgb(24 37 70 / 65%);
 }
 
-@media (max-width: 359px) {
+@container (max-width: 460px) {
   .ws-anime-grid { grid-template-columns: minmax(0, 1fr); }
-  .ws-anime-card { display: grid; grid-template-columns: 44% minmax(0, 1fr); }
-  .ws-anime-preview { height: 100%; min-height: 128px; aspect-ratio: auto; }
-  .ws-anime-preview .ws-scene-art { object-fit: cover; }
-  .ws-anime-caption { padding: 16px 12px; }
+  .ws-anime-caption { padding: 15px 17px 17px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ws-anime-card, .ws-anime-selected { transition: none; }
   .ws-anime-card:hover, .ws-anime-card:active { transform: none; }
+  .ws-anime-preview .celx * { animation: none !important; }
 }
 body.reduce-motion .ws-anime-card,
 body.reduce-motion .ws-anime-selected,
@@ -137,3 +194,5 @@ html[data-rm~="ui"] .ws-anime-card,
 html[data-rm~="ui"] .ws-anime-selected { transition: none; }
 body.reduce-motion .ws-anime-card:is(:hover, :active),
 html[data-rm~="ui"] .ws-anime-card:is(:hover, :active) { transform: none; }
+body.reduce-motion .ws-anime-preview .celx *,
+html[data-rm~="ui"] .ws-anime-preview .celx * { animation: none !important; }

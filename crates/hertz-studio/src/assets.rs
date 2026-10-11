@@ -110,6 +110,7 @@ ui_assets! {
     "/skins/skin.qingfeng.css", CSS => const SKIN_QINGFENG_CSS: &str = include_str!("../../../plugin/ui/skins/skin.qingfeng.css");
     "/skins/skin.chaoxi.css", CSS => const SKIN_CHAOXI_CSS: &str = include_str!("../../../plugin/ui/skins/skin.chaoxi.css");
     "/skins/skin-shared.js", JS => const SKIN_SHARED_JS: &str = include_str!("../../../plugin/ui/skins/skin-shared.js");
+    "/skins/skin-settings-sheet.js", JS => const SKIN_SETTINGS_SHEET_JS: &str = include_str!("../../../plugin/ui/skins/skin-settings-sheet.js");
     "/skins/skin.liunian.js", JS => const SKIN_LIUNIAN_JS: &str = include_str!("../../../plugin/ui/skins/skin.liunian.js");
     "/skins/skin.qingfeng.js", JS => const SKIN_QINGFENG_JS: &str = include_str!("../../../plugin/ui/skins/skin.qingfeng.js");
     "/skins/skin.chaoxi.js", JS => const SKIN_CHAOXI_JS: &str = include_str!("../../../plugin/ui/skins/skin.chaoxi.js");

@@ -21,6 +21,10 @@
   var KEY = 'vmusic.skin';
   var DEFAULT_ID = 'classic';
   var EVENT = 'skin:changed';
+  // 顶栏弹层互斥广播，与 app.js 的 broadcastTopbarPopup 同一条约定：谁开谁喊
+  // 一声，其余弹层（主题色 / 更多工具）听见不是自己开的就收起。按钮 onclick
+  // 都 stopPropagation，「点外部就关」的 document 监听帮不上忙，只能广播。
+  var POPUP_EVENT = 'topbar:popup';
 
   /// 皮肤目录。`classic` 是"没有皮肤"——也就是仓库原本那套布局，它不带 CSS
   /// 文件，其它皮肤都是在它的基础上做覆盖。
@@ -268,6 +272,9 @@
     if (entryOpen) {
       renderMenu();
       positionEntryMenu();
+      try {
+        document.dispatchEvent(new CustomEvent(POPUP_EVENT, { detail: { id: 'skin' } }));
+      } catch (e) { /* 老浏览器没有 CustomEvent 构造器 */ }
       // 焦点直接落在当前皮肤那一行：开弹层的意图就是「看看现在是哪套」。
       var at = entryMenu.querySelector('.skin-option.is-on') || entryMenu.firstElementChild;
       if (at && at.focus) at.focus();
@@ -320,6 +327,11 @@
       if (entryOpen && !entryMenu.contains(e.target) && !entryBtn.contains(e.target)) {
         setEntryOpen(false, false);
       }
+    });
+
+    // 别的顶栏弹层（主题色 / 更多工具）开了就收起，见顶部 POPUP_EVENT 注释。
+    document.addEventListener(POPUP_EVENT, function (e) {
+      if (entryOpen && e.detail && e.detail.id !== 'skin') setEntryOpen(false, false);
     });
 
     entryMenu.addEventListener('keydown', function (e) {

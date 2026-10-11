@@ -37,6 +37,10 @@
   function createMoves(anchorClass, anchorAttr) {
     var moves = [];   // { node, anchor }：搬运记录，后进先出地还原
 
+    /// 把业务节点搬进新父容器，原位留一个锚点 span。
+    /// 返回锚点本身：要在 brand 原位再插自建容器（组包住业务节点）时，
+    /// 把容器 insertBefore 到锚点前即可 —— restore 会把业务节点插回锚点前
+    /// 并摘掉锚点，自建容器的 remove 就不会再连带业务节点。
     function relocate(node, parent, before) {
       if (!node || !parent) return node || null;
       var anchor = document.createElement('span');
@@ -46,7 +50,7 @@
       if (before) parent.insertBefore(node, before);
       else parent.appendChild(node);
       moves.push({ node: node, anchor: anchor });
-      return node;
+      return anchor;
     }
 
     function restore() {

@@ -17,6 +17,8 @@ type IdPageOp<T> = for<'a> fn(&'a Ctx, &'a str, usize, usize) -> FutureResult<'a
 type TrackWriteOp = for<'a> fn(&'a Ctx, &'a str, &'a [TrackEntry]) -> FutureResult<'a, ()>;
 type LikeOp = for<'a> fn(&'a Ctx, &'a str, bool) -> FutureResult<'a, ()>;
 type ScrobbleOp = for<'a> fn(&'a Ctx, &'a str, u64) -> FutureResult<'a, ()>;
+/// 批量权益探测：按传入顺序逐首回「当前账号能不能取到流」。
+type EntitlementOp = for<'a> fn(&'a Ctx, &'a [String], u32) -> FutureResult<'a, Vec<bool>>;
 type StreamOp =
     for<'a> fn(&'a Ctx, &'a str, Option<&'a TrackRef>, u32) -> FutureResult<'a, StreamInfo>;
 type ReadyOp = for<'a> fn(&'a Ctx) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
@@ -110,6 +112,7 @@ pub(super) struct Provider {
     pub recommend_playlists: Option<PageOp<Vec<OnlinePlaylist>>>,
     pub personal_fm: Option<ContextOp<Vec<OnlineTrack>>>,
     pub scrobble: Option<ScrobbleOp>,
+    pub entitlement: Option<EntitlementOp>,
     pub qr: Option<QrOps>,
 }
 
@@ -137,6 +140,7 @@ impl Provider {
             recommend_playlists: None,
             personal_fm: None,
             scrobble: None,
+            entitlement: None,
             qr: None,
         }
     }
@@ -390,6 +394,7 @@ const PROVIDERS: &[Provider] = &[
             signed_in: cred::signed_in_qq,
         }),
         account: Some(|ctx| Box::pin(qq::account(ctx))),
+        entitlement: Some(|ctx, ids, quality| Box::pin(qq::entitlement(ctx, ids, quality))),
         playlists: Some(|ctx, scope, offset, limit| {
             Box::pin(qq::playlists(ctx, scope, offset, limit))
         }),
@@ -606,8 +611,9 @@ const PROVIDERS: &[Provider] = &[
                 label: "汽水音乐",
                 cats: &[],
                 supports_cookie: true,
-                // Passport 创建/轮询使用原握手票；二维码改为手机授权入口。
-                // 抖音 App 确认尚待本人验收，2046 安全验证继续引导官网 Cookie。
+                // Passport 创建/轮询使用原握手票；二维码是手机授权入口。
+                // 2026-10-11 真机验收：汽水 App 能扫上，但交付被上游拒（2156，
+                // 详见 qishui 模块头），扫码走不通、只当 cookie 登录的辅助入口。
                 caps: &[Capability::CookieLogin, Capability::QrLogin],
             },
             CoreOps {

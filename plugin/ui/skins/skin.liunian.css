@@ -1461,7 +1461,14 @@
   border-color: var(--field-border-strong);
 }
 
-[data-skin="liunian"] .ln-modal-close svg { width: 15px; height: 15px; }
+[data-skin="liunian"] .ln-modal-close svg {
+  width: 15px;
+  height: 15px;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+/* 悬停旋转 90°：与清风/共享设置浮层的关闭键同一手感 */
+[data-skin="liunian"] .ln-modal-close:hover svg { transform: rotate(90deg); }
 
 /* 内容区：#view-settings 在这里滚动。卡片是固定高度的 flex 列，
    所以设置视图的 overflow-y:auto 在这里是唯一滚动容器。 */

@@ -142,6 +142,40 @@ async function main() {
     assert.equal(await page.locator('#qr-modal').isVisible(), true);
     assert.match(await page.locator('#qr-title').textContent(), /汽水/);
     await page.close();
+    // 扫码终态：上游把这枚票判死（汽水的 2156 交付失败）之后，前端必须停轮询
+    // 并指向 cookie 导入。回归形态是把它当可重试错误，刷「请求失败（3s 后重试）」
+    // 对同一枚死票无限重问，用户永远等不到那句「改用 cookie」。
+    const dead = await browser.newPage({ viewport: { width: 900, height: 760 } });
+    await dead.setContent('<span id="online-account-face"></span><span id="online-account-dot"></span>' + html.slice(from, to));
+    await dead.evaluate(() => {
+      window.polls = 0;
+      window.VMusicTransport = {
+        async get(url) {
+          if (url.endsWith('/sources')) return { sources: [{ id: 'qishui', label: '汽水音乐', caps: ['cookie_login', 'qr_login'] }] };
+          if (url.includes('/account?')) throw { status: 401, code: 'auth_required', message: '未登录' };
+          if (url.includes('/qr/poll')) { window.polls += 1; return { state: window.polls === 1 ? 'waiting' : 'rejected' }; }
+          return {};
+        },
+        async put() {},
+        async post() {
+          return { ticket: 'fixture', poll_ms: 40,
+            qr_text: 'https://bff-pc.qishui.com/light/invoke/scan_login?token=fixture&os=Windows&computer_name=Hertz+Studio' };
+        },
+      };
+    });
+    await dead.addScriptTag({ content: read('vendor/qrcode.js') });
+    await dead.addScriptTag({ content: read('online-login.js') });
+    await dead.evaluate(async () => { await OnlineLogin.start('qishui'); });
+    await dead.waitForFunction(() => window.polls >= 1);
+    assert.match(await dead.locator('#qr-status').textContent(), /汽水音乐 App/,
+      '扫码提示要指到真正能完成授权的 App：抖音只会回「请用汽水音乐 App 扫码」');
+    await dead.waitForFunction(() => window.polls >= 2);
+    const rejected = await dead.locator('#qr-status').textContent();
+    assert.match(rejected, /cookie/, '上游拒绝后要把用户指向 cookie 导入：' + rejected);
+    const after = await dead.evaluate(() => window.polls);
+    await dead.waitForTimeout(500);
+    assert.equal(await dead.evaluate(() => window.polls), after, '上游拒绝后不再对同一枚死票轮询');
+    await dead.close();
     console.log('Login Chrome: delayed lifecycle responses, cookie-only login and text QR rendering passed.');
   } finally { await browser.close(); }
 }

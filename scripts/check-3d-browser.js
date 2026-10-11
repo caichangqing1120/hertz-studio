@@ -48,6 +48,9 @@ async function main() {
     }
     await page.route('**/v1/**', route => {
       if (['GET', 'HEAD'].includes(route.request().method())) return route.continue();
+      // /v1/auth/ticket 是 WS 凭据的一次性签发（3b3dc52 起 openSocket 每连必签），
+      // 不落服务端状态，必须放行——一刀切 mock 非会把 WebSocket 永远钉在重连里。
+      if (route.request().url().includes('/v1/auth/ticket')) return route.continue();
       return route.fulfill({ status: 200, json: {} });
     });
     await page.goto(uiUrl(base));
@@ -190,7 +193,7 @@ async function main() {
       assert.equal(await page.locator('#s3d-fallback').isVisible(), false, scene.id + ' must render without fallback');
       sceneStats.push(await page.evaluate(() => Stage3D.stats()));
     }
-    pass('all seven existing scenes switch without rendering fallback');
+    pass('all ' + sceneStats.length + ' scenes switch without rendering fallback');
     assert.deepEqual(errors, [], 'Unhandled browser errors');
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ base, localAssets, staleAssets, checks,
       rendering: { baseline, large, sceneStats, note: 'stats are diagnostics, not a cross-device FPS benchmark' },

@@ -77,7 +77,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 // 后台标签页、系统卡顿）就必然掉队。缺几帧增量无所谓——状态帧
                 // 每拍都在全量重发，跳过即可；若直接断开，客户端要走指数退避
                 // 重连，退避窗口里界面会停在旧状态（例如曲尾的「暂停」按钮）。
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                // 唯一的例外是 buffering：它是边沿事件，不随状态帧重发，掉了
+                // active=false 就是播放键永久转圈，所以掉队时按真值补一帧。
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    let resync = serde_json::to_string(&state.buffering_event().await)
+                        .unwrap_or_default();
+                    if sender.send(Message::Text(resync.into())).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             },
             incoming = receiver.next() => match incoming {
@@ -158,6 +167,21 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains("\"index\":2"));
+
+        // buffering：掉队时补发的就是这一帧，形状必须与前端读的字段完全对上。
+        // `active` 不许缺省（收口转圈全靠它），`pct` 只在 WaitFull 进度里有。
+        let json = serde_json::to_string(&WsEvent::Buffering {
+            active: false,
+            pct: None,
+        })
+        .unwrap();
+        assert_eq!(json, "{\"type\":\"buffering\",\"active\":false}");
+        let json = serde_json::to_string(&WsEvent::Buffering {
+            active: true,
+            pct: Some(40),
+        })
+        .unwrap();
+        assert_eq!(json, "{\"type\":\"buffering\",\"active\":true,\"pct\":40}");
 
         // beatmap_ready：bpm=None 时字段必须整体缺席（不是 null）。
         // persisted 不许缺席：「就绪」与「已写进磁盘」是两种状态，消费方要能

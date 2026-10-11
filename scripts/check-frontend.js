@@ -113,7 +113,7 @@ const STEPS = [
   { script: 'check-anime-scenes.js', stage: 'behavior',
     why: '四套绘景的登记/参数/保存/分享/恢复往返：新场景只在真实 WebGL 里才看得出画错，接线错一处只是「下拉里没这项」。' },
   { script: 'check-anime-ui.js', stage: 'behavior',
-    why: '晴空绘卷外观族：图库分区卡片、材质与点击反馈按族放行，错接的结果是换肤后画面变平而不报错。' },
+    why: '晴空绘卷外观族：图库分区卡片与材质按族放行；点击特效按主题声明（fx → data-fx → 原型库），错接的结果是换肤后画面变平、特效互串而不报错。' },
   { script: 'check-stanza.js', stage: 'behavior',
     why: '歌词舞台（流光/心象/商籁/凝彩/星诞）：模块大、纯逻辑，最容易在改别处时被无声改坏。' },
   { script: 'check-stanza-sonnet.js', stage: 'behavior',

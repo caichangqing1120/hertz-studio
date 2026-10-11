@@ -859,6 +859,38 @@ pub async fn stream(
     .await
 }
 
+/// 批量问「这些曲目当前账号能不能取到流」，按传入顺序逐首回布尔。
+///
+/// `Ok(None)` = 这个源没有这条探测能力：调用方必须当「不知道」，绝不许当
+/// 「不能播」去剔歌——否则没接探测的源的曲子会整片从候选里消失。
+/// 探测走的是取流同一个接口、同一套入参，判定与真实点播同尺子（见 `qq::entitlement`）。
+pub async fn probe_playable(
+    ctx: &Ctx,
+    source: &str,
+    ids: &[String],
+    quality: u32,
+) -> ApiResult<Option<Vec<bool>>> {
+    if ids.is_empty() || !is_music_source(source) {
+        return Ok(None);
+    }
+    let Some(op) = provider::find(source).and_then(|p| p.entitlement) else {
+        return Ok(None);
+    };
+    let verdicts = with_deadline(STREAM_DEADLINE, source, async move {
+        op(ctx, ids, quality).await
+    })
+    .await?;
+    if verdicts.len() != ids.len() {
+        return Err(ApiError::upstream_rejected(format!(
+            "{source} 权益探测返回 {} 条，请求 {} 首",
+            verdicts.len(),
+            ids.len()
+        ))
+        .with_source(source));
+    }
+    Ok(Some(verdicts))
+}
+
 /// 单曲详情。搜索接口返回的字段不全（尤其是封面），播放前用它补齐。
 #[derive(Debug, Clone, Serialize)]
 pub struct OnlineDetail {

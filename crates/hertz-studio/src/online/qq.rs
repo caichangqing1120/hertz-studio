@@ -424,6 +424,26 @@ async fn probe_audio_url(http: &reqwest::Client, url: &str) -> bool {
     }
 }
 
+/// `midurlinfo[].result` 里「当前账号对这档没有播放权益」的码。
+///
+/// 真机取证（2026-10-11，非会员账号点 VIP 曲）：五档全是它、purl 全空；同一套
+/// 参数问免费曲的 320k 档也是它，而 128k/96k 正常出链。所以它判的是权益，不是
+/// 上游健康度。
+const RESULT_NO_PERMISSION: i64 = 104003;
+
+/// 逐档取 `result`，缺字段返回 `-`（旧形态/异常响应不该被读成权益断言）。
+fn tier_results(infos: &[Value]) -> Vec<String> {
+    infos
+        .iter()
+        .map(|info| {
+            info.get("result")
+                .and_then(|v| v.as_i64())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        })
+        .collect()
+}
+
 /// 从 vkey 响应构造全部候选 URL，并发 HEAD 探活。
 ///
 /// 返回 `(命中档位下标, 可用 URL, 其余可用候选)`。命中项是音质最高且
@@ -472,12 +492,25 @@ async fn pick_working_url(
         }
     }
     if candidates.is_empty() {
+        let codes = tier_results(infos);
         crate::diaglog!(
             "qq.no_candidate",
             tiers = tiers.len(),
             sips = sips.len(),
-            infos = infos.len()
+            infos = infos.len(),
+            results = codes.join(",")
         );
+        // 每一档都被明确回绝才是「没权益」；只在 purl 上空就断言会员，会把上游
+        // 抖动说成用户没开会员。
+        let denied = !infos.is_empty()
+            && infos.iter().all(|info| {
+                info.get("result").and_then(|v| v.as_i64()) == Some(RESULT_NO_PERMISSION)
+            });
+        if denied {
+            return Err(ApiError::vip_required(
+                "QQ 判定当前账号对这首歌没有播放权益（VIP 专享或需单独购买）",
+            ));
+        }
         return Err(ApiError::internal(
             "QQ 暂未返回可用播放地址，请稍后重试；无法据此确认会员权益",
         ));
@@ -623,6 +656,131 @@ pub async fn stream(
         rg_gain_db: None,
         rg_peak: None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// 批量权益探测（点歌换曲用）
+// ---------------------------------------------------------------------------
+
+/// 单次批量探测的 filename 上限。真机实测（2026-10-11）100 条一次回全（176ms），
+/// 更大没验过，所以按这个数分片，不赌上游的隐性上限。
+const ENTITLEMENT_MAX_FILENAMES: usize = 100;
+
+/// 把一批 `midurlinfo[]` 归成「每首至少有一档给链」。
+///
+/// 条目数与请求不符、或上游回显的 filename 对不上本应在的位置，整批作废：错位
+/// 下标判出来的「没权益」会把能播的歌一起剔掉，比不判更糟。
+fn entitlement_verdicts(
+    infos: &[Value],
+    filenames: &[String],
+    ids: &[String],
+) -> ApiResult<Vec<bool>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    if filenames.is_empty()
+        || !filenames.len().is_multiple_of(ids.len())
+        || infos.len() != filenames.len()
+    {
+        return Err(ApiError::upstream_rejected(format!(
+            "QQ 权益响应与请求不同步（返回 {} 条 / 请求 {} 条）",
+            infos.len(),
+            filenames.len()
+        )));
+    }
+    for (i, info) in infos.iter().enumerate() {
+        if let Some(echo) = info.get("filename").and_then(|v| v.as_str()) {
+            if !echo.is_empty() && echo != filenames[i] {
+                return Err(ApiError::upstream_rejected(format!(
+                    "QQ 权益响应第 {i} 条与请求不符（回显 {echo}）"
+                )));
+            }
+        }
+    }
+    let per_song = filenames.len() / ids.len();
+    Ok((0..ids.len())
+        .map(|slot| {
+            (slot * per_song..(slot + 1) * per_song).any(|i| {
+                infos[i]
+                    .get("purl")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|s| !s.is_empty())
+            })
+        })
+        .collect())
+}
+
+/// 批量问「这些曲目当前账号能不能取到流」，按传入顺序逐首回布尔。
+///
+/// 输入与非会员点歌时 [`stream`] 完全同形（没有 track_ref，文件名里的 mid 就用
+/// songmid），所以探测与真实点播是同一把尺子——比推荐/搜索 payload 自带的
+/// `pay_play` 可靠：真机日推里有一首标 free 却五档全被回绝，也有一首标 vip 而
+/// 320k 给链。只做判定、不 HEAD 探活、更不碰付费墙：拿到的链一律丢弃。
+pub async fn entitlement(ctx: &Ctx, ids: &[String], quality: u32) -> ApiResult<Vec<bool>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cred = super::cred::get(&ctx.db, ID)
+        .await
+        .map_err(internal_store)?
+        .unwrap_or_default();
+    let guid = ensure_guid(ctx).await?;
+    let uin = numeric_uin(&cred);
+    let authst = super::cred::cookie_field(&cred.cookie, "qm_keyst");
+    let http = client()?;
+    // 每首问的档位与 stream() 一致：从请求码率起切到免费档。
+    let per_song = candidate_filenames(quality, &["00000000000000"]).len();
+    let chunk = (ENTITLEMENT_MAX_FILENAMES / per_song.max(1)).max(1);
+    let mut out: Vec<bool> = Vec::with_capacity(ids.len());
+    for block in ids.chunks(chunk) {
+        let mut filenames: Vec<String> = Vec::new();
+        let mut songmids: Vec<String> = Vec::new();
+        for id in block {
+            for (filename, _) in candidate_filenames(quality, &[id.as_str()]) {
+                filenames.push(filename);
+                songmids.push(id.clone());
+            }
+        }
+        let body = json!({
+            "comm": web_comm(&uin, authst),
+            "req_0": {
+                "module": "vkey.GetVkeyServer",
+                "method": "CgiGetVkey",
+                "param": {
+                    "guid": guid,
+                    "songmid": songmids,
+                    "songtype": vec![0; filenames.len()],
+                    "uin": uin,
+                    "loginflag": 1,
+                    "platform": "20",
+                    "filename": filenames
+                }
+            }
+        });
+        let j = cgi(&http, ctx, body).await?;
+        if !code_zero(j.pointer("/req_0/code")) {
+            return Err(ApiError::upstream_rejected(format!(
+                "QQ 权益批量查询被拒（code={}）",
+                j.pointer("/req_0/code")
+                    .and_then(val_string)
+                    .unwrap_or_else(|| "缺失".to_string())
+            )));
+        }
+        let infos = j
+            .pointer("/req_0/data/midurlinfo")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| {
+                ApiError::upstream_rejected("QQ 权益批量查询未返回 midurlinfo".to_string())
+            })?;
+        out.extend(entitlement_verdicts(infos, &filenames, block)?);
+    }
+    crate::diaglog!(
+        "qq.entitlement",
+        songs = out.len(),
+        playable = out.iter().filter(|ok| **ok).count(),
+        quality = quality
+    );
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -2573,6 +2731,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_tier_denied_says_so_instead_of_retry_hint() {
+        // 真机取证（2026-10-11，非会员账号点 VIP 曲）：vkey 逐档回
+        // midurlinfo[].result=104003 且 purl 全空。这时「请稍后重试」是误导——
+        // 上游已经把原因说清楚了，必须如实报成权益问题。
+        let http = reqwest::Client::new();
+        let tiers = [
+            ("M800media.mp3".into(), 320_000u64),
+            ("M500media.mp3".into(), 128_000u64),
+        ];
+        let denied = json!({"sip": ["http://a/"], "midurlinfo": [
+            {"result": 104003, "purl": ""},
+            {"result": 104003, "purl": ""}
+        ]});
+        let err = pick_working_url(&http, &denied, &tiers).await.unwrap_err();
+        assert_eq!(err.code, "vip_required");
+        assert!(
+            !err.message.contains("稍后重试"),
+            "不能再催用户重试：{}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn only_uniform_denial_is_read_as_membership() {
+        // 缺 result 字段（旧形态）或个别档另有原因时，维持「上游没给链」的中性
+        // 报错：把网络抖动说成没会员，用户会白开一次会员。
+        let http = reqwest::Client::new();
+        let tiers = [
+            ("M800media.mp3".into(), 320_000u64),
+            ("M500media.mp3".into(), 128_000u64),
+        ];
+        let absent = json!({"midurlinfo": [{"purl": ""}, {"purl": ""}]});
+        let err = pick_working_url(&http, &absent, &tiers).await.unwrap_err();
+        assert_eq!(err.code, "upstream_error");
+
+        let mixed = json!({"midurlinfo": [
+            {"result": 104003, "purl": ""},
+            {"result": 0, "purl": ""}
+        ]});
+        let err = pick_working_url(&http, &mixed, &tiers).await.unwrap_err();
+        assert_eq!(err.code, "upstream_error");
+    }
+
+    #[tokio::test]
     async fn missing_or_unreachable_purls_do_not_assert_membership() {
         let http = reqwest::Client::new();
         let tiers = [("M800media.mp3".into(), 320_000u64)];
@@ -2603,6 +2805,53 @@ mod tests {
         server.abort();
         assert_eq!(unreachable.code, "upstream_error");
         assert!(!unreachable.message.contains("VIP"));
+    }
+
+    #[test]
+    fn entitlement_verdicts_keeps_input_order_and_song_ownership() {
+        // 每首两档：第一首全空=不能播，第二首只有高档给链=能播，第三首只有低档
+        // 给链=也能播（判定看「有没有任一档」，不是看音质）。
+        let infos = vec![
+            json!({"filename": "M800a.mp3", "result": 104003, "purl": ""}),
+            json!({"filename": "M500a.mp3", "result": 104003, "purl": ""}),
+            json!({"filename": "M800b.mp3", "result": 0, "purl": "/b.mp3?vkey=1"}),
+            json!({"filename": "M500b.mp3", "result": 0, "purl": "/b2.mp3?vkey=1"}),
+            json!({"filename": "M800c.mp3", "result": 104003, "purl": ""}),
+            json!({"filename": "M500c.mp3", "result": 0, "purl": "/c.mp3?vkey=1"}),
+        ];
+        let filenames: Vec<String> = infos
+            .iter()
+            .map(|i| i["filename"].as_str().unwrap().to_string())
+            .collect();
+        let ids = ["a", "b", "c"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            entitlement_verdicts(&infos, &filenames, &ids).unwrap(),
+            vec![false, true, true]
+        );
+    }
+
+    #[test]
+    fn entitlement_verdicts_refuses_misaligned_responses() {
+        // 条目数与请求不符：整批作废，不能拿错位的下标判「没权益」。
+        let ids = ["a".to_string(), "b".to_string()];
+        let filenames = vec!["M500a.mp3".to_string(), "M500b.mp3".to_string()];
+        let short = vec![json!({"purl": "/a.mp3"})];
+        assert!(entitlement_verdicts(&short, &filenames, &ids).is_err());
+        // 回显的 filename 不在它应在的位置：同样作废。
+        let swapped = vec![
+            json!({"filename": "M500b.mp3", "purl": "/b.mp3"}),
+            json!({"filename": "M500a.mp3", "purl": "/a.mp3"}),
+        ];
+        assert!(entitlement_verdicts(&swapped, &filenames, &ids).is_err());
+        // 上游不回显 filename 时按下标信任（实测两档都会回显，缺字段是旧形态）。
+        let bare = vec![json!({"purl": "/a.mp3"}), json!({"purl": ""})];
+        assert_eq!(
+            entitlement_verdicts(&bare, &filenames, &ids).unwrap(),
+            vec![true, false]
+        );
     }
 
     #[test]

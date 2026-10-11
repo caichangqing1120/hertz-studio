@@ -8,6 +8,19 @@ const path = require('node:path');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, 'plugin/ui', file), 'utf8');
+// 封面位元素截图后在页内解码采样中心像素：音符遮罩压回封面上这类叠层回归，
+// 只看 computed style 的树序推不出来，必须真渲染（见 main 末尾的纯红封面探针）。
+async function sampleWrapCenter(page) {
+  const shot = await page.locator('#home-art-wrap').screenshot();
+  return page.evaluate(async b64 => {
+    const img = new Image(); img.src = 'data:image/png;base64,' + b64;
+    await img.decode();
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(Math.floor(img.width / 2), Math.floor(img.height / 2), 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, shot.toString('base64'));
+}
 const html = read('index.html');
 const start = html.indexOf('<section class="home-dashboard"');
 const markup = html.slice(start, html.indexOf('</section>', start) + 10);
@@ -77,6 +90,21 @@ async function main() {
     await page.waitForTimeout(30);
     assert.ok((await page.locator('#home-art').getAttribute('src')).startsWith('data:'), 'late previous cover discarded');
     assert.equal(await page.evaluate(() => document.getElementById('home-action') === actionNode), true);
+    // 有封面时音符占位遮罩必须被封面 <img> 盖住。::before 全靠树序垫在 img 下，
+    // 不能设 z-index —— 一抬层级音符就罩回封面上（真机截图抓到过的回归）。
+    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('home-art-wrap'), '::before').zIndex), 'auto',
+      'note mask must not lift above the cover img');
+    await page.evaluate(() => {
+      testState = { current: { id: 'red', title: '封面盖音符', artist: '' }, playing: false, queueLength: 0, intent: 3 };
+      HomeDashboard.update();
+      const c = document.createElement('canvas'); c.width = 1; c.height = 1;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, 1, 1);
+      coverRequests.find(x => x.id === 'red').resolve(c.toDataURL('image/png'));
+    });
+    await page.waitForFunction(() => { const a = document.getElementById('home-art'); return a && a.src && a.src.startsWith('data:'); }, null, { timeout: 5000 });
+    await page.waitForTimeout(60);   // 等一帧真正绘制
+    const [r, g, b] = await sampleWrapCenter(page);
+    assert.ok(r >= 250 && g <= 6 && b <= 6, `cover paints over the note mask (center rgb ${r},${g},${b}, want ~255,0,0)`);
     assert.deepEqual(errors, []);
     const out = path.join(root, 'output/playwright/home-dashboard'); fs.mkdirSync(out, { recursive: true });
     await page.screenshot({ path: path.join(out, 'narrow-large-type.png') });

@@ -113,15 +113,22 @@
   }
 
   // 各平台二维码必须用对应 App 扫：QQ 走的是 QQ 互联授权，用 QQ 音乐 App
-  // 扫只会打开网页（用户实测会跳到 QQ 音乐 PC 首页）。汽水的登录码由抖音
-  // Passport 签发，上游文案也是「请使用「抖音 APP」扫码验证」。
+  // 扫只会打开网页（用户实测会跳到 QQ 音乐 PC 首页）。汽水的码由抖音 Passport
+  // 签发，上游文案写着「请使用「抖音 APP」扫码验证」，但那是错的——抖音扫只会
+  // 回「请用汽水音乐 App 扫码」，实测扫上的是汽水 App（轮询里 scan_app_id 8478）。
   var SCAN_APP = {
     netease: '网易云音乐 App',
     qq: '手机 QQ（不是 QQ 音乐 App）',
     kugou: '酷狗音乐 App',
-    qishui: '抖音 App（汽水音乐用抖音账号登录）',
+    qishui: '汽水音乐 App',
   };
   function scanApp(source) { return SCAN_APP[source] || '对应平台的 App'; }
+  /// 上游拒绝这次扫码时的说法。默认那句「平台拒绝了」对汽水不准：汽水是
+  /// 手机已确认、服务端却发不出会话（交付要官方客户端签名，本机没有浏览器
+  /// 内核），说清成因用户才不会再去换个 App 反复扫。
+  var REJECT_TEXT = {
+    qishui: '汽水音乐已确认扫码，但登录态要官方客户端签名才能下发，本机做不到，请用下方「手动粘贴 cookie」登录',
+  };
 
   function el(id) { return document.getElementById(id); }
 
@@ -191,10 +198,11 @@
       close();
       if (window.OnlinePlaylists) window.OnlinePlaylists.refresh();
     } else if (p.state === 'rejected') {
-      // 上游明确拒绝这次扫码（如网易云 8821）：不是"再等等"，刷新二维码
-      // 也只会拿到同一句，直接引导走手动 cookie。
+      // 上游明确拒绝这次扫码（如网易云 8821、汽水交付失败 2156）：不是"再等等"，
+      // 对同一枚票再问只会拿到同一句，直接停下并引导走手动 cookie。
       stopPolling();
-      el('qr-status').textContent = '该平台拒绝了这次扫码登录，请改用下方手动 cookie 登录';
+      el('qr-status').textContent = REJECT_TEXT[mine.source]
+        || '该平台拒绝了这次扫码登录，请改用下方手动 cookie 登录';
     } else if (p.state === 'mfa_required') {
       // 上游要求二次验证（汽水音乐 2046），而那一步要在官方 JS 环境里跑，
       // 本地服务没有浏览器内核：这条码走不通，如实说清并指向 cookie 导入。

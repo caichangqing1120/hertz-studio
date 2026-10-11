@@ -272,7 +272,8 @@
     terrain: '<path d="M3 18l4.5-8 3.5 5.5 3-4 7 6.5"/><path d="M3 21h18"/>',
     orb: '<circle cx="12" cy="12" r="6.5"/><path d="M5.8 9.2C8 7.4 16 7.4 18.2 9.2"/>' +
       '<path d="M6.4 15.4C8.4 17.2 15.6 17.2 17.6 15.4"/>',
-    prism: '<path d="M12 3.5v17"/><path d="M12 3.5l7.5 13H4.5z"/><path d="M12 10.5l3.6 6h-7.2z"/>'
+    prism: '<path d="M12 3.5v17"/><path d="M12 3.5l7.5 13H4.5z"/><path d="M12 10.5l3.6 6h-7.2z"/>',
+    off: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>'
   };
 
   var STAGES = [
@@ -306,14 +307,20 @@
       counts: [3000, 6000, 10000], additive: true, depth: false
     },
     {
+      id: 'silk', build: buildField, framed: true, label: '封面星球', desc: '封面沿球面舒展，在明暗之间随音乐呼吸',
+      // 机位与点预算配套：dist 8.4 让球径约占视高 65%；点数只有别场的一半，
+      // 配合 0.66 的点径系数留出网格间隙，封面读作点阵粒子而不是实心贴图。
+      cam: { theta: 0.0, phi: 0.0, dist: 8.4, look: [0, 0, 0] },
+      counts: [6000, 13500, 22500], additive: false, depth: true, field: 0
+    },
+    {
       id: 'resonance', build: buildField, framed: true, label: '共振星环', desc: '让每一次心跳，都有回响',
       cam: { theta: 0.06, phi: 0.10, dist: 10.5, look: [0, 0, 0] },
       counts: [14000, 30000, 48000], additive: true, depth: false, field: 4
     },
     {
-      id: 'silk', build: buildField, framed: true, label: '封面星球', desc: '封面沿球面舒展，在明暗之间随音乐呼吸',
-      cam: { theta: 0.0, phi: 0.0, dist: 10.2, look: [0, 0, 0] },
-      counts: [14000, 32000, 54000], additive: false, depth: true, field: 0
+      id: 'off', build: buildBlank, blank: true, label: '关闭背景', desc: '隐去三维声场，只留歌词与界面',
+      cam: { theta: 0.0, phi: 0.0, dist: 8.4, look: [0, 0, 0] }
     }
   ];
 
@@ -575,7 +582,9 @@
     '    vColor = color*(0.18+0.92*diffuse)*limb',
     '           +vec3(1.0,0.95,0.86)*specular+vec3(0.40,0.62,0.82)*rim*0.10;',
     '    float diameter = coverSpacing*uProj[1][1]*uViewportHeight*0.5/max(0.1,-mv.z);',
-    '    gl_PointSize = clamp(diameter*1.22,1.25,7.0*uPointScale);',
+    // 点径只占网格间距的 66%：颗粒之间露出间隙，封面呈点阵粒子感；
+    // 1.22 的旧系数会让相邻点搭接成实心球面，把这一层粒子的语言盖掉。
+    '    gl_PointSize = clamp(diameter*0.66,1.25,7.0*uPointScale);',
     '  }',
     '  gl_Position = uProj*mv;',
     '}'
@@ -822,6 +831,8 @@
   var uiBound = false;
   var resizeObserver = null, resizeTimers = [];
 
+  // 默认场景=「封面星球」。索引 5 是默认槽：重排 STAGES 时把默认选项留在这格，
+  // 老用户的快捷键 1–5 不受影响。
   var stageIndex = 5;
   var builtStages = {};     // id -> { draw, dispose, count }
   var post = null;          // 后处理资源
@@ -1163,6 +1174,12 @@
         gl.deleteBuffer(s.seed); gl.deleteBuffer(s.lane);
       }
     };
+  }
+
+  // 「关闭背景」没有几何：render() 按 def.blank 直接短路，这个工厂平时调不到，
+  // 放着是为了让场景目录始终满足「每个描述符都带合法工厂」的注册契约。
+  function buildBlank() {
+    return { count: 0, draw: function () {}, dispose: function () {} };
   }
 
   // -------------------------------------------------------------------------
@@ -1680,6 +1697,17 @@
     }
     if (sceneCovered()) return;
     if (sizeDirty) resize();
+    // 「关闭背景」：每帧只把画布清成一色底，几何与后处理整条 GL 链路都跳过——
+    // 选它的动机就是省 GPU；歌词与 stanza 是 DOM 层，照常推进。
+    if (STAGES[stageIndex].blank) {
+      updateAudio(dtMs);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, bw, bh);
+      gl.clearColor(0.004, 0.005, 0.009, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      paintWords();
+      return;
+    }
     if (!post || !post.scene || !post.a || !post.b) return;
     updateAudio(dtMs);
     updateCamera(dtMs);
@@ -2562,7 +2590,7 @@
     var dock = $('s3d-dock');
     if (dock) dock.hidden = !state.scene;
     var keys = root.querySelector('.s3d-keys');
-    if (keys) keys.textContent = state.scene ? '拖动旋转 · 双击复位 · 1–7 切舞台 · F 全屏 · L 歌词 · Q 队列 · Esc 返回' : 'F 全屏 · L 歌词 · Q 队列 · Esc 返回';
+    if (keys) keys.textContent = state.scene ? '拖动旋转 · 双击复位 · 1–8 切舞台 · F 全屏 · L 歌词 · Q 队列 · Esc 返回' : 'F 全屏 · L 歌词 · Q 队列 · Esc 返回';
     var coverToggle = $('s3d-cover-toggle');
     if (coverToggle) { coverToggle.disabled = state.stanza; coverToggle.title = state.stanza ? '当前歌词视觉使用独立排版' : '封面与歌词 (B)'; }
     notifyVisualChange();

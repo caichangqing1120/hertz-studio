@@ -24,11 +24,9 @@ html:is([data-look="glass"], [data-look="cel"]) {
   --dur-enter: 260ms;
   --anime-section-gap: 24px;
   --anime-sky: url("wallpapers/celestial-sky.jpg");
-  /* 粒子颜色跟随主题：点开反馈的星屑必须与当前主题同族，否则在赛璐璐族
-   （暖橙 / 苔绿）上仍撒着 celestial 的青金，看起来像"贴错了素材"。
-   fallback 是给"没走 Theme.apply 的裸页面"留的底。 */
-  --anime-particle-gold: rgb(var(--highlight-rgb, 243, 220, 167));
-  --anime-particle-cyan: rgb(var(--brand-rgb, 137, 213, 229));
+  /* 点击反馈的粒子色不再住在共享装饰里：特效按主题选原型，颜色由
+     anime-interactions.css 的 --fx-a / --fx-b / --fx-hi 直接从
+     --accent / --brand / --highlight 派生，每套主题自动同族。 */
 }
 
 /* Wallpaper keeps ThemeStudio's off/pinned/blur controls. */

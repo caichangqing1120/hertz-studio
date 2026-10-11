@@ -30,7 +30,7 @@
   var playing = false;
   var track = null;
   var lastCover = null;    // 记住封面，换主题时用它重新取色（retint）
-  var coverFollow = true;
+  var coverFollow = false;
   var paletteEpoch = 0;
   var lastPalette = null;
 
@@ -1353,7 +1353,7 @@
       schedule();
     },
     setCoverFollow: function (value) {
-      coverFollow = value !== false;
+      coverFollow = value === true;
       syncCoverAppearance();
     },
     // 当前曲目封面 URL（可能是同源 /v1/tracks/.. 封面，也可能是在线音源远程图）。

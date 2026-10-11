@@ -77,10 +77,12 @@ async function applySkin(page, id) {
   }
 
   section('生命周期：挂载中途失败后归还真实业务节点');
+  // classic 现在也挂共享设置浮层（skins/skin-settings-sheet.js），设置视图
+  // 在 classic 下同样住进浮层 —— 所以「回到原位置」的判据改成两条：
+  // 节点仍连在文档上 + 没有留下任何皮肤的搬运锚点/孤儿浮层。
   const rollback = await page.evaluate(() => {
     Skins.apply('classic');
     const settings = document.getElementById('view-settings');
-    const originalParent = settings.parentNode;
     const stage = document.getElementById('stage');
     const originalStageParent = stage.parentNode;
     Skins.apply('liunian');
@@ -96,13 +98,20 @@ async function applySkin(page, id) {
     finally { window.MutationObserver = Observer; }
     const restoredSkin = document.documentElement.getAttribute('data-skin');
     Skins.apply('classic');
-    return { failure, restoredSkin, settingsRestored: settings.parentNode === originalParent,
+    return { failure, restoredSkin,
+      settingsAttached: settings.isConnected,
+      settingsHolder: settings.parentNode ? (settings.parentNode.className || settings.parentNode.id || settings.parentNode.tagName) : '(detached)',
       stageRestored: stage.parentNode === originalStageParent,
-      leftovers: document.querySelectorAll('.qf-anchor, .qf-modal').length };
+      // 锚点是搬运的中间态，任何时刻都不该有**多份**存活的；.skset-modal /
+      // .skset-anchor 例外 —— classic 挂着共享设置浮层，浮层常驻 hidden、
+      // 锚点恰好一个（视图住在浮层里的凭据），详细断言在
+      // check-settings-sheet-browser.js。
+      leftovers: document.querySelectorAll('.qf-anchor, .qf-modal, .ln-anchor, .ln-modal').length };
   });
   ok(rollback.failure === 'injected observer allocation failure', '真实挂载错误可见');
   ok(rollback.restoredSkin === 'liunian', '失败后恢复原皮肤');
-  ok(rollback.settingsRestored && rollback.stageRestored, '离开后设置与舞台回到原位置', JSON.stringify(rollback));
+  ok(rollback.settingsAttached && rollback.stageRestored, '离开后设置与舞台都连在文档上',
+    JSON.stringify({ holder: rollback.settingsHolder, stage: rollback.stageRestored }));
   ok(rollback.leftovers === 0, '部分挂载未留下浮层与锚点');
 
   // ---------------------------------------------------------------- 问题 1

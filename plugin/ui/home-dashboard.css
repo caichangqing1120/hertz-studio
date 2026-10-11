@@ -53,13 +53,14 @@
 .home-art-wrap:focus-visible { transform: translateY(-2px); box-shadow: var(--surface-lift); }
 .home-art-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* ::before 而不是 ::after：它是包裹层的第一个子节点，封面 <img> 在其后绘制，
-   有封面时自然被整张图盖住，不需要再判断状态。 */
+   有封面时自然被整张图盖住，不需要再判断状态。
+   因此这里不能设 z-index（哪怕 1）：封面 <img> 没有 z-index，全靠树序垫在
+   音符下面；一抬层级音符就会盖回封面上。 */
 .home-art-wrap::before {
   content: ""; position: absolute; inset: 0;
   background-color: var(--muted); opacity: .75;
   -webkit-mask: var(--art-glyph) center / 52% 52% no-repeat;
   mask: var(--art-glyph) center / 52% 52% no-repeat;
-  z-index: 1;
 }
 .home-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .home-art:not([src]) { visibility: hidden; }

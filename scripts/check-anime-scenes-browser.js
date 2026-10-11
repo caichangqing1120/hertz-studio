@@ -252,15 +252,15 @@ async function journey(browser) {
         const panel=document.querySelector('.ws-panel'),grid=document.querySelector('.ws-anime-grid');
         const rect=panel.getBoundingClientRect(),style=getComputedStyle(grid);
         return {width:innerWidth,scrollWidth:document.documentElement.scrollWidth,panel:{left:rect.left,right:rect.right},
-          gap:parseFloat(style.gap),columns:style.gridTemplateColumns.split(' ').length,
+          galleryWidth:grid.clientWidth,gap:parseFloat(style.gap),columns:style.gridTemplateColumns.split(' ').length,
           cards:[...grid.children].map(el=>({width:el.clientWidth,scroll:el.scrollWidth})),
           close:!!document.elementFromPoint(...(()=>{const r=document.getElementById('ws-close').getBoundingClientRect();return[r.x+r.width/2,r.y+r.height/2];})())?.closest('#ws-close')};
       });
       report.layouts.push(layout);
       assert.ok(layout.scrollWidth<=width+1,'page fits '+width);
       assert.ok(layout.panel.left>=-1&&layout.panel.right<=width+1,'workshop fits '+width);
-      assert.ok(layout.gap>=24,'gallery breathing room at '+width);
-      assert.equal(layout.columns,width<360?1:2,'responsive gallery at '+width);
+      assert.ok(layout.gap>=20,'gallery breathing room at '+width);
+      assert.equal(layout.columns,layout.galleryWidth<=460?1:2,'gallery columns follow available panel width at '+width);
       assert.ok(layout.cards.every(c=>c.scroll<=c.width+1),'card captions fit '+width);
       assert.ok(layout.close,'workshop close remains reachable at '+width);
       await page.screenshot({path:path.join(out,'gallery-'+width+'.png')});

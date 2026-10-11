@@ -802,6 +802,72 @@ section('起音检测唯一实现');
   ok(delta > 0, `三维层随共享检测器数到 ${delta} 拍`);
 }
 
+section('绘景与高级编排的稳定构图');
+{
+  load('creative-anime.js');
+  load('creative-stage.js');
+  const stable = sandbox.CreativeStage;
+  stable.init();
+  const stableHost = makeEl('div', { w: 1280, h: 800 }), pointerHandlers = {};
+  stableHost.addEventListener = (type, handler) => { pointerHandlers[type] = handler; };
+  stable.attachStage(stableHost);
+  const engine = engines[engines.length - 1];
+  const frame = (time, energy) => {
+    songPosition = fakeNow = time;
+    feed(new Float64Array(64).fill(energy));
+    gates.creative.tickFn(33);
+    return engine.calls[engine.calls.length - 1];
+  };
+  stable.addCamLayer('test-shake', 999, ctx => { ctx.rollDeg += Math.sin(fakeNow) * 9; ctx.fov -= fakeNow % 7; });
+  const cameraSignature = state => JSON.stringify([state.cam, Array.from(state.modelMatrix)]);
+  for (const scene of ['anime-sky', 'anime-coast', 'anime-rail', 'anime-forest', 'towers']) {
+    sandbox.Workshop = { isEditingAdvanced: () => scene === 'towers' };
+    stable.setPreset({ scene, director: true, cam: { drift: 100, kick: 100, shake: 100 },
+      bindings: [{ target: 'cam.yaw', source: 'agg.0', gain: 50 }, { target: 'stage.scale', source: 'energy', gain: 1 }], cues: [] });
+    const saved = stable.exportJSON();
+    const first = frame(1000, 0), signature = cameraSignature(first);
+    let stationary = true;
+    for (let n = 1; n <= 90; n++) {
+      if (cameraSignature(frame(1000 + n * 330, n % 4 === 0 ? .9 : .06)) !== signature) stationary = false;
+    }
+    ok(stationary, scene + ' 时间、音频和镜头层变化时构图保持固定');
+    ok(engine.calls.at(-1).t > first.t, scene + ' 固定构图不冻结场景时间');
+    ok(stable.exportJSON() === saved, scene + ' 固定构图不改保存的参数与绑定');
+    stable.setParam('cam.yaw', 12);
+    ok(Math.abs(frame(32000, 0).cam.yaw - 12 * Math.PI / 180) < 1e-6, scene + ' 手动机位仍生效');
+  }
+  sandbox.Workshop = { isEditingAdvanced: () => false };
+  stable.setPreset({ scene: 'towers', director: false, cam: { drift: 100 }, bindings: [] });
+  ok(cameraSignature(frame(1000, 0)) !== cameraSignature(frame(9000, 0)), '退出编辑后普通三维舞台恢复动态镜头');
+  sandbox.Workshop = { isEditingAdvanced: () => true };
+  stable.setPreset({ scene: 'anime-sky', director: false, cues: [{ at: 2, len: 1000, ease: 'linear', set: { 'cam.yaw': 20 } }] });
+  ok(Math.abs(frame(2500, 0).cam.yaw - 10 * Math.PI / 180) < 1e-6, '固定构图保留显式编写的镜头 cue');
+  stable.setPreset({ scene: 'anime-sky', director: false, bindings: [{ target: 'sc.light', source: 'agg.0', gain: .3 }] });
+  const dark = frame(3000, 0).p.light;
+  for (let n = 1; n < 15; n++) frame(3000 + n * 33, .8);
+  ok(engine.calls.at(-1).p.light > dark, '固定构图仍响应非镜头音频参数');
+  stable.setInteract(true);
+  const pointer = (type, x, y) => pointerHandlers[type]({ clientX: x, clientY: y, pointerId: 1, target: stableHost });
+  const beforePointer = cameraSignature(frame(4000, 0));
+  pointer('pointermove', 1200, 750);
+  ok(cameraSignature(frame(4033, 0)) === beforePointer, '固定构图忽略指针悬停视差');
+  pointer('pointerdown', 400, 300); pointer('pointermove', 410, 306); pointer('pointerup', 410, 306);
+  const dragged = frame(4066, 0);
+  ok(Math.abs(dragged.cam.yaw + 2.8 * Math.PI / 180) < 1e-6, '直接拖动仍可精确调整镜头');
+  ok(cameraSignature(frame(4100, 0)) === cameraSignature(dragged), '松手后没有惯性晃动');
+  stable.setInteract(false);
+  sandbox.Workshop = { isEditingAdvanced: () => false };
+  stable.setPreset({ scene: 'towers', director: false });
+  stable.setParam('cam.yaw', 80);
+  stable.setScene('towers');
+  sandbox.Workshop = { isEditingAdvanced: () => true };
+  ok(cameraSignature(frame(4200, 0)) === cameraSignature(frame(4500, 0)), '编辑器打开时抑制尚未结束的自动入画补间');
+  stable.setScene('anime-coast');
+  ok(cameraSignature(frame(4600, 0)) === cameraSignature(frame(4900, 0)), '绘景切换不产生自动入画晃动');
+  stable.attachStage(null);
+  delete sandbox.Workshop;
+}
+
 section('大舞台生命周期与歌曲时间编排');
 {
   // 独立实例避免既有导演/节拍动画污染时间轴；只替换 GL，不替换解析逻辑。

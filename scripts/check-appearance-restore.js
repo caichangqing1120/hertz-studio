@@ -196,7 +196,46 @@ function checkBuiltinThemeRestore() {
   eq(second.html.style.getPropertyValue('--accent'), '#ff8c94', '令牌值跟着主题走');
 
   const unknown = boot(makeApp(new Map([['vmusic.theme.v2', 'not-a-theme']])));
-  eq(unknown.sandbox.Theme.current().id, 'celestial', '不认识的主题 id 回落到默认');
+  eq(unknown.sandbox.Theme.current().id, 'mineral', '不认识的主题 id 回落到默认');
+}
+
+// ---------------------------------------------------------------------------
+// 2b. 默认配色本身：矿石黑 + 旧默认值的一次性迁移
+// ---------------------------------------------------------------------------
+
+function checkDefaultTheme() {
+  section('默认配色：没存过就是矿石黑');
+
+  const store = new Map();
+  const fresh = boot(makeApp(store));
+  eq(fresh.sandbox.Theme.current().id, 'mineral', '空存储落在矿石黑');
+  eq(fresh.html.getAttribute('data-theme'), 'mineral', 'html 标记同步');
+  eq(fresh.html.style.getPropertyValue('--accent'), '#FFFFFF', '矿石黑的纯白强调真的落到令牌上');
+  eq(store.has('vmusic.theme.v2'), false, '兜底那趟不写存储（写了就把"没选过"钉成"选过"）');
+  eq(store.has('vmusic.theme.mineral-default'), false, '没旧值可迁时不落标记');
+
+  const listed = fresh.sandbox.Theme.list();
+  eq(listed[0].id, 'mineral', '菜单把默认档排在最前');
+  ok(listed[0].name === '矿石黑（默认）', '「（默认）」这个标记跟着换过来了');
+  eq(listed.filter((t) => t.id === 'celestial')[0].name, '晴空绘卷', '旧默认不再自称默认');
+
+  section('默认配色：旧默认值只迁一次');
+  const migrated = new Map([['vmusic.theme.v2', 'celestial']]);
+  const first = boot(makeApp(migrated));
+  eq(first.sandbox.Theme.current().id, 'mineral', '存着旧默认的换成矿石黑');
+  eq(migrated.get('vmusic.theme.v2'), 'mineral', '存储里的旧值一起改掉，别下次开机又读回来');
+  eq(migrated.get('vmusic.theme.mineral-default'), '1', '落下一次性标记');
+
+  // 迁移之后用户主动选回晴空绘卷：标记在，就不该再被改回去。
+  first.sandbox.Theme.apply('celestial');
+  eq(migrated.get('vmusic.theme.v2'), 'celestial', '主动选择照常落库');
+  const again = boot(makeApp(migrated));
+  eq(again.sandbox.Theme.current().id, 'celestial', '带标记时不再插手');
+
+  const picked = new Map([['vmusic.theme.v2', 'sakura']]);
+  const untouched = boot(makeApp(picked));
+  eq(untouched.sandbox.Theme.current().id, 'sakura', '选了别的主题的原样恢复');
+  eq(picked.has('vmusic.theme.mineral-default'), false, '不该动的值连标记都不落');
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +352,7 @@ function checkBootOrder() {
 (function main() {
   checkSkinRestore();
   checkBuiltinThemeRestore();
+  checkDefaultTheme();
   checkLateThemeRestore();
   checkCustomRestore();
   checkWallpaperRestore();

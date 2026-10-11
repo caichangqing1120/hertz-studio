@@ -83,11 +83,17 @@
     // 挂 body：留在 .topbar / .bar 里会落进它们的层叠上下文。
     document.body.appendChild(handle);
     setOpen(readStored() === 'open');
+    // 设置浮层与所有皮肤共用一份（skins/skin-settings-sheet.js）：
+    // #view-settings 搬进浮层，setView('settings') 被拦截成开浮层。
+    if (window.SkinSettingsSheet) window.SkinSettingsSheet.mount();
   }
 
   function unmount() {
     // 顺序有讲究：先摘状态类，再摘节点。反过来的话，摘节点的那一帧
     // body 上还留着 OPEN_CLASS，CSS 会对着一个已经不在的元素算样式。
+    // 设置浮层是共用的业务节点载体，卸载时必须先于自己的节点归还，
+    // 否则 relocate 的锚点还原会把 #view-settings 留在已被删除的浮层里。
+    if (window.SkinSettingsSheet) window.SkinSettingsSheet.unmount();
     document.body.classList.remove(OPEN_CLASS);
     if (handle && handle.parentNode) handle.parentNode.removeChild(handle);
     handle = null;

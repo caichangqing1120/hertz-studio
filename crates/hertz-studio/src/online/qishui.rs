@@ -647,23 +647,42 @@ fn urlencode(value: &str) -> String {
 // 扫码登录
 // ---------------------------------------------------------------------------
 //
-// 二维码由**汽水音乐官方 Passport 网页接口**签发，用**用户自己的抖音 App**
-// 扫码确认——与网页端登录同源，只在用户本机、以用户本人凭据调用。
+// 二维码由**汽水音乐官方 Passport 网页接口**签发，用**用户自己的汽水音乐 App**
+// 扫码确认——只在用户本机、以用户本人凭据调用。
+//
+// 「用哪个 App 扫」是实测订正过的，别再改回抖音 App：Passport 的 `copywriting`
+// 字面写的是「请使用「抖音 APP」扫码验证」，但抖音 App 扫这张码只会回「请用
+// 汽水音乐 App 扫码」，而汽水 App 扫得通——轮询里的 `scan_app_id: 8478` 就是
+// 汽水 App 自己。上游那句文案是错的。
 //
 // 这里**不涉及**参考实现里 bdms/sdk-glue 那一套：既不伪造设备指纹，也不执行
-// 或求解任何 JS 挑战。实测（2026-09-22）两个端点在不带 `a_bogus`、`msToken`、
-// `account_sdk_source_info`、`device_id` 的情况下直接返回 `error_code: 0`，
-// 这只证明可申请握手票。服务端 PNG 指向已下线的 sdk-next 路径，不能直接
-// 展示；使用同次 token 生成官方手机授权入口，由前端二维码库绘制。
+// 或求解任何 JS 挑战。服务端 PNG 指向已下线的 sdk-next 路径（实测 404），不能
+// 直接展示；用同次 token 生成官方手机授权入口，由前端二维码库绘制。
 //
-// 上游真正要求的只有 `passport_jssdk_version` 那一组**版本自述字段**：缺了
-// 它们接口回 `4031 当前版本过低，需要 2.8.8 及以上版本`（实测：只补
-// `device_id` 而不补该字段，仍然 4031）。它们与 [`pc_params`] 同一性质——
-// 客户端随每个请求上报的静态字段，不是签名，也不承载任何凭据。
+// **这条路停在交付，2026-10-11 实测**：手机确认没问题，轮询能走到
+// `status:"scanned"`，但下一拍交付一律被上游拒：
 //
-// 明确不做的一环：上游对部分账号在确认后回 `2046` 要求**二次验证**。参考
-// 实现为此弹一个 Electron 窗口跑官方 JS，本项目没有浏览器内核，遇到 2046
-// 如实回终态 `mfa_required` 并引导走 cookie 粘贴，不假装能完成。
+// ```text
+// scanned → error_code 2156 系统繁忙，请重启应用或刷新页面后重试
+// ```
+//
+// 逐个证伪过的嫌疑：CSRF 双提交（带不带 `x-tt-passport-csrf-token` 同结果）、
+// `next` 取值、`passport_jssdk_version`（2.4.13 就是官方当前值，不是版本门槛）、
+// 以及参考实现里那组**不需要签名**的静态自述字段（`p_js_v`/`p_zt`/`p_ver`/
+// `p_bd`/`request_host`/`biz_trace_id`/`device_platform=PC`/`version_code`）
+// 加 `x-ss-stub` 与 `is_frontier`——补齐后仍是 2156。补 `device_id` 只会把错误
+// 码换成 1049「版本过低或非官方渠道」或 7「访问太频繁」，都不通。
+//
+// 真正的缺口在 `scanned` 那一拍的响应里：`scan_device_info.device_id`、
+// `app_id`、`ip`、`scan_user_info.user_id`、`verify_way` **每次全是 0 或空串**——
+// 手机确认只写进一枚空心记录，服务端没有设备/用户绑定就发不出会话，只能落到
+// 2156 兜底。填上它要 `a_bogus` + `msToken` + `account_sdk_source_info`，这三件
+// 只能由官方 JS 安全 SDK 现场产出（参考实现为此开 Electron 窗口跑官方 JS，并硬
+// 断言 `a_bogus` 必须 44 字符）。本项目没有浏览器内核，所以如实回终态 `rejected`
+// 并引导走 cookie 粘贴，不假装能完成。
+//
+// 同一层还有一环独立的：上游对部分账号在确认后回 `2046` 要求**二次验证**，同样
+// 要跑官方 JS，遇到时回终态 `mfa_required`。
 
 /// Passport 网页接口根。
 const PASSPORT_BASE: &str = "https://api.qishui.com/passport/web";
@@ -785,17 +804,20 @@ pub async fn qr_check(
         .and_then(|v| v.as_i64())
         .unwrap_or(-1);
 
-    if error_code == QR_MFA_CODE {
-        // 二次验证要跑官方 JS，本项目没有浏览器内核：如实回终态让前端引导
-        // 用户改用 cookie 粘贴，而不是让轮询空转到超时。
-        tracing::warn!("汽水音乐要求二次验证，本项目无法完成，引导用户改用 cookie");
-        return Ok(("mfa_required".to_string(), None));
-    }
     if error_code != 0 {
-        let desc = get_str(data, &["description"]).unwrap_or("未知原因");
-        return Err(ApiError::upstream_rejected(format!(
-            "汽水音乐扫码失败（{error_code}）：{desc}"
-        )));
+        // 非零业务码都是上游对**这枚票**的终局判断，见 [`qr_error_state`]。
+        let state = qr_error_state(error_code);
+        if state == "mfa_required" {
+            tracing::warn!("汽水音乐要求二次验证，本项目无法完成，引导用户改用 cookie");
+        } else {
+            tracing::warn!(
+                error_code,
+                desc = get_str(data, &["description"]).unwrap_or("未知原因"),
+                scan_app_id = scan_app_id(data),
+                "汽水音乐扫码被上游拒绝，按终态处理"
+            );
+        }
+        return Ok((state.to_string(), None));
     }
 
     let session_cookie = get_str(data, &["session_cookie", "cookie"]).map(str::to_string);
@@ -804,12 +826,16 @@ pub async fn qr_check(
         session_cookie.as_deref(),
     );
     // 排障主线索：状态停在 new 说明扫码没关联上这次握手；停在已确认却没有
-    // 会话 cookie 说明上游没下发凭据。只记状态与字段名，cookie 值绝不进日志。
+    // 会话 cookie 说明上游没下发凭据。`scan_app_id` 指出是哪个 App 扫的，
+    // 上游那句「请用抖音 APP 扫码」的文案不可信，以这里记的为准。
+    // 只记状态、设备号与字段名，cookie 值绝不进日志。
     let mut jar = std::collections::BTreeMap::new();
     absorb_cookies(&headers, &mut jar);
     tracing::info!(
         error_code,
         state,
+        raw_status = get_str(data, &["status", "status_str"]).unwrap_or(""),
+        scan_app_id = scan_app_id(data),
         cookie_names = %jar.keys().cloned().collect::<Vec<_>>().join(","),
         "汽水音乐扫码轮询"
     );
@@ -888,6 +914,29 @@ fn passport_data(payload: &serde_json::Value) -> ApiResult<&serde_json::Value> {
         let msg = get_str(payload, &["message"]).unwrap_or("响应里没有 data");
         ApiError::upstream_rejected(format!("汽水音乐 Passport 响应异常：{msg}"))
     })
+}
+
+/// 扫码方 App 的 aid，0 表示还没人扫。汽水 App 是 8478——上游文案写的
+/// 「抖音 APP」不可信，判是哪个 App 扫的只能看这里。
+fn scan_app_id(data: &serde_json::Value) -> i64 {
+    data.get("scan_app_id")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+}
+
+/// 轮询拿到非零业务码时该归成哪个**终态**票态。
+///
+/// 关键是这里一律不能按错误上抛：`check_qrconnect` 的非零码是上游对这枚票的
+/// 终局判断，同一枚票再问只会拿到同一句。而前端对错误的处理是「请求失败，3s
+/// 后重试」——于是 2156 会被无限重问，用户永远等不到那句「改用 cookie」。
+///
+/// 2046 单独一路：它不是拒绝而是要求二次验证（要跑官方 JS），值得给不同的文案。
+fn qr_error_state(error_code: i64) -> &'static str {
+    if error_code == QR_MFA_CODE {
+        "mfa_required"
+    } else {
+        "rejected"
+    }
 }
 
 /// 把上游的 `status` 归一成票态（waiting|scanned|confirmed|expired）。
@@ -1105,6 +1154,22 @@ mod tests {
         assert_eq!(qr_state(Some("3"), None), "confirmed");
         assert_eq!(qr_state(Some("confirmed"), None), "confirmed");
         assert_eq!(qr_state(Some("expired"), None), "expired");
+    }
+
+    #[test]
+    fn every_nonzero_passport_code_is_terminal() {
+        // 2156 = 手机已确认、服务端发不出会话（交付要官方客户端签名，实测 2026-10-11）。
+        // 这几个码曾经全被包成 upstream_rejected 错误，前端于是对同一枚死票无限
+        // 刷「请求失败（3s 后重试）」。终态才是要的答案。
+        assert_eq!(qr_error_state(2156), "rejected");
+        assert_eq!(qr_error_state(1049), "rejected");
+        assert_eq!(qr_error_state(7), "rejected");
+        assert_eq!(qr_error_state(3), "rejected");
+        // 2046 不是拒绝，是要求二次验证——文案不同，但同样是终态。
+        assert_eq!(qr_error_state(QR_MFA_CODE), "mfa_required");
+        // 归出来的两个态都必须在 Registry 的终态集合里，否则票会被后续轮询降级。
+        assert!(super::super::qr::is_terminal(qr_error_state(2156)));
+        assert!(super::super::qr::is_terminal(qr_error_state(QR_MFA_CODE)));
     }
 
     #[test]

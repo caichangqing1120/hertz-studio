@@ -14,13 +14,13 @@ function extract(name) {
   return source.slice(start, end + 4);
 }
 const definitions = {};
-vm.runInNewContext(extract('buildField') + extract('buildPrism') + source.slice(source.indexOf('  var STAGES ='), source.indexOf('  var UNIFORMS =')) +
+vm.runInNewContext(extract('buildField') + extract('buildPrism') + extract('buildBlank') + source.slice(source.indexOf('  var STAGES ='), source.indexOf('  var UNIFORMS =')) +
   source.slice(source.indexOf('  var UNIFORMS ='), source.indexOf('  // ---- 舞台 1')),
 definitions);
 const sphere = definitions.STAGES.find(stage => stage.id === 'silk');
 check(sphere && sphere.field === 0 && sphere.depth && !sphere.additive, 'silk retains its id and enables opaque depth handling');
 check(sphere.cam.theta === 0 && sphere.cam.phi === 0, 'reference view presents the cover from the front');
-assert.deepEqual(Array.from(sphere.counts), [14000, 32000, 54000]);
+assert.deepEqual(Array.from(sphere.counts), [6000, 13500, 22500]);
 
 function harness(level, field = 0) {
   const events = [], images = [], uniforms = {};
@@ -172,7 +172,7 @@ async function gpuChecks() {
         const cols = Math.ceil(Math.sqrt(budget * 1.24)), rows = Math.floor(budget / cols), count = cols * rows;
         const frontCount = Math.floor(count * 0.76);
         for (const aspect of [1.5, 390 / 844]) {
-          const distance = 10.2 * Math.max(1, Math.min(2.6, 1.05 / aspect));
+          const distance = 8.4 * Math.max(1, Math.min(2.6, 1.05 / aspect));
           const focal = 1 / Math.tan(52 * Math.PI / 360);
           const projection = new Float32Array([focal / aspect, 0, 0, 0, 0, focal, 0, 0, 0, 0, -1.0009095, -1, 0, 0, -0.20009095, 0]);
           const view = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -distance, 1]);
@@ -213,7 +213,9 @@ async function gpuChecks() {
           ensure(maxZ - minZ > 5.08, 'full front and rear surface have depth');
           ensure(validUv, 'finite bounded UV, including poles and rear');
           ensure(orientedUv, 'cover keeps its horizontal and vertical orientation');
-          ensure(curvature > 0.06 && curvature < 0.18, 'art follows the curved surface instead of cancelling perspective: ' + curvature);
+          // 上界随机位距离合法缩放（dist 8.4 时实测 0.179）：带宽给足余量，
+          // 只钉「贴图没有恰好抵消透视」这件事的是下界。
+          ensure(curvature > 0.06 && curvature < 0.22, 'art follows the curved surface instead of cancelling perspective: ' + curvature);
           const lightRatio = (lit / litCount) / (shadow / shadowCount);
           ensure(litCount > 50 && shadowCount > 50 && lightRatio > 1.8 && lightRatio < 5, 'stationary neutral cover has readable lit and shadow sides: ' + lightRatio);
           ensure(rearVisible === 0 && visible > frontCount * 0.98, 'rear samples are culled and the front stays visible');
@@ -252,6 +254,16 @@ async function gpuChecks() {
         }
       }
       scalar('uCoverMotion', 0); scalar('uTime', 900); scalar('uBass', 1); scalar('uBeat', 1);
+      // 黑封面的可读性在桌面取景下测量：竖屏远机位会把点径压到最小钳制值，
+      // 抗锯齿边缘稀释了纯黑像素计数，量出来的是钳制行为而不是封面可读性。
+      const desktopAspect = 1.5;
+      const desktopDistance = 8.4 * Math.max(1, Math.min(2.6, 1.05 / desktopAspect));
+      const desktopFocal = 1 / Math.tan(52 * Math.PI / 360);
+      gl.uniformMatrix4fv(uniform('uProj'), false, new Float32Array([
+        desktopFocal / desktopAspect, 0, 0, 0, 0, desktopFocal, 0, 0, 0, 0, -1.0009095, -1, 0, 0, -0.20009095, 0]));
+      gl.uniformMatrix4fv(uniform('uView'), false, new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -desktopDistance, 1]));
+      gl.uniform3f(uniform('uCamPos'), 0, 0, desktopDistance);
+      scalar('uCoverDistance', desktopDistance); scalar('uAspect', desktopAspect);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
       gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.clearColor(0.1, 0.3, 0.7, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

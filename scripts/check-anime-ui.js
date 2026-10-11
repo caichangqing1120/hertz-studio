@@ -19,6 +19,13 @@
 //     （同特异性靠源码顺序决胜），且 cel 族的关键属性（backdrop-filter）
 //     必须被显式关掉——只改背景色的话，模糊还留着，就还是玻璃。
 //
+// 第四条是后加的：点击特效**按主题声明**（themes.js 的 fx 字段 → <html
+// data-fx>，原型库在 anime-interactions.css，运动学在 anime-interactions.js
+// 的 EFFECTS 注册表）。特效归主题而非族，是因为"每套主题一种手感"是验收
+// 提的硬要求；这里钉住的是三方名单（themes.js / EFFECTS / CSS 原型）必须
+// 一致——漏一边的症状同样是静默的：注册表缺名 = 特效不触发，CSS 缺原型 =
+// 粒子隐形。
+//
 // 用法: node scripts/check-anime-ui.js [前端目录]
 
 'use strict';
@@ -44,6 +51,7 @@ const INTERACTIONS_CSS = read('anime-interactions.css');
 const INTERACTIONS_JS = read('anime-interactions.js');
 const CEL_UI = read('cel-ui.css');
 const INDEX = read('index.html');
+const THEME_STUDIO = read('theme-studio.js');
 const CEL_THEMES = ['kiminona', 'spirited'];
 const GLASS_THEMES = ['celestial', 'starrail', 'liyue'];
 
@@ -65,8 +73,8 @@ for (const [name, src] of [
 // 这里要禁的是反过来那件事：拿 data-theme 的值当门禁（只认 celestial）。
 ok(!/getAttribute\('data-theme'\)\s*===/.test(INTERACTIONS_JS),
   'anime-interactions.js 不用 data-theme 的值当门禁（判 id 的话新主题要回来改这个文件）');
-ok(/getAttribute\('data-look'\)/.test(INTERACTIONS_JS),
-  'anime-interactions.js 的门禁读 data-look');
+ok(/getAttribute\(FX_ATTR\)/.test(INTERACTIONS_JS),
+  'anime-interactions.js 的门禁读 data-fx（特效归主题声明，引擎不认识主题 id）');
 
 for (const [name, src] of [['anime-ui.css', ANIME_UI], ['anime-stage.css', ANIME_STAGE]]) {
   ok(/data-look="glass"/.test(src) && /data-look="cel"/.test(src),
@@ -132,6 +140,50 @@ for (const id of CEL_THEMES.concat(GLASS_THEMES)) {
 }
 
 // ---------------------------------------------------------------------------
+section('点击特效：三方名单一致（themes.js ↔ EFFECTS ↔ CSS 原型）');
+
+// 特效按主题声明的三方：themes.js / theme-studio.js 写 fx 值，
+// anime-interactions.js 的 EFFECTS 注册表出运动学，anime-interactions.css
+// 出 html[data-fx="…"] 原型。任何一边漏名都是静默的：
+//   EFFECTS 缺名 → enabled() 恒 false → 特效压根不触发；
+//   CSS 缺原型 → 粒子照放但没有形状没有动画，视觉上"反馈坏了"。
+const declaredFx = [...THEMES.matchAll(/fx:\s*'(\w+)'/g)].map(m => m[1]);
+const studioFx = [...THEME_STUDIO.matchAll(/fx:\s*'(\w+)'/g)].map(m => m[1]);
+const registrySrc = INTERACTIONS_JS.slice(
+  INTERACTIONS_JS.indexOf('var EFFECTS = {'),
+  INTERACTIONS_JS.indexOf('};', INTERACTIONS_JS.indexOf('var EFFECTS = {')));
+const registryFx = [...registrySrc.matchAll(/^\s{4}(\w+):\s*\{/gm)].map(m => m[1]);
+const cssFx = [...INTERACTIONS_CSS.matchAll(/html\[data-fx="(\w+)"\]/g)].map(m => m[1]);
+const uniq = (a) => [...new Set(a)];
+
+ok(/var FX_ATTR = 'data-fx'/.test(THEMES), 'themes.js 声明了 data-fx');
+ok(/el\.setAttribute\(FX_ATTR,\s*theme\.fx \|\| LOOK_FX\[theme\.look \|\| DEFAULT_LOOK\] \|\| DEFAULT_FX\)/.test(THEMES),
+  'apply() 每次都写 data-fx（`theme.fx || LOOK_FX || DEFAULT` 这个形状是关键：' +
+  '只在有 fx 时写的话，切到未声明的主题会留着上一套的粒子原型）');
+ok(declaredFx.length >= 20, '内置目录大面积声明了 fx（实得 ' + declaredFx.length + ' 套；' +
+  '这是"每套主题一种手感"的验收硬要求，漏声明 = 该主题静默退到族兜底）');
+ok(declaredFx.every(fx => registryFx.includes(fx)),
+  'themes.js 的每个 fx 都在 EFFECTS 注册表里（缺名 = 特效不触发）: ' +
+    uniq(declaredFx.filter(fx => !registryFx.includes(fx))).join(', '));
+ok(declaredFx.every(fx => cssFx.includes(fx)),
+  'themes.js 的每个 fx 都有 CSS 原型（缺 = 粒子隐形）: ' +
+    uniq(declaredFx.filter(fx => !cssFx.includes(fx))).join(', '));
+ok(studioFx.every(fx => registryFx.includes(fx) && cssFx.includes(fx)),
+  'theme-studio.js 的每个 fx 都是登记过的原型: ' +
+    uniq(studioFx.filter(fx => !registryFx.includes(fx) || !cssFx.includes(fx))).join(', '));
+ok(registryFx.every(fx => cssFx.includes(fx)),
+  'EFFECTS 里的每个原型都有 CSS（缺 = 引擎放粒子但没有形状）: ' +
+    uniq(registryFx.filter(fx => !cssFx.includes(fx))).join(', '));
+ok(cssFx.every(fx => registryFx.includes(fx)),
+  'CSS 里没有 EFFECTS 认不出的原型（死样式只会让人以为它生效）: ' +
+    uniq(cssFx.filter(fx => !registryFx.includes(fx))).join(', '));
+// "不同主题色的特效应该不同"——内置 23 套的主题特效两两不同。
+// theme-studio 的二次元批次允许与内置共用原型（批次的气质归 palette 区分）。
+ok(uniq(declaredFx).length === declaredFx.length,
+  '内置目录的 fx 两两不同（实得 ' + uniq(declaredFx).length + '/' + declaredFx.length + '；' +
+  '两套主题共用一种手感 = 验收要求被悄悄打了折）');
+
+// ---------------------------------------------------------------------------
 section('外观族：cel-ui.css 的接线与材质');
 
 const celAt = INDEX.indexOf('cel-ui.css');
@@ -141,33 +193,26 @@ ok(animeAt > 0 && celAt > animeAt,
   'cel-ui.css 排在 anime-ui.css 之后（同特异性靠源码顺序决胜；' +
   '放前面会被玻璃面板整块盖掉，症状只是"看起来不够平涂"）');
 
-// ⚠ 这条是补的，别当成重复：赛璐璐族要覆盖的不止面板材质，还有**点击反馈**
-// （cel-ui.css 第 4 段把旋转星屑换成直角碎片）。而 anime-interactions.css
-// 也用 html:is([data-look=…]) 选择器 —— 它排在 cel-ui 之后时，赛璐璐的
-// 粒子覆盖会被它整块盖掉，症状是"两族点击手感一模一样，只是配色不同"。
-// 我就踩过一次：面板对了、粒子没对，只看截图看不出来。
+// ⚠ 这条曾经是"cel-ui.css 排在 anime-interactions.css 之后（否则点击反馈的
+// 族差异被盖掉）"。点击反馈按主题声明 fx 之后，cel-ui.css **不再碰粒子** ——
+// 反过来这条更值得钉：谁往 cel-ui.css 里加回 .anime-interactions-* 覆盖，
+// 它就会以族为单位压过按主题的原型（同特异性、源码更靠后），把"每套主题
+// 一种手感"悄悄退回"每族一种手感"，而且不报错、元素齐全。
 const interactionsAt = INDEX.indexOf('anime-interactions.css');
 const stageAt = INDEX.indexOf('anime-stage.css');
-ok(interactionsAt > 0 && celAt > interactionsAt,
-  'cel-ui.css 排在 anime-interactions.css 之后（否则点击反馈的族差异被盖掉）');
+ok(interactionsAt > 0, 'index.html 引入了 anime-interactions.css');
 ok(stageAt > 0 && celAt > stageAt,
   'cel-ui.css 排在 anime-stage.css 之后（否则舞台的族差异被盖掉）');
 ok(!/data-skin-css="cel/.test(INDEX), 'cel-ui.css 是常驻引入，不走皮肤开关');
 
-// 赛璐璐必须真的换了粒子形态，而不只是换了面板颜色 —— 这是"族"与"纯换色"
-// 的分界线。少任何一条，两族就共用一套手感，族的划分只剩静态材质。
-ok(/html\[data-look="cel"\] \.anime-interactions-particle[\s\S]*?border-radius:\s*0/.test(CEL_UI),
-  '赛璐璐的点击碎片是直角（玻璃族是 1px 圆角）');
-ok(/html\[data-look="cel"\] \.anime-interactions-particle[\s\S]*?animation:\s*cel-button-chip/.test(CEL_UI),
-  '赛璐璐的碎片用另一套关键帧（cel-button-chip），不是玻璃的 anime-button-spark');
-ok(/@keyframes cel-button-chip\s*\{[\s\S]*?translate3d/.test(CEL_UI),
-  'cel-button-chip 关键帧存在且走 transform 位移');
-ok(!/@keyframes cel-button-chip\s*\{[^@]*?rotate\(/.test(CEL_UI),
-  '赛璐璐碎片**不旋转**（旋转柔光是玻璃的语言）');
-ok(/html\[data-look="cel"\] \.anime-interactions-particle\s*\{[\s\S]*?box-shadow:\s*none/.test(CEL_UI),
-  '赛璐璐碎片无辉光（边界靠实色与描边，不靠发光）');
-// 双色要保留：全是一个颜色会读成"单色烟花"，且与玻璃族的手感差异被抹掉。
-ok(/nth-child\(3n\)/.test(CEL_UI), '赛璐璐碎片保留双色（highlight + brand）');
+// 赛璐璐的点击反馈不再由本文件负责 —— 粒子选择器一旦出现在**规则**里，
+// 就是族级覆盖卷土重来的信号（见上一条注释）。剥掉注释再查：第 4 段留着
+// 一段"为什么退役"的说明，里头提到选择器名是文档，不是覆盖。
+const celRules = CEL_UI.replace(/\/\*[\s\S]*?\*\//g, '');
+ok(!/anime-interactions-particle/.test(celRules),
+  'cel-ui.css 不覆盖点击粒子（特效归主题声明，族级覆盖会压过按主题的原型）');
+ok(!/cel-button-chip/.test(celRules),
+  'cel-button-chip 关键帧已退役（点击反馈按主题走 anime-interactions.css 的 fx 原型）');
 
 // 赛璐璐 = 平涂 + 明确描边。这两条是它与玻璃族的分界，必须显式存在：
 // 只把背景改成不透明而留着 backdrop-filter blur() 的话，面板仍然是玻璃。
@@ -224,21 +269,23 @@ ok(/opacity:\s*\.065/.test(ANIME_UI), '共享装饰里 6.5% 噪点还在（避�
 ok(!/--dur-base|--ease-out|--radius-lg/.test(CEL_UI),
   'cel-ui.css 不重定义圆角/缓动（尺度归共享装饰，材质归本文件）');
 
-// 色值必须走令牌：装饰层里写死 celestial 的品牌青/暖金，赛璐璐族就会
-// 撒着别家主题的粒子与描边——看上去完全合理，所以极难排查。
+// 色值必须走令牌：装饰层里写死 celestial 的品牌青/暖金，任何一套主题
+// 都会撒着别家的粒子与描边——看上去完全合理，所以极难排查。
 ok(!/#f3dca7|#89d5e5/.test(ANIME_UI), 'anime-ui.css 不写死 celestial 的暖金/青');
-ok(/--anime-particle-gold:\s*rgb\(var\(--highlight-rgb/.test(ANIME_UI),
-  '粒子颜色跟随主题的 highlight');
-ok(/--anime-particle-cyan:\s*rgb\(var\(--brand-rgb/.test(ANIME_UI),
-  '粒子次色跟随主题的 brand');
+ok(!/#f3dca7|#89d5e5/.test(INTERACTIONS_CSS), 'anime-interactions.css 不写死 celestial 的暖金/青');
+// 粒子的三档语义色在原型库的基座里从令牌派生，随主题自动同族：
+// 主色 accent、次色 brand、高光位 highlight。
+ok(/--fx-a:\s*var\(--accent,/.test(INTERACTIONS_CSS), '粒子主色跟随主题的 accent');
+ok(/--fx-b:\s*var\(--brand,/.test(INTERACTIONS_CSS), '粒子次色跟随主题的 brand');
+ok(/--fx-hi:\s*var\(--highlight,/.test(INTERACTIONS_CSS), '粒子高光位跟随主题的 highlight');
 
 // ---------------------------------------------------------------------------
-section('外观族：点击反馈按族放行');
+section('点击反馈按主题放行');
 
-ok(/var LOOKS = \['glass', 'cel'\]/.test(INTERACTIONS_JS),
-  'anime-interactions.js 判的是外观族而不是主题 id（判 id 的话新主题要回来改这个文件）');
-ok(/attributeFilter:\s*\[[^\]]*'data-look'/.test(INTERACTIONS_JS),
-  'MutationObserver 监听 data-look（只监听 data-theme 的话，换族不重置反馈）');
+ok(/var EFFECTS = \{/.test(INTERACTIONS_JS),
+  'anime-interactions.js 有特效注册表（键 = data-fx 值，判主题 id 的话新主题要回来改这个文件）');
+ok(/attributeFilter:\s*\[[^\]]*(FX_ATTR|'data-fx')/.test(INTERACTIONS_JS),
+  'MutationObserver 监听 data-fx（只监听 data-theme 的话，换主题不重置反馈）');
 // 它用 matchMedia 判，不是 CSS 的 @media —— 所以查 matchMedia 而不是字面量。
 ok(/matchMedia\('\(prefers-reduced-motion: reduce\)'\)/.test(INTERACTIONS_JS),
   '点击反馈尊重 prefers-reduced-motion');
