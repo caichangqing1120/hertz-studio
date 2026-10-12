@@ -791,6 +791,8 @@
   var wrapEl = null;
   var sceneSource = 'immersive';
   var creativeHost = null, artHost = null;
+  var animeHost = null;
+  var animeScene = 'anime-coast', animeMirror = false;
   var canvas = null;
   var gl = null;
   var glFailed = false;
@@ -1689,8 +1691,10 @@
   function render(dtMs) {
     // 3D 场景始终渲染：stanza 歌词只是透明叠加层（standalone 无 GL 回退时才没有 GL）。
     if (!gl || contextLost) return;
-    if (sceneSource === 'creative') {
-      if (global.CreativeStage && CreativeStage.syncPosition) CreativeStage.syncPosition();
+    // 创意编排与动画绘景都不画 GL：前者把舞台交给 CreativeStage，后者交给
+    // StageAnimeSvg 的 SVG 层。两条路都要继续推进歌词（paintWords）。
+    if (sceneSource === 'creative' || sceneSource === 'anime-svg') {
+      if (sceneSource === 'creative' && global.CreativeStage && CreativeStage.syncPosition) CreativeStage.syncPosition();
       if (sizeDirty) resize();
       updateAudio(dtMs); updateCamera(dtMs); paintWords();
       return;
@@ -2149,6 +2153,7 @@
   function preferences() {
     return { scene: STAGES[stageIndex].id, sceneSource: sceneSource, motion: motion, bloom: bloom, reactivity: reactivity, lyrics: showLyrics, cruise: cam.cruise, layout: layout, lyricSize: lyricSize, lyricGlow: lyricGlow,
       shelfMode: shelfMode,
+      animeScene: animeScene, animeMirror: animeMirror,
       stageTheme: stageTheme,
       stanzaVisual: stanza.visual,
       stanzaBg: stanza.bgMode, stanzaBgOpacity: stanza.bgOpacity, stanzaVignette: stanza.vignette,
@@ -2198,7 +2203,11 @@
     if (!value || typeof value !== 'object') return;
     restoring = true;
     try {
-      if (value.sceneSource === 'creative' || value.sceneSource === 'immersive') sceneSource = value.sceneSource;
+      if (value.sceneSource === 'creative' || value.sceneSource === 'immersive' || value.sceneSource === 'anime-svg') sceneSource = value.sceneSource;
+      // 绘景作品按注册表校验：存下来的 id 若已被注册表删掉，恢复时保持默认而不是
+      // 把一个死 id 推给适配层（那会弹降级横幅）。
+      if (typeof value.animeScene === 'string' && animeSceneIds().indexOf(value.animeScene) >= 0) animeScene = value.animeScene;
+      if (typeof value.animeMirror === 'boolean') animeMirror = value.animeMirror;
       if (typeof value.motion === 'number') motion = clamp(num(value.motion, 0.65), 0, 1);
       if (typeof value.bloom === 'number') bloom = clamp(num(value.bloom, 0.8), 0, 1.5);
       if (typeof value.reactivity === 'number') reactivity = clamp(num(value.reactivity, 1.35), 0, 2);
@@ -2510,7 +2519,8 @@
   function planeApi() { return planeFor(effectiveVisual()).api; }
 
   function sceneCovered() {
-    return sceneSource === 'creative' || stanzaActive() && stanza.bgMode !== 'stage';
+    // 动画绘景与创意编排一样整块盖住舞台：GL 画布让位，拖拽/滚轮/切舞台全部收起。
+    return sceneSource === 'creative' || sceneSource === 'anime-svg' || stanzaActive() && stanza.bgMode !== 'stage';
   }
 
   function sceneOwnsLyrics() {
@@ -2547,6 +2557,57 @@
     }
     if (global.Backgrounds && Backgrounds.setStageHost) Backgrounds.setStageHost(active && useCreative ? creativeHost : null);
     if (global.HandDrawn && HandDrawn.setStageHost) HandDrawn.setStageHost(active ? artHost : null);
+  }
+
+  // 绘景作品清单直接遍历注册表：工坊卡片与舞台设置从此不可能列出不同的作品。
+  function animeSceneList() {
+    if (!global.CreativeGL || !CreativeGL.scenes) return [];
+    return CreativeGL.scenes().filter(function (s) {
+      return s.presentation && s.presentation.family === 'anime' && s.presentation.art;
+    }).map(function (s) { return { id: s.id, label: s.label }; });
+  }
+  function animeSceneIds() { return animeSceneList().map(function (s) { return s.id; }); }
+
+  // 「动画绘景」SVG 舞台：与 creative 同构的宿主层。适配层 StageAnimeSvg 负责
+  // 挂载与卸载（画稿来自注册表），这里只管宿主显隐、入口状态、偏好下发与降级横幅。
+  function syncAnimeSvgStage() {
+    if (!root) return;
+    if (!animeHost) {
+      animeHost = document.createElement('div');
+      animeHost.id = 's3d-anime';
+      animeHost.className = 's3d-anime';
+      animeHost.setAttribute('aria-hidden', 'true');
+      root.insertBefore(animeHost, root.firstChild);
+    }
+    var useAnime = sceneSource === 'anime-svg';
+    animeHost.hidden = !useAnime;
+    root.classList.toggle('s3d-anime-svg-source', useAnime);
+    var tuning = $('s3d-anime-tuning');
+    if (tuning) {
+      tuning.hidden = !useAnime;
+      if (useAnime) {
+        var sceneInput = $('s3d-anime-scene');
+        if (sceneInput) sceneInput.value = animeScene;
+        var mirrorInput = $('s3d-anime-mirror');
+        if (mirrorInput) mirrorInput.checked = animeMirror;
+      }
+    }
+    var sourceSelect = $('s3d-scene-source');
+    if (sourceSelect) sourceSelect.value = sceneSource;
+    if (!global.StageAnimeSvg || !StageAnimeSvg.setHost) {
+      if (active && useAnime) showFallback('动画绘景模块未加载，请选择沉浸声场', 'anime-svg');
+      return;
+    }
+    var ok = active && useAnime ? StageAnimeSvg.setHost(animeHost) : StageAnimeSvg.setHost(null);
+    if (active && useAnime && !ok) {
+      showFallback(StageAnimeSvg.degradedBecause() || '动画绘景暂不可用，请选择沉浸声场', 'anime-svg');
+      return;
+    }
+    if (active && useAnime) StageAnimeSvg.setPrefs({ scene: animeScene, mirror: animeMirror });
+    else if (!useAnime && StageAnimeSvg.degradedBecause()) {
+      var fallback = $('s3d-fallback');
+      if (fallback && fallback.dataset.source === 'anime-svg') fallback.hidden = true;
+    }
   }
 
   function settingsState() {
@@ -2609,8 +2670,8 @@
   function syncStageBackdrop() {
     var backdrop = $('s3d-fl-backdrop'), picture = $('s3d-fl-wallpaper');
     var panel = $('s3d-fl-wallpapers'), gallery = $('s3d-fl-wallpaper-grid');
-    var useImage = sceneSource !== 'creative' && stanza.bgMode === 'anime';
-    if (backdrop) backdrop.hidden = sceneSource === 'creative' || !stanzaActive() || (stanza.bgMode !== 'anime' && stanza.bgMode !== 'atmosphere');
+    var useImage = sceneSource !== 'creative' && sceneSource !== 'anime-svg' && stanza.bgMode === 'anime';
+    if (backdrop) backdrop.hidden = sceneSource === 'creative' || sceneSource === 'anime-svg' || !stanzaActive() || (stanza.bgMode !== 'anime' && stanza.bgMode !== 'atmosphere');
     if (panel) panel.hidden = !useImage;
     if (root) root.classList.toggle('s3d-scene-covered', sceneCovered());
     if (root) root.classList.toggle('s3d-no-vignette', stanzaActive() && !stanza.vignette);
@@ -2901,7 +2962,7 @@
     root.style.setProperty('--stanza-fontscale', String(fs));
     stanza.sub.setFontScale(fs);
     callRenderers('setFontScale', fs);
-    stanza.bg.setMode(sceneSource === 'creative' || stanza.bgMode === 'anime' || stanza.bgMode === 'atmosphere' ? 'stage' : stanza.bgMode);
+    stanza.bg.setMode(sceneSource === 'creative' || sceneSource === 'anime-svg' || stanza.bgMode === 'anime' || stanza.bgMode === 'atmosphere' ? 'stage' : stanza.bgMode);
     syncStageBackdrop();
     stanza.bg.setOpacity(stanza.bgOpacity);
     stanza.bg.setVignette(stanza.vignette);
@@ -3006,6 +3067,7 @@
 
   function syncLayout() {
     syncCreativeStage();
+    syncAnimeSvgStage();
     // 切回 3D 轨后不再调 driveStanza，导演退出必须在配置边界清理，不能等下一帧。
     if (stanza.visual !== 'starborn' && stanza.directorLive) {
       stanza.directorLive = false;
@@ -3819,6 +3881,35 @@
     $('s3d-workshop').addEventListener('click', function () { setSettings(false); if (global.Workshop) Workshop.open(); });
     $('s3d-scene-source').addEventListener('change', function (event) {
       configure({ sceneSource: event.target.value }); savePreferences();
+    });
+    // 绘景作品下拉遍历注册表生成：与工坊卡片同一份清单，不会列出不同的作品。
+    var animeSceneSelect = $('s3d-anime-scene');
+    if (animeSceneSelect) {
+      animeSceneList().forEach(function (s) {
+        var opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.label;
+        animeSceneSelect.appendChild(opt);
+      });
+      if (!animeSceneSelect.options.length) {
+        var empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '绘景模块未加载';
+        animeSceneSelect.appendChild(empty);
+        animeSceneSelect.disabled = true;
+      }
+      animeSceneSelect.addEventListener('change', function () {
+        if (!this.value) return;
+        animeScene = this.value;
+        if (global.StageAnimeSvg && sceneSource === 'anime-svg') StageAnimeSvg.setPrefs({ scene: animeScene });
+        savePreferences();
+      });
+    }
+    var animeMirrorInput = $('s3d-anime-mirror');
+    if (animeMirrorInput) animeMirrorInput.addEventListener('change', function () {
+      animeMirror = this.checked;
+      if (global.StageAnimeSvg && sceneSource === 'anime-svg') StageAnimeSvg.setPrefs({ mirror: animeMirror });
+      savePreferences();
     });
     document.addEventListener('creative:degrade', function (event) {
       if (active && sceneSource === 'creative') showFallback(event.detail.reason + '；可在舞台设置中切回沉浸声场', 'creative');

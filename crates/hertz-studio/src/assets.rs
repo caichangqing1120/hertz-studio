@@ -57,6 +57,7 @@ ui_assets! {
     "/stage-lyrics.js", JS => const STAGE_LYRICS_JS: &str = include_str!("../../../plugin/ui/stage-lyrics.js");
     "/stage-shelf.js", JS => const STAGE_SHELF_JS: &str = include_str!("../../../plugin/ui/stage-shelf.js");
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
+    "/stage-anime-svg.js", JS => const STAGE_ANIME_SVG_JS: &str = include_str!("../../../plugin/ui/stage-anime-svg.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");
     "/stanza/stanza-theme.js", JS => const STANZA_THEME_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-theme.js");
@@ -90,6 +91,7 @@ ui_assets! {
     "/creative.css", CSS => const CREATIVE_CSS: &str = include_str!("../../../plugin/ui/creative.css");
     "/creative-anime.css", CSS => const CREATIVE_ANIME_CSS: &str = include_str!("../../../plugin/ui/creative-anime.css");
     "/stage3d.css", CSS => const STAGE3D_CSS: &str = include_str!("../../../plugin/ui/stage3d.css");
+    "/stage-anime-svg.css", CSS => const STAGE_ANIME_SVG_CSS: &str = include_str!("../../../plugin/ui/stage-anime-svg.css");
     "/stanza/stanza.css", CSS => const STANZA_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza.css");
     "/stanza/stanza-starborn.css", CSS => const STANZA_STARBORN_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza-starborn.css");
     "/online.css", CSS => const ONLINE_CSS: &str = include_str!("../../../plugin/ui/online.css");
