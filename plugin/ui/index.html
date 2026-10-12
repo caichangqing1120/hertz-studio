@@ -207,6 +207,13 @@
     <path d="M9.8 13h4.4M9 17h6M11 9h2"/>
     <circle cx="18.6" cy="5.4" r="1.9"/>
   </symbol>
+  <symbol id="i-tunnel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round">
+    <!-- 隧图：拱形隧道门 + 消失点 + 两侧尾迹 -->
+    <path d="M4 21V11a8 8 0 0 1 16 0v10"/>
+    <path d="M9.5 21v-9a2.5 2.5 0 0 1 5 0v9"/>
+    <path d="M2 21h20"/>
+  </symbol>
   <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
     <!-- 整体右移 1：原图形贴到 x=0，在一排居中绘制的图标里会明显偏左。 -->
@@ -1620,6 +1627,7 @@
         <button class="s3d-btn" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
         <button class="s3d-btn" id="s3d-coast-toggle" title="纯真3D · 海岸公路" aria-label="纯真3D · 海岸公路" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-coast"/></svg></button>
         <button class="s3d-btn" id="s3d-diorama-toggle" title="镜台 · 末班车" aria-label="镜台 · 末班车" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-diorama"/></svg></button>
+        <button class="s3d-btn" id="s3d-tunnel-toggle" title="隧图 · 深空" aria-label="隧图 · 深空" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tunnel"/></svg></button>
         <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
         </button>
@@ -1678,7 +1686,7 @@
       <p class="s3d-fl-auto-state" id="s3d-fl-auto-state" hidden></p>
     </div>
     <label for="s3d-scene-source">舞台来源</label>
-    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option></select>
+    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option><option value="tunnel">隧图 · 深空</option></select>
     <div id="s3d-coast-tuning" hidden>
       <label for="s3d-coast-tod">海岸时刻 <output id="s3d-coast-tod-value">黄昏</output></label>
       <input id="s3d-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
@@ -1690,6 +1698,11 @@
       <select id="s3d-diorama-carrier"><option value="auto">随曲式（副歌升空）</option><option value="sign">只立站牌</option><option value="constellation">只上星幕</option></select>
       <label for="s3d-diorama-reflection"><input id="s3d-diorama-reflection" type="checkbox" checked> 水面镜反射</label>
       <p class="s3d-setting-note">夜行列车沿镜面水原驶向星空；歌词是沿途站牌与落在水面上的光。关闭反射可换取低端设备的流畅。</p>
+    </div>
+    <div id="s3d-tunnel-tuning" hidden>
+      <label for="s3d-tunnel-warp"><input id="s3d-tunnel-warp" type="checkbox" checked> 星流与尾迹</label>
+      <label for="s3d-tunnel-objects"><input id="s3d-tunnel-objects" type="checkbox" checked> 深空天体</label>
+      <p class="s3d-setting-note">深空穿行：歌词散点凝聚成字形、逐字擦亮后消散。关闭天体或星流可换取低端设备的流畅。</p>
     </div>
     <label for="s3d-stage-theme">设置风格</label>
     <select id="s3d-stage-theme"><option value="classic">默认</option><option value="starfall">星落</option><option value="ios">iOS</option></select>
@@ -2069,6 +2082,8 @@
 <script defer src="stage-coast.js"></script>
 <script defer src="vendor/diorama-stage.js"></script>
 <script defer src="stage-diorama.js"></script>
+<script defer src="vendor/tunnel-stage.js"></script>
+<script defer src="stage-tunnel.js"></script>
 <script defer src="stage3d.js"></script>
 <script defer src="stage-immersive.js"></script>
 <script defer src="vendor/qrcode.js"></script>

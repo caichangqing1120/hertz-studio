@@ -57,8 +57,8 @@ async function main() {
 
     // ---- 飞出按钮组：收拢态 ----
     const menuButtons = await page.evaluate(() => Array.from(document.querySelectorAll('#s3d-head-menu .s3d-btn')).map(b => b.id));
-    assert.deepEqual(menuButtons, ['s3d-lyrics-toggle', 's3d-settings-toggle', 's3d-coast-toggle', 's3d-diorama-toggle', 's3d-reset', 's3d-fs'],
-      '飞出菜单必须是 歌词/设置/纯真3D/镜台/复位/全屏 六颗');
+    assert.deepEqual(menuButtons, ['s3d-lyrics-toggle', 's3d-settings-toggle', 's3d-coast-toggle', 's3d-diorama-toggle', 's3d-tunnel-toggle', 's3d-reset', 's3d-fs'],
+      '飞出菜单必须是 歌词/设置/纯真3D/镜台/隧图/复位/全屏 七颗');
     const collapsedOpacity = await page.evaluate(() =>
       getComputedStyle(document.getElementById('s3d-lyrics-toggle')).opacity);
     assert.equal(Number(collapsedOpacity), 0, '收拢态功能牌不可见');

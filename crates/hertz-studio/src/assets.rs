@@ -60,6 +60,8 @@ ui_assets! {
     "/stage-coast.js", JS => const STAGE_COAST_JS: &str = include_str!("../../../plugin/ui/stage-coast.js");
     "/vendor/diorama-stage.js", JS => const DIORAMA_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/diorama-stage.js");
     "/stage-diorama.js", JS => const STAGE_DIORAMA_JS: &str = include_str!("../../../plugin/ui/stage-diorama.js");
+    "/vendor/tunnel-stage.js", JS => const TUNNEL_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/tunnel-stage.js");
+    "/stage-tunnel.js", JS => const STAGE_TUNNEL_JS: &str = include_str!("../../../plugin/ui/stage-tunnel.js");
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");

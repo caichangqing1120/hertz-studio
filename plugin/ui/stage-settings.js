@@ -19,19 +19,22 @@
     var creative = state.source === 'creative';
     var coast = state.source === 'coast';
     var diorama = state.source === 'diorama';
-    var covered = creative || coast || diorama || stanza && state.background !== 'stage';
+    var tunnel = state.source === 'tunnel';
+    var covered = creative || coast || diorama || tunnel || stanza && state.background !== 'stage';
     var scene = !!state.webgl && !covered;
     var lyrics = state.lyrics !== false;
     var animated = !state.reduced;
     var rows = {};
     function row(id, enabled, reason) { rows[id] = { enabled: !!enabled, reason: enabled ? '' : reason }; }
-    row('s3d-fl-bg-mode', !creative && !coast && !diorama, diorama ? '当前歌词由镜台场景内演出；切回沉浸声场后使用此设置' : coast ? '当前背景为「纯真3D」海岸公路；切回沉浸声场后使用此设置' : '当前背景由创意工坊编排；切回沉浸声场后使用此设置');
+    row('s3d-fl-bg-mode', !creative && !coast && !diorama && !tunnel, diorama ? '当前歌词由镜台场景内演出；切回沉浸声场后使用此设置' : tunnel ? '当前歌词由隧图场景内演出；切回沉浸声场后使用此设置' : coast ? '当前背景为「纯真3D」海岸公路；切回沉浸声场后使用此设置' : '当前背景由创意工坊编排；切回沉浸声场后使用此设置');
     row('s3d-coast-tod', coast, '选择「海岸公路」背景后生效');
     row('s3d-coast-interact', coast, '选择「海岸公路」背景后生效');
     row('s3d-diorama-carrier', diorama, '选择「镜台 · 末班车」背景后生效');
     row('s3d-diorama-reflection', diorama, '选择「镜台 · 末班车」背景后生效');
+    row('s3d-tunnel-warp', tunnel, '选择「隧图 · 深空」背景后生效');
+    row('s3d-tunnel-objects', tunnel, '选择「隧图 · 深空」背景后生效');
     row('s3d-layout', !stanza, '当前歌词视觉使用独立排版；切回舞台 3D 歌词轨后生效');
-    row('s3d-bloom', scene, coast ? '海岸舞台的光效随时刻与音乐自动变化' : diorama ? '镜台的光效随曲式与音乐自动变化' : creative ? '请在创意工坊的参数中调整场景泛光' : covered ? '当前背景覆盖了 3D 场景；选择「舞台场景（3D）」后生效' : '当前设备未启用 3D 渲染');
+    row('s3d-bloom', scene, coast ? '海岸舞台的光效随时刻与音乐自动变化' : diorama ? '镜台的光效随曲式与音乐自动变化' : tunnel ? '隧图的光效随音乐自动变化' : creative ? '请在创意工坊的参数中调整场景泛光' : covered ? '当前背景覆盖了 3D 场景；选择「舞台场景（3D）」后生效' : '当前设备未启用 3D 渲染');
     row('s3d-motion', animated && (scene || stanza && lyrics), state.reduced ? '减少动态效果已开启' : '显示歌词或启用 3D 场景后生效');
     row('s3d-reactivity', animated && (scene || stanza && lyrics), state.reduced ? '减少动态效果已开启' : '显示歌词或启用 3D 场景后生效');
     row('s3d-fl-size', lyrics, '显示歌词后生效');
@@ -47,6 +50,7 @@
       backgroundNote: creative ? '创意编排正在大舞台演出；场景、背景与音乐响应在创意工坊中调整。' :
         coast ? '「纯真3D」海岸公路正在演出；时刻与交互在下方调整。' :
         diorama ? '「镜台 · 末班车」正在演出；歌词是沿途站牌与水面上的光，载体与反射在下方调整。' :
+        tunnel ? '「隧图 · 深空」正在演出；歌词散点凝聚成字形，星流与天体在下方调整。' :
         covered ? '当前使用独立背景，已隐藏 3D 场景；原场景设置已保留。' :
         scene ? '3D 背景与歌词同时生效。' : '当前设备未启用 3D 渲染。' };
   }

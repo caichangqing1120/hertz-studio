@@ -1549,6 +1549,15 @@ body.s3d-open > .bar { display: none; }
 .s3d-diorama-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
 .s3d-diorama-source::before, .s3d-diorama-source::after { display: none; }
 .s3d-diorama-source .s3d-reading { z-index: 3; }
+
+/* 「隧图 · 深空」：第五背景源。歌词长在场景里（字形凝聚/实心擦亮），stanza
+   叠层由 sceneOwnsLyrics 收起；整幅场景压在 3D 轨画布之上。 */
+.s3d-tunnel { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #0a0d11; }
+.s3d-tunnel[hidden] { display: none; }
+.s3d-tunnel .tunnel-canvas { display: block; width: 100%; height: 100%; }
+.s3d-tunnel-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-tunnel-source::before, .s3d-tunnel-source::after { display: none; }
+.s3d-tunnel-source .s3d-reading { z-index: 3; }
 .s3d-creative-source .s3d-reading { z-index: 3; }
 .s3d-creative-source .s3d-sleeve { z-index: 3; }
 .s3d-creative-source #s3d-creative .creative-canvas { visibility: visible; z-index: 1; mix-blend-mode: screen; }
