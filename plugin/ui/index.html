@@ -18,6 +18,9 @@
 <link rel="stylesheet" href="stage.css">
 <link rel="stylesheet" href="creative.css">
 <link rel="stylesheet" href="stage3d.css">
+<!-- 动画绘景 SVG 舞台层：画稿与关键帧在 creative-anime.css，这里只管舞台集成侧。
+     新层排在舞台基础层之后，同特异性争议整块胜出。 -->
+<link rel="stylesheet" href="stage-anime-svg.css">
 <link rel="stylesheet" href="stage-themes/starfall.css">
 <link rel="stylesheet" href="stage-themes/ios.css">
 <link rel="stylesheet" href="stanza/stanza.css">
@@ -1678,7 +1681,7 @@
       <p class="s3d-fl-auto-state" id="s3d-fl-auto-state" hidden></p>
     </div>
     <label for="s3d-scene-source">舞台来源</label>
-    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option></select>
+    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option><option value="anime-svg">动画绘景</option></select>
     <div id="s3d-coast-tuning" hidden>
       <label for="s3d-coast-tod">海岸时刻 <output id="s3d-coast-tod-value">黄昏</output></label>
       <input id="s3d-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
@@ -1690,6 +1693,11 @@
       <select id="s3d-diorama-carrier"><option value="auto">随曲式（副歌升空）</option><option value="sign">只立站牌</option><option value="constellation">只上星幕</option></select>
       <label for="s3d-diorama-reflection"><input id="s3d-diorama-reflection" type="checkbox" checked> 水面镜反射</label>
       <p class="s3d-setting-note">夜行列车沿镜面水原驶向星空；歌词是沿途站牌与落在水面上的光。关闭反射可换取低端设备的流畅。</p>
+    </div>
+    <div id="s3d-anime-tuning" hidden>
+      <label for="s3d-anime-scene">绘景作品</label>
+      <select id="s3d-anime-scene"></select>
+      <label for="s3d-anime-mirror"><input id="s3d-anime-mirror" type="checkbox"> 镜像对称（左右两侧一致）</label>
     </div>
     <label for="s3d-stage-theme">设置风格</label>
     <select id="s3d-stage-theme"><option value="classic">默认</option><option value="starfall">星落</option><option value="ios">iOS</option></select>
@@ -2070,6 +2078,9 @@
 <script defer src="vendor/diorama-stage.js"></script>
 <script defer src="stage-diorama.js"></script>
 <script defer src="stage3d.js"></script>
+<!-- 动画绘景 SVG 舞台适配层：读 CreativeGL 注册表的 presentation.art，必须排在
+     creative-anime.js（注册表）之后；与 stage3d.js 无加载期依赖，只被调用。 -->
+<script defer src="stage-anime-svg.js"></script>
 <script defer src="stage-immersive.js"></script>
 <script defer src="vendor/qrcode.js"></script>
 <script defer src="online-login.js"></script>

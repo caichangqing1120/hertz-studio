@@ -1,0 +1,57 @@
+/* SPDX-License-Identifier: MIT */
+/* 「动画绘景」SVG 舞台层。画稿与 cx-* 关键帧归 creative-anime.css，本文件只管
+   舞台集成侧：宿主布局、镜像、播放门、音频呼吸、减弱动效、GL 让位。 */
+
+/* 与 .s3d-creative 同构的宿主层：绝对定位铺满内容区、不吃指针事件（舞台拖拽
+   全归 stage3d 的根手势）、压住 GL 画布（z-index 2）。 */
+.s3d-anime {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--s3d-bg);
+  isolation: isolate;
+}
+.s3d-anime[hidden] { display: none; }
+
+/* 画稿 640×400 以完整构图居中（preserveAspectRatio 由挂载时注入，xMidYMid
+   meet）：舞台与小图（工坊卡片）是同一帧，letterbox 用宿主暗底托裱。
+   镜像份是同画稿的第二份拷贝，绕舞台中轴翻转。 */
+.s3d-anime .ws-scene-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.s3d-anime .s3d-anime-mirror { transform: scaleX(-1); }
+
+/* 播放门：celx 默认 paused（creative-anime.css 的 .celx .cx-motion），宿主挂上
+   data-motion="running" 才演。特异性 (0,3,0) 稳压 (0,2,0)。 */
+.s3d-anime[data-motion="running"] .cx-motion { animation-play-state: running; }
+
+/* 音频呼吸：onset 能量经 stage-anime-svg.js 写进 --s3d-anime-audio（0–1），
+   只驱动一层 opacity 合成，不吃主线程。 */
+.s3d-anime::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 88% at 50% 40%, rgb(255 238 205 / 60%), transparent 62%);
+  opacity: calc(var(--s3d-anime-audio, 0) * 0.16);
+}
+/* 帧门降档（stage:fps lowfx）后摘掉呼吸层，只降不升。 */
+.s3d-anime-lowfx::after { display: none; }
+
+/* 减弱动效：与工坊卡片同一判据（系统设置 + 应用设置），显示静态画面。 */
+@media (prefers-reduced-motion: reduce) {
+  .s3d-anime .celx * { animation: none !important; }
+}
+body.reduce-motion .s3d-anime .celx * { animation: none !important; }
+
+/* 挂载期间 GL 画布与氛围层让位、歌词层抬到绘景之上 —— 抄 .s3d-creative-source。 */
+.s3d-anime-svg-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-anime-svg-source::before, .s3d-anime-svg-source::after { display: none; }
+.s3d-anime-svg-source .s3d-reading { z-index: 3; }
+.s3d-anime-svg-source .s3d-sleeve { z-index: 3; }

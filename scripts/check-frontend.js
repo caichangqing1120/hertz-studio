@@ -112,6 +112,8 @@ const STEPS = [
     why: '新增场景经真实注册入口进入参数、预置、分享和提示词；歌词渲染器生命周期由宿主统一驱动。' },
   { script: 'check-anime-scenes.js', stage: 'behavior',
     why: '四套绘景的登记/参数/保存/分享/恢复往返：新场景只在真实 WebGL 里才看得出画错，接线错一处只是「下拉里没这项」。' },
+  { script: 'check-stage-anime-svg.js', stage: 'behavior',
+    why: '动画绘景 SVG 舞台：同一批画稿走 DOM 上舞台，镜像/暂停/降级与全部接线（路由、下拉、设置能力）——漏接一条只是「切过去没反应」或「两份 SVG 撞 ID 后填充丢失」，都不报错。' },
   { script: 'check-anime-ui.js', stage: 'behavior',
     why: '晴空绘卷外观族：图库分区卡片与材质按族放行；点击特效按主题声明（fx → data-fx → 原型库），错接的结果是换肤后画面变平、特效互串而不报错。' },
   { script: 'check-stanza.js', stage: 'behavior',
