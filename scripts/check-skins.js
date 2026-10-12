@@ -167,7 +167,7 @@ function makeSandbox(cssIds, carrier) {
 function checkCatalog() {
   section('皮肤目录：五套都在，classic 是"没有皮肤"');
 
-  const { sandbox, root, links } = makeSandbox(['sheen', 'workbench', 'liunian', 'ios', 'qingfeng']);
+  const { sandbox, root, links, listHost } = makeSandbox(['sheen', 'workbench', 'liunian', 'ios', 'qingfeng']);
   const ids = sandbox.Skins.catalog().map((s) => s.id);
   ok(ids.indexOf('classic') >= 0, '有 classic（仓库原本那套布局）');
   ok(ids.indexOf('sheen') >= 0, '有 sheen');
@@ -177,6 +177,32 @@ function checkCatalog() {
   ok(ids.indexOf('qingfeng') >= 0, '有 qingfeng');
   ok(sandbox.Skins.catalog().every((s) => s.name && s.note),
     '每套皮肤都有可读的名字与说明（设置页要靠它做选择）');
+
+  section('隐藏的皮肤：目录里还在，界面上不给入口');
+
+  // workbench 是隐藏的：CATALOG 里留着定义（apply 能切过去，排障与老用户都
+  // 不会被困住），但三处宿主一律不渲染它。判据取**渲染结果**，不是源码里有没有
+  // 那个字段——字段写了但宿主忘了过滤，界面上照样会出现。
+  const shown = sandbox.Skins.list().map((s) => s.id);
+  ok(shown.indexOf('workbench') < 0, 'Skins.list() 里没有 workbench（命令面板靠它建命令）');
+  ok(shown.indexOf('classic') >= 0 && shown.indexOf('sheen') >= 0,
+    '其余皮肤不受影响（隐藏一套不是把整张清单关掉）');
+  sandbox.Skins.render();
+  const cardIds = listHost.children.map((r) => r.getAttribute('data-skin-id'));
+  ok(cardIds.indexOf('workbench') < 0, '设置页那组卡片里没有 workbench');
+  ok(cardIds.indexOf('sheen') >= 0, '设置页那组卡片照旧渲染其余皮肤');
+  // 隐藏不等于删掉：排障时仍要能把它调出来，否则"隐藏"就成了不可逆的删除。
+  sandbox.Skins.apply('workbench');
+  eq(root.getAttribute('data-skin'), 'workbench', 'apply() 仍能把隐藏的皮肤切出来（排障用）');
+  sandbox.Skins.apply('classic');
+
+  // 界面上没有入口，开页就不能停在它上面——否则用户换不回来，只能去清
+  // localStorage。回落的同时要把存档冲掉，不然下次开页又读回同一套。
+  const { sandbox: sh, root: rh, store: shStore } = makeSandbox(['sheen', 'workbench']);
+  shStore.set('vmusic.skin', 'workbench');
+  sh.Skins.init();
+  eq(rh.getAttribute('data-skin'), 'classic', '存档是隐藏皮肤时开页回落 classic');
+  eq(shStore.get('vmusic.skin'), 'classic', '回落同时把存档冲掉（下次开页不再读回它）');
 
   section('切换：写 data-skin，并只启用对应那份 CSS');
 
@@ -277,7 +303,8 @@ function checkSkinEntry() {
   eq(skinBtn.getAttribute('aria-expanded'), 'true', 'aria-expanded 跟着展开');
 
   const rows = skinMenu.children;
-  eq(rows.length, sandbox.Skins.catalog().length, '弹层行数等于目录长度（不是各存一份清单）');
+  eq(rows.length, sandbox.Skins.list().length, '弹层行数等于对外可见的皮肤数（不是各存一份清单）');
+  ok(!rows.some((r) => r.getAttribute('data-skin-id') === 'workbench'), '顶栏弹层里没有 workbench');
   ok(rows.every((r) => r.getAttribute('role') === 'menuitemradio'), '每行都是 menuitemradio（单选语义）');
   const on = rows.filter((r) => r.getAttribute('aria-checked') === 'true');
   eq(on.length, 1, '只标记一个当前项');
@@ -2960,6 +2987,46 @@ function checkHeijiaoSkin() {
     '滚动权收在 .view 一个容器上');
   ok(/\[data-skin="heijiao"\] \.lib-list[\s\S]*?overflow:\s*visible/.test(hjBody),
     '列表体不自滚（避免两层滚动条并排）');
+
+  section('黑胶：队列两档排布（卡片 / 行列表）');
+
+  // 队列从「只有卡片」变成「卡片 + 行列表」两档。判据不是"有没有写列表样式"，
+  // 恰恰相反：列表档必须**没有**皮肤自己的行样式，几何全部交回 style.css 的
+  // 行列表基线 —— 重写一份行几何迟早跟基线漂移，而基线是其余六套皮肤共用的。
+  const hjGridGroup = hjBody.match(/\[data-skin="heijiao"\] \.lib-list[^{]*\{/);
+  ok(!!hjGridGroup && !/\.q-list/.test(hjGridGroup[0]),
+    '队列容器已从「所有列表都是网格」那一组里拆出来（它不再恒为网格）');
+  ok(/\[data-skin="heijiao"\] \.q-list:not\(\.hj-queue-list\)\s*\{[^}]*display:\s*grid/.test(hjBody),
+    '卡片档：网格只在容器不带 hj-queue-list 时成立');
+  // 「不自滚」这条留在门控之外。基线的 .q-list 是 overflow-y:auto + flex:1，
+  // 跟着整条回退会在黑胶的 .view 里再套一层滚动容器 —— 两层滚动条并排是
+  // 本项目反复出过的体验事故，且**不报错**。
+  ok(/\[data-skin="heijiao"\] \.q-list\s*\{[^}]*overflow:\s*visible[^}]*flex:\s*none/.test(hjBody),
+    '两档都不自滚（滚动权恒在 .view，列表档也不例外）');
+  // 行规则的特异性必须与改造前逐字相同：容器限定要用 :where() 包住（恒为 0）。
+  // 直接串上去会从 (0,2,0) 涨到 (0,4,0)，反超 anime-ui.css / cel-ui.css 那两条
+  // 针对 .q-row 的 (0,2,1) 规则 —— 症状是同一屏里队列卡片的圆角/描边跟曲库
+  // 卡片不一致，而 .track 那边一切正常，最难往特异性上想。
+  ok(/\[data-skin="heijiao"\] :where\(\.q-list:not\(\.hj-queue-list\)\) \.q-row\s*\{[^}]*grid-template-areas/.test(hjBody)
+    && !/\[data-skin="heijiao"\] \.q-list:not\([^)]*\) \.q-row/.test(hjBody)
+    && !/\[data-skin="heijiao"\] \.q-row\s*\{[^}]*grid-template-areas/.test(hjBody),
+    '行规则的容器限定走 :where()（特异性不涨），且卡片几何没有一条是无门控的');
+  ok(/\[data-skin="heijiao"\] :where\(\.q-list:not\(\.hj-queue-list\)\) \.q-row\.playing\s*\{[^}]*border-color/.test(hjBody),
+    '播放高亮的 border-color 也在门控里（列表档没边框，否则行上多一条品牌色横线）');
+  ok(/\.hj-q-views/.test(hjBody), 'CSS 给自造的切换按钮组留了排布');
+
+  // JS 侧：按钮组是皮肤自造节点，必须挂进队列视图的工具行，并在卸载时归还。
+  ok(/querySelector\('#view-queue \.col-tools'\)/.test(HEIJIAO_JS)
+    && /insertBefore\(queueViews/.test(HEIJIAO_JS),
+    '切换按钮挂在队列头部（用户看到队列的地方，不在设置页里）');
+  ok(/vmusic\.heijiao\.queue/.test(HEIJIAO_JS), '排布选择落 localStorage');
+  ok(/setQueueMode\(readStored\(QUEUE_STORE_KEY\), false\)/.test(HEIJIAO_JS),
+    '开机恢复不写盘（无条件写回会把默认档钉死）');
+  const hjQueueUnmount = HEIJIAO_JS.slice(HEIJIAO_JS.indexOf('function unmount('),
+    HEIJIAO_JS.indexOf('window.Skins.registerLifecycle'));
+  ok(/queueViews\.parentNode\.removeChild\(queueViews\)/.test(hjQueueUnmount)
+    && /classList\.remove\(QUEUE_LIST_CLASS\)/.test(hjQueueUnmount),
+    '卸载摘按钮、也摘状态类（#queue-list 是业务节点，类会跨皮肤存活）');
 
   section('黑胶：唱片拖转的机制（CSS 侧）');
 

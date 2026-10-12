@@ -1956,13 +1956,25 @@ async function loadNowPlaying(id) {
   } else {
     url = window.Online.safeCoverUrl(track.cover);
   }
+  // 盘面按设备像素出图：QQ 服务端给的是列表够用的 300，铺到 150% 屏上的圆盘只有
+  // 0.55 倍密度，看着就是糊的。只给舞台这一路升档，列表行不动 —— 一屏 30 行从
+  // 30×24KB 变 30×245KB 不叫"更清晰"，叫"封面等半天出不来"。
+  const canonical = url;
+  const big = window.Online && isRemoteCoverUrl(canonical) ? window.Online.bigCoverUrl(canonical) : canonical;
   // 插件形态下远程封面必须先换成 data URL：一则沙箱 CSP 画不出 https 图，二则
   // 下面的 probeImage 探的是最终要画的那份——探远程地址在插件形态必然失败，封面
   // 会被当成坏图撤掉，表现正是「正在播放没有封面」。
-  const remote = isRemoteCoverUrl(url) ? url : null;
-  url = await resolveCover(url);
+  const remote = isRemoteCoverUrl(canonical) ? canonical : null;
+  url = await resolveCover(big);
   // 远程封面可能 404 / 防盗链：加载不出来就撤掉，用占位图而不是空白
-  if (url && !(await probeImage(url))) url = null;
+  let drawn = !!url && await probeImage(url);
+  if (!drawn && big !== canonical) {
+    // 升的那档 CDN 没有（QQ 只认 300/500/800/1200 几档，别的尺寸直接 404）：
+    // 退回原址再走一遍，宁可稍糊也不要没封面。
+    url = await resolveCover(canonical);
+    drawn = !!url && await probeImage(url);
+  }
+  if (url && !drawn) url = null;
   // 探测通过的封面回写进曲目元数据（base/byId/Online.meta 是同一个对象）：
   // pushStageQueue 重推时歌单架当前卡才能拿到封面，不用等下一次换曲。
   // 回写远程原址而不是 data URL：base64 塞进元数据会把内存与持久化一起撑爆。

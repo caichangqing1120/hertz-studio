@@ -189,7 +189,7 @@
 .cx-forest-glow-c { animation: cx-forest-glow 5.9s ease-in-out -1s infinite; }
 @keyframes cx-forest-rays { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
 @keyframes cx-forest-lantern { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
-@keyframes cx-forest-fern { 0%,100% { transform: rotate(-1.1deg); } 50% { transform: rotate(1.1deg); } }
+@keyframes cx-forest-fern { 0%,100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
 @keyframes cx-forest-drift { 0%,100% { transform: translateX(-24px); } 50% { transform: translateX(26px); } }
 @keyframes cx-forest-rise { 0%,100% { transform: translateY(15px); } 50% { transform: translateY(-21px); } }
 @keyframes cx-forest-glow { 0%,100% { opacity: .12; } 44% { opacity: .85; } }

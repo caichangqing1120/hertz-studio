@@ -791,6 +791,14 @@
   var wrapEl = null;
   var sceneSource = 'immersive';
   var creativeHost = null, artHost = null;
+  // 「纯真3D」海岸公路（sceneSource 'coast'）的两项专属设置，
+  // 与 sceneSource 存同一张偏好表。
+  var coastTod = 0, coastInteract = true;
+  var coastHost = null;
+  // 「镜台 · 末班车」（sceneSource 'diorama'）的专属偏好。歌词长在场景里
+  // （站牌/星幕），stanza 叠层让位；无 GL 降级时叠层兜底歌词。
+  var dioramaCarrier = 'auto', dioramaReflection = true;
+  var dioramaHost = null;
   var canvas = null;
   var gl = null;
   var glFailed = false;
@@ -2148,6 +2156,8 @@
 
   function preferences() {
     return { scene: STAGES[stageIndex].id, sceneSource: sceneSource, motion: motion, bloom: bloom, reactivity: reactivity, lyrics: showLyrics, cruise: cam.cruise, layout: layout, lyricSize: lyricSize, lyricGlow: lyricGlow,
+      coastTod: coastTod, coastInteract: coastInteract,
+      dioramaCarrier: dioramaCarrier, dioramaReflection: dioramaReflection,
       shelfMode: shelfMode,
       stageTheme: stageTheme,
       stanzaVisual: stanza.visual,
@@ -2198,7 +2208,13 @@
     if (!value || typeof value !== 'object') return;
     restoring = true;
     try {
-      if (value.sceneSource === 'creative' || value.sceneSource === 'immersive') sceneSource = value.sceneSource;
+      if (value.sceneSource === 'creative' || value.sceneSource === 'immersive'
+          || value.sceneSource === 'coast' || value.sceneSource === 'diorama') sceneSource = value.sceneSource;
+      if (typeof value.coastTod === 'number') coastTod = clamp(value.coastTod, 0, 1);
+      if (typeof value.coastInteract === 'boolean') coastInteract = value.coastInteract;
+      if (value.dioramaCarrier === 'auto' || value.dioramaCarrier === 'sign'
+          || value.dioramaCarrier === 'constellation') dioramaCarrier = value.dioramaCarrier;
+      if (typeof value.dioramaReflection === 'boolean') dioramaReflection = value.dioramaReflection;
       if (typeof value.motion === 'number') motion = clamp(num(value.motion, 0.65), 0, 1);
       if (typeof value.bloom === 'number') bloom = clamp(num(value.bloom, 0.8), 0, 1.5);
       if (typeof value.reactivity === 'number') reactivity = clamp(num(value.reactivity, 1.35), 0, 2);
@@ -2510,12 +2526,21 @@
   function planeApi() { return planeFor(effectiveVisual()).api; }
 
   function sceneCovered() {
-    return sceneSource === 'creative' || stanzaActive() && stanza.bgMode !== 'stage';
+    return sceneSource === 'creative' || sceneSource === 'coast' || sceneSource === 'diorama'
+      || stanzaActive() && stanza.bgMode !== 'stage';
+  }
+
+  // 镜台在场歌词即歌词本体（站牌/星幕），挂载成功时 stanza 叠层整体让位；
+  // 降级（无 GL）时不接管，stanza 叠层兜底歌词。
+  function dioramaOwnsLyrics() {
+    return sceneSource === 'diorama' && global.StageDiorama && StageDiorama.available()
+      && !StageDiorama.degradedBecause();
   }
 
   function sceneOwnsLyrics() {
-    return sceneSource === 'creative' && global.CreativeStage && CreativeStage.stageActive()
-      && CreativeStage.ownsLyrics();
+    if (sceneSource === 'creative' && global.CreativeStage && CreativeStage.stageActive()
+      && CreativeStage.ownsLyrics()) return true;
+    return dioramaOwnsLyrics();
   }
 
   // Stage3D owns presentation; CreativeStage owns the preset and its render clock.
@@ -2547,6 +2572,104 @@
     }
     if (global.Backgrounds && Backgrounds.setStageHost) Backgrounds.setStageHost(active && useCreative ? creativeHost : null);
     if (global.HandDrawn && HandDrawn.setStageHost) HandDrawn.setStageHost(active ? artHost : null);
+  }
+
+  // 「纯真3D」海岸公路：与 creative 同构的宿主层。适配层 StageCoast 负责
+  // 挂载与卸载，这里只管宿主显隐、入口状态与降级横幅。
+  function syncCoastStage() {
+    if (!root) return;
+    if (!coastHost) {
+      coastHost = document.createElement('div');
+      coastHost.id = 's3d-coast';
+      coastHost.className = 's3d-coast';
+      root.insertBefore(coastHost, root.firstChild);
+    }
+    var useCoast = sceneSource === 'coast';
+    coastHost.hidden = !useCoast;
+    root.classList.toggle('s3d-coast-source', useCoast);
+    coastHost.classList.toggle('coast-interact', useCoast && coastInteract);
+    var tuning = $('s3d-coast-tuning');
+    if (tuning) {
+      tuning.hidden = !useCoast;
+      if (useCoast) {
+        var todInput = $('s3d-coast-tod');
+        if (todInput) todInput.value = coastTod;
+        text('s3d-coast-tod-value', coastTodLabel(coastTod));
+        var interactInput = $('s3d-coast-interact');
+        if (interactInput) interactInput.checked = coastInteract;
+      }
+    }
+    var toggle = $('s3d-coast-toggle');
+    if (toggle) {
+      toggle.setAttribute('aria-pressed', String(useCoast));
+      toggle.title = useCoast ? '回到沉浸声场' : '纯真3D · 海岸公路';
+    }
+    if (!global.StageCoast || !StageCoast.setHost) {
+      if (active && useCoast) showFallback('海岸舞台模块未加载，请选择沉浸声场', 'coast');
+      return;
+    }
+    var ok = active && useCoast ? StageCoast.setHost(coastHost) : StageCoast.setHost(null);
+    if (active && useCoast && !ok) {
+      showFallback(StageCoast.degradedBecause() || '海岸舞台暂不可用，请选择沉浸声场', 'coast');
+      return;
+    }
+    if (active && useCoast) StageCoast.setPrefs({ tod: coastTod, interact: coastInteract });
+    else if (!useCoast && StageCoast.degradedBecause()) {
+      var fallback = $('s3d-fallback');
+      if (fallback && fallback.dataset.source === 'coast') fallback.hidden = true;
+    }
+  }
+
+  // 「镜台 · 末班车」：与 coast 同构的宿主层。适配层 StageDiorama 负责挂载与
+  // 卸载，这里只管宿主显隐、入口状态、偏好下发与降级横幅。歌词长在场景里
+  // （sceneOwnsLyrics 已让 stanza 叠层让位），无 GL 降级时叠层兜底。
+  function syncDioramaStage() {
+    if (!root) return;
+    if (!dioramaHost) {
+      dioramaHost = document.createElement('div');
+      dioramaHost.id = 's3d-diorama';
+      dioramaHost.className = 's3d-diorama';
+      dioramaHost.innerHTML = '<div class="diorama-bars" aria-hidden="true"></div>';
+      root.insertBefore(dioramaHost, root.firstChild);
+    }
+    var useDiorama = sceneSource === 'diorama';
+    dioramaHost.hidden = !useDiorama;
+    root.classList.toggle('s3d-diorama-source', useDiorama);
+    var tuning = $('s3d-diorama-tuning');
+    if (tuning) {
+      tuning.hidden = !useDiorama;
+      if (useDiorama) {
+        var carrierSel = $('s3d-diorama-carrier');
+        if (carrierSel) carrierSel.value = dioramaCarrier;
+        var reflInput = $('s3d-diorama-reflection');
+        if (reflInput) reflInput.checked = dioramaReflection;
+      }
+    }
+    var toggle = $('s3d-diorama-toggle');
+    if (toggle) {
+      toggle.setAttribute('aria-pressed', String(useDiorama));
+      toggle.title = useDiorama ? '回到沉浸声场' : '镜台 · 末班车';
+    }
+    if (!global.StageDiorama || !StageDiorama.setHost) {
+      if (active && useDiorama) showFallback('镜台舞台模块未加载，请选择沉浸声场', 'diorama');
+      return;
+    }
+    var ok = active && useDiorama ? StageDiorama.setHost(dioramaHost) : StageDiorama.setHost(null);
+    if (active && useDiorama && !ok) {
+      showFallback(StageDiorama.degradedBecause() || '镜台舞台暂不可用，请选择沉浸声场', 'diorama');
+      return;
+    }
+    if (active && useDiorama) {
+      var theme = baseLyricTheme();
+      StageDiorama.setPrefs({
+        carrier: dioramaCarrier, reflection: dioramaReflection, lyrics: showLyrics,
+        palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
+          backgroundColor: theme.backgroundColor } : null,
+      });
+    } else if (!useDiorama && StageDiorama.degradedBecause()) {
+      var stale = $('s3d-fallback');
+      if (stale && stale.dataset.source === 'diorama') stale.hidden = true;
+    }
   }
 
   function settingsState() {
@@ -2901,7 +3024,9 @@
     root.style.setProperty('--stanza-fontscale', String(fs));
     stanza.sub.setFontScale(fs);
     callRenderers('setFontScale', fs);
-    stanza.bg.setMode(sceneSource === 'creative' || stanza.bgMode === 'anime' || stanza.bgMode === 'atmosphere' ? 'stage' : stanza.bgMode);
+    // coast 的画布压在歌词层之下（与 creative 同 z 区间），歌词层的
+    // 不透明 .fl-bg 必须让位，否则整幅海岸被盖住。
+    stanza.bg.setMode(sceneSource === 'creative' || sceneSource === 'coast' || sceneSource === 'diorama' || stanza.bgMode === 'anime' || stanza.bgMode === 'atmosphere' ? 'stage' : stanza.bgMode);
     syncStageBackdrop();
     stanza.bg.setOpacity(stanza.bgOpacity);
     stanza.bg.setVignette(stanza.vignette);
@@ -3006,6 +3131,8 @@
 
   function syncLayout() {
     syncCreativeStage();
+    syncCoastStage();
+    syncDioramaStage();
     // 切回 3D 轨后不再调 driveStanza，导演退出必须在配置边界清理，不能等下一帧。
     if (stanza.visual !== 'starborn' && stanza.directorLive) {
       stanza.directorLive = false;
@@ -3393,6 +3520,8 @@
     fadeTarget = 0;
     active = false;
     syncCreativeStage();
+    syncCoastStage();
+    syncDioramaStage();
     if (stanza.ready) applyLayerVisibility(null, false);
     root.classList.remove('s3d-open');
     root.setAttribute('aria-hidden', 'true');
@@ -3469,6 +3598,8 @@
     }
     if (k === 'Escape') {
       if (!$('s3d-settings').hidden) { setSettings(false); $('s3d-settings-toggle').focus(); e.stopImmediatePropagation(); return; }
+      var cluster = $('s3d-head-cluster');
+      if (cluster && cluster.classList.contains('is-open')) { cluster._collapse(); e.stopImmediatePropagation(); return; }
       if (queueOpen) { setQueuePanel(false); $('s3d-queue').focus(); e.stopImmediatePropagation(); return; }
       if (fsEl()) { exitFs(); e.stopImmediatePropagation(); return; }
       close();
@@ -3762,9 +3893,52 @@
     });
   }
 
+  // ----- 右上角按钮组：收拢为一颗触发按钮，悬停/聚焦飞出（CSS 驱动） -----
+  // 触屏没有 hover：首击展开、再击点具体按钮；Esc 或焦点移出即收拢。
+  function bindHeadCluster() {
+    var cluster = $('s3d-head-cluster');
+    var trigger = $('s3d-head-trigger');
+    if (!cluster || !trigger || cluster._bound) return;
+    cluster._bound = true;
+    function collapse() {
+      cluster.classList.remove('is-open');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+    trigger.addEventListener('click', function () {
+      var open = cluster.classList.toggle('is-open');
+      trigger.setAttribute('aria-expanded', String(open));
+    });
+    cluster.addEventListener('focusout', function (e) {
+      if (!cluster.contains(e.relatedTarget)) collapse();
+    });
+    cluster.addEventListener('pointerleave', function () {
+      if (cluster.classList.contains('is-open') && !cluster.contains(document.activeElement)) collapse();
+    });
+    cluster._collapse = collapse;
+    var coast = $('s3d-coast-toggle');
+    if (coast) coast.addEventListener('click', function () {
+      configure({ sceneSource: sceneSource === 'coast' ? 'immersive' : 'coast' });
+      savePreferences();
+    });
+    var diorama = $('s3d-diorama-toggle');
+    if (diorama) diorama.addEventListener('click', function () {
+      configure({ sceneSource: sceneSource === 'diorama' ? 'immersive' : 'diorama' });
+      savePreferences();
+    });
+  }
+
+  function coastTodLabel(v) {
+    if (v < 0.22) return '黄昏';
+    if (v < 0.42) return '入夜';
+    if (v < 0.6) return '午夜';
+    if (v < 0.8) return '凌晨';
+    return '黎明';
+  }
+
   function bindUi() {
     bindLyricVisual();
     bindStageTheme();
+    bindHeadCluster();
     $('s3d-lyrics-toggle').addEventListener('click', toggleLyrics);
     $('s3d-settings-toggle').addEventListener('click', function () { setSettings($('s3d-settings').hidden); });
     $('s3d-settings-close').addEventListener('click', function () { setSettings(false); $('s3d-settings-toggle').focus(); });
@@ -3819,6 +3993,31 @@
     $('s3d-workshop').addEventListener('click', function () { setSettings(false); if (global.Workshop) Workshop.open(); });
     $('s3d-scene-source').addEventListener('change', function (event) {
       configure({ sceneSource: event.target.value }); savePreferences();
+    });
+    var coastTodInput = $('s3d-coast-tod');
+    if (coastTodInput) {
+      coastTodInput.addEventListener('input', function () {
+        coastTod = Number(this.value);
+        text('s3d-coast-tod-value', coastTodLabel(coastTod));
+        if (global.StageCoast) StageCoast.setPrefs({ tod: coastTod });
+      });
+      coastTodInput.addEventListener('change', savePreferences);
+    }
+    var coastInteractInput = $('s3d-coast-interact');
+    if (coastInteractInput) coastInteractInput.addEventListener('change', function () {
+      coastInteract = this.checked;
+      if (global.StageCoast) StageCoast.setPrefs({ interact: coastInteract });
+      savePreferences();
+    });
+    var dioramaCarrierSel = $('s3d-diorama-carrier');
+    if (dioramaCarrierSel) dioramaCarrierSel.addEventListener('change', function () {
+      configure({ dioramaCarrier: dioramaCarrierSel.value });
+      savePreferences();
+    });
+    var dioramaReflInput = $('s3d-diorama-reflection');
+    if (dioramaReflInput) dioramaReflInput.addEventListener('change', function () {
+      configure({ dioramaReflection: dioramaReflInput.checked });
+      savePreferences();
     });
     document.addEventListener('creative:degrade', function (event) {
       if (active && sceneSource === 'creative') showFallback(event.detail.reason + '；可在舞台设置中切回沉浸声场', 'creative');

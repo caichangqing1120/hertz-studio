@@ -174,8 +174,9 @@ void main() {
   c = mix(c, vec3(0.965, 0.855, 0.761), smoothstep(154.0, 320.0, q.y));
   float sun = length(q - vec2(518.0, 64.0));
   c = mix(c, vec3(1.0, 0.945, 0.737), exp(-sun * sun / 39200.0) * 0.45);
-  // 卷云：43 秒周期，完全透明时换相。
-  float cyc = fract(uTime * uPaint.y / 43.0 + 0.62);
+  // 卷云：26 秒周期，完全透明时换相。原来 43 秒时 1 秒只挪 1.9 个画稿单位，
+  // 顶部带量出来是 0% 变化 —— 看着就是一块静止的天。
+  float cyc = fract(uTime * uPaint.y / 26.0 + 0.62);
   float chop = smoothstep(0.0, 0.16, cyc) * (1.0 - smoothstep(0.8, 1.0, cyc));
   vec2 w = q - vec2(463.0 + mix(-38.0, 42.0, cyc), 52.0);
   w.x += sin(w.y * 0.16) * 14.0;
@@ -183,47 +184,61 @@ void main() {
   w = q - vec2(497.0 + mix(-38.0, 42.0, cyc), 66.0);
   w.x += sin(w.y * 0.2) * 10.0;
   c = mix(c, vec3(0.933, 0.976, 0.969), cover(ellipse(w, vec2(72.0, 3.6))) * 0.28 * chop * (0.5 + uPaint.z * 0.5));
-  // 远山：淡蓝紫，脊线上一点残雪。
-  float dFar = max(farRidge(q.x) - q.y, 312.0 - q.x);
-  c = paint(c, dFar, vec3(0.6, 0.667, 0.792));
-  float dSn = max(abs(q.x - 447.0) - 18.0, farRidge(q.x) - q.y);
-  dSn = max(dSn, q.y - farRidge(q.x) - 5.0);
-  c = paint(c, max(dSn, dFar), vec3(0.902, 0.824, 0.808));
-  // 主峰：岩体对角渐变，左坡背光、右肩受光。
-  float d = max(crest(q.x) - q.y, max(q.y - 346.0, q.x - 442.0));
-  float t = clamp((q.y * 0.9 + (500.0 - q.x) * 0.62) / 430.0, 0.0, 1.0);
-  vec3 rock = mix(vec3(0.447, 0.494, 0.690), vec3(0.322, 0.412, 0.561), smoothstep(0.0, 0.55, t));
-  rock = mix(rock, vec3(0.506, 0.608, 0.698), smoothstep(0.55, 1.0, t));
-  c = paint(c, d, rock);
-  // 背光坡的灰紫切面。
-  float A = 214.0 - 0.497 * (q.y - 97.0);
-  float B = q.y < 165.0 ? 230.0 - 0.095 * (q.y - 91.0) : 223.0 - 0.978 * (q.y - 165.0);
-  float dsh = max(max(A - q.x, q.x - B), max(91.0 - q.y, q.y - 254.0));
-  c = mix(c, vec3(0.769, 0.741, 0.784), cover(max(dsh, d)) * 0.66);
-  // 受光面：蜜桃色高光滑向冷青阴影。
-  float faceL = 236.0 - 0.054 * (q.y - 79.0);
-  float dFace = max(max(faceL - q.x, q.y - faceBottom(q.x)), q.x - 385.0);
-  dFace = max(dFace, d);
-  float ft = clamp((q.y * 0.7 + (640.0 - q.x) * 0.55) / 460.0, 0.0, 1.0);
-  vec3 face = mix(vec3(0.929, 0.761, 0.725), vec3(0.702, 0.655, 0.702), smoothstep(0.0, 0.5, ft));
-  face = mix(face, vec3(0.459, 0.541, 0.671), smoothstep(0.5, 1.0, ft));
-  c = paint(c, dFace, face);
-  // 峰顶雪檐与两道破碎雪线。
-  float wedge = 19.0 - abs(q.x - 233.0) * 1.15;
-  float dSnow = max(crest(q.x) - q.y, q.y - crest(q.x) - max(0.0, wedge));
-  dSnow = max(dSnow, abs(q.x - 233.0) - 19.0);
-  c = paint(c, max(dSnow, d), vec3(0.961, 0.937, 0.878));
-  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(233.0, 133.0), vec2(220.0, 183.0)) - 2.6, d)) * 0.85);
-  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(272.0, 116.0), vec2(287.0, 162.0)) - 2.4, dFace)) * 0.8);
-  c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(247.0, 210.0), vec2(258.0, 246.0)) - 2.2, dFace)) * 0.7);
-  // 岩层与沟壑的细线，密度归「云影层次」。
-  float strata = 0.3 + uPaint.z * 0.5;
-  c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(240.0, 112.0), vec2(247.0, 134.0)) - 0.85, dFace)) * strata);
-  c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(286.0, 152.0), vec2(301.0, 175.0)) - 0.85, dFace)) * strata * 0.8);
-  c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(322.0, 196.0), vec2(340.0, 220.0)) - 0.85, dFace)) * strata * 0.6);
-  c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(112.0, 226.0), vec2(142.0, 210.0)) - 0.9, d)) * strata * 0.55);
-  c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(160.0, 196.0), vec2(196.0, 176.0)) - 0.9, d)) * strata * 0.55);
-  c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(348.0, 230.0), vec2(370.0, 250.0)) - 0.9, d)) * strata * 0.4);
+  // 静态底：画稿 0..640 × 0..400 内直接采样卡片同源的那张画稿纹理。
+  // 画稿外（宽屏两侧）仍由下面的程序化裙边补画，所以「窄裁宽延」这个既有行为不变。
+  //
+  // artOn 必须乘上纹理自己的 alpha：Chrome 对**解码失败的 SVG data URI 照样 fire onload**，
+  // 那时 uArtOk 是 1 而纹理工件全透明 —— 只按 uArtOk 判就会拿 (0,0,0) 去 mix，
+  // 画稿范围糊成一块黑底。带上 alpha 之后，空纹理自动让位给程序化底。
+  // 静态底本身是满铺不透明的（画稿第一层就是 640×400 的空气渐变），所以 alpha 恒 1，
+  // 乘它不改变正常路径的任何像素。
+  float dArt = box(q - vec2(320.0, 200.0), vec2(320.0, 200.0));
+  vec4 artTex = texture(uArt, q / vec2(640.0, 400.0));
+  float artOn = uArtOk * cover(dArt) * step(0.5, artTex.a);
+  c = mix(c, artTex.rgb, artOn);
+  if (artOn < 0.5) {
+    // 远山：淡蓝紫，脊线上一点残雪。
+    float dFar = max(farRidge(q.x) - q.y, 312.0 - q.x);
+    c = paint(c, dFar, vec3(0.6, 0.667, 0.792));
+    float dSn = max(abs(q.x - 447.0) - 18.0, farRidge(q.x) - q.y);
+    dSn = max(dSn, q.y - farRidge(q.x) - 5.0);
+    c = paint(c, max(dSn, dFar), vec3(0.902, 0.824, 0.808));
+    // 主峰：岩体对角渐变，左坡背光、右肩受光。
+    float d = max(crest(q.x) - q.y, max(q.y - 346.0, q.x - 442.0));
+    float t = clamp((q.y * 0.9 + (500.0 - q.x) * 0.62) / 430.0, 0.0, 1.0);
+    vec3 rock = mix(vec3(0.447, 0.494, 0.690), vec3(0.322, 0.412, 0.561), smoothstep(0.0, 0.55, t));
+    rock = mix(rock, vec3(0.506, 0.608, 0.698), smoothstep(0.55, 1.0, t));
+    c = paint(c, d, rock);
+    // 背光坡的灰紫切面。
+    float A = 214.0 - 0.497 * (q.y - 97.0);
+    float B = q.y < 165.0 ? 230.0 - 0.095 * (q.y - 91.0) : 223.0 - 0.978 * (q.y - 165.0);
+    float dsh = max(max(A - q.x, q.x - B), max(91.0 - q.y, q.y - 254.0));
+    c = mix(c, vec3(0.769, 0.741, 0.784), cover(max(dsh, d)) * 0.66);
+    // 受光面：蜜桃色高光滑向冷青阴影。
+    float faceL = 236.0 - 0.054 * (q.y - 79.0);
+    float dFace = max(max(faceL - q.x, q.y - faceBottom(q.x)), q.x - 385.0);
+    dFace = max(dFace, d);
+    float ft = clamp((q.y * 0.7 + (640.0 - q.x) * 0.55) / 460.0, 0.0, 1.0);
+    vec3 face = mix(vec3(0.929, 0.761, 0.725), vec3(0.702, 0.655, 0.702), smoothstep(0.0, 0.5, ft));
+    face = mix(face, vec3(0.459, 0.541, 0.671), smoothstep(0.5, 1.0, ft));
+    c = paint(c, dFace, face);
+    // 峰顶雪檐与两道破碎雪线。
+    float wedge = 19.0 - abs(q.x - 233.0) * 1.15;
+    float dSnow = max(crest(q.x) - q.y, q.y - crest(q.x) - max(0.0, wedge));
+    dSnow = max(dSnow, abs(q.x - 233.0) - 19.0);
+    c = paint(c, max(dSnow, d), vec3(0.961, 0.937, 0.878));
+    c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(233.0, 133.0), vec2(220.0, 183.0)) - 2.6, d)) * 0.85);
+    c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(272.0, 116.0), vec2(287.0, 162.0)) - 2.4, dFace)) * 0.8);
+    c = mix(c, vec3(1.0, 0.957, 0.871), cover(max(segment(q, vec2(247.0, 210.0), vec2(258.0, 246.0)) - 2.2, dFace)) * 0.7);
+    // 岩层与沟壑的细线，密度归「云影层次」。
+    float strata = 0.3 + uPaint.z * 0.5;
+    c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(240.0, 112.0), vec2(247.0, 134.0)) - 0.85, dFace)) * strata);
+    c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(286.0, 152.0), vec2(301.0, 175.0)) - 0.85, dFace)) * strata * 0.8);
+    c = mix(c, vec3(0.961, 0.843, 0.769), cover(max(segment(q, vec2(322.0, 196.0), vec2(340.0, 220.0)) - 0.85, dFace)) * strata * 0.6);
+    c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(112.0, 226.0), vec2(142.0, 210.0)) - 0.9, d)) * strata * 0.55);
+    c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(160.0, 196.0), vec2(196.0, 176.0)) - 0.9, d)) * strata * 0.55);
+    c = mix(c, vec3(0.204, 0.310, 0.475), cover(max(segment(q, vec2(348.0, 230.0), vec2(370.0, 250.0)) - 0.9, d)) * strata * 0.4);
+  }
   // 云海三带：远带灰紫、中带奶油、近带最亮，各带自去的漂移周期；
   // 带内右侧隆起用平滑过渡衔接，不留拼接缝。
   float drift = uTime * uPaint.y * 0.2027;   // 31s
@@ -329,16 +344,18 @@ void main() {
   c = mix(c, vec3(1.0, 0.878, 0.655), smoothstep(141.0, 186.0, q.y));
   float glow = length(q - vec2(461.0, 164.0));
   c = mix(c, vec3(1.0, 0.871, 0.690), exp(-glow * glow / 26000.0) * 0.55);
-  // 高层云带，静止。
-  vec2 w = q - vec2(150.0, 53.0);
+  // 高层云带：远带 62 秒、近带 38 秒反向缓漂。原来这里写死「静止」，
+  // 结果整条顶部带在 1 秒帧间零变化 —— 天空没有风，是静止感的主因之一。
+  float cdx = uTime * uPaint.y;
+  vec2 w = q - vec2(150.0 + sin(cdx * 0.1013) * 26.0, 53.0);
   c = mix(c, vec3(0.439, 0.431, 0.667), cover(ellipse(w, vec2(120.0, 5.0))) * 0.36);
-  w = q - vec2(505.0, 60.0);
+  w = q - vec2(505.0 + sin(cdx * 0.1013 + 2.0) * 22.0, 60.0);
   c = mix(c, vec3(0.439, 0.431, 0.667), cover(ellipse(w, vec2(92.0, 4.0))) * 0.36);
-  w = q - vec2(185.0, 110.0);
+  w = q - vec2(185.0 + sin(cdx * 0.1653 + 1.0) * 34.0, 110.0);
   c = mix(c, vec3(1.0, 0.773, 0.686), cover(ellipse(w, vec2(95.0, 4.0))) * 0.74);
-  w = q - vec2(152.0, 121.0);
+  w = q - vec2(152.0 + sin(cdx * 0.1653 + 1.4) * 30.0, 121.0);
   c = mix(c, vec3(1.0, 0.773, 0.686), cover(ellipse(w, vec2(60.0, 3.0))) * 0.74);
-  w = q - vec2(432.0, 104.0);
+  w = q - vec2(432.0 + sin(cdx * 0.1653 + 3.0) * 30.0, 104.0);
   c = mix(c, vec3(1.0, 0.773, 0.686), cover(ellipse(w, vec2(78.0, 3.5))) * 0.74);
   // 落日与海平线。
   c = paint(c, length(q - vec2(456.0, 154.0)) - 28.0, vec3(0.996, 0.965, 0.831));
@@ -361,7 +378,7 @@ void main() {
     float deep = clamp((y - 181.0) / 190.0, 0.0, 1.0);
     for (int j = 0; j < 3; j++) {
       float m = n * 3.1 + float(j) * 7.7;
-      float x = scatter(m) * 680.0 - 20.0 + sin(drift * 0.21 + n) * 7.0;
+      float x = scatter(m) * 680.0 - 20.0 + sin(drift * 0.34 + n) * 16.0;
       float len = 14.0 + scatter(m * 1.31) * 52.0;
       vec3 tint = mix(vec3(0.945, 0.812, 0.808), mix(vec3(0.753, 0.812, 0.871), vec3(0.271, 0.396, 0.553), deep), 0.45);
       c = mix(c, tint, cover(max(abs(q.y - y) - 0.75, abs(q.x - x) - len)) * (0.30 + uPaint.z * 0.38) * (1.0 - deep * 0.4));
@@ -369,7 +386,7 @@ void main() {
   }
   // 落日碎光：11 秒舒展呼吸。
   float ph = 0.5 + 0.5 * sin(uTime * uPaint.y * 0.5712);
-  float span = mix(0.96, 1.04, ph);
+  float span = mix(0.90, 1.10, ph);
   for (int i = 0; i < 15; i++) {
     float n = float(i);
     float y = 187.0 + n * 9.4;
@@ -419,9 +436,10 @@ void main() {
   float wet = max(sandTop(q.x) - q.y, q.y - sandTop(q.x) - 20.0);
   vec3 wetC = mix(vec3(0.471, 0.557, 0.690), vec3(0.871, 0.706, 0.710), clamp((q.y - sandTop(q.x)) / 20.0, 0.0, 1.0));
   c = paint(c, max(wet, 130.0 - q.x), wetC);
-  // 岸线白沫：13.1 秒往复。
+  // 岸线白沫：13.1 秒往复。行程从 9 单位抬到 20 单位 —— 原来退潮只挪 9 单位
+  // （画高的 2%），读起来像一条没动的水线。
   float pw = 0.5 + 0.5 * sin(uTime * uPaint.y * 0.4794);
-  float edge = q.y - sandTop(q.x) + mix(-3.0, 6.0, pw);
+  float edge = q.y - sandTop(q.x) + mix(-7.0, 13.0, pw);
   c = mix(c, vec3(0.969, 0.902, 0.859), cover(max(abs(edge) - 1.6, 130.0 - q.x)) * mix(0.4, 0.85, pw));
   c = mix(c, vec3(1.0, 0.945, 0.859), cover(max(abs(edge - 7.0) - 0.7, 150.0 - q.x)) * mix(0.25, 0.7, pw));
   for (int i = 0; i < 10; i++) {
@@ -442,8 +460,11 @@ void main() {
     float y = sandTop(x) + 12.0 + scatter(n * 2.3) * 60.0;
     c = mix(c, vec3(0.573, 0.498, 0.580), cover(max(abs(q.y - y) - 0.5, abs(q.x - x) - 2.2)) * (0.35 + uPaint.z * 0.3));
   }
-  c = gull(c, q, vec2(268.0, 107.0), 0.9, vec3(0.451, 0.420, 0.569));
-  c = gull(c, q, vec2(299.0, 119.0), 0.6, vec3(0.451, 0.420, 0.569));
+  // 海鸥：卡片那份是 cx-coast-gulls 会飞的，舞台这两只原来钉死在坐标上。
+  float gx = sin(uTime * uPaint.y * 0.107) * 46.0;
+  float gy = sin(uTime * uPaint.y * 0.214 + 1.2) * 9.0;
+  c = gull(c, q, vec2(268.0 + gx, 107.0 + gy), 0.9, vec3(0.451, 0.420, 0.569));
+  c = gull(c, q, vec2(299.0 + gx * 0.72, 119.0 + gy * 0.6), 0.6, vec3(0.451, 0.420, 0.569));
   frag = vec4(finishPaint(c, q), 1.0);
 }`;
 
@@ -483,9 +504,10 @@ float catenary(float x) {
   return 219.5 + 14.0 * (1.0 - s * s);
 }
 // 细雨：沿运动方向的斜网格，相位每循环平移 24 行，同行取同一抖动，
-// 接缝在数学上无缝。
+// 接缝在数学上无缝。画稿 y 轴向下，所以相位必须从 s 里**减**掉：加了会让
+// 同一颗雨落在越来越小的 q.y 上，看起来就是雨往上飘（卡片那份是 translate(… ,440px) 向下）。
 vec3 rainField(vec3 c, vec2 q, float loop, float width, float len, float op, float seed) {
-  float s = dot(q, vec2(-0.0815, 0.9967)) + fract(uTime * uPaint.y / loop) * 1056.0;
+  float s = dot(q, vec2(-0.0815, 0.9967)) - fract(uTime * uPaint.y / loop) * 1056.0;
   float p = dot(q, vec2(0.9967, 0.0815));
   float row = floor(s / 44.0);
   float col = floor(p / 46.0);
@@ -683,12 +705,12 @@ void main() {
   c = paint(c, max(bushL - q.y, q.x - 178.0), vec3(0.157, 0.396, 0.298));
   float bushR = 344.0 + sin(q.x * 0.024 + 3.0) * 6.0 + (q.x - 500.0) * 0.05;
   c = paint(c, max(bushR - q.y, q.x - 356.0), vec3(0.157, 0.396, 0.298));
-  // 斜光：三束从右上切入林隙，23.3 秒明暗。
-  float ro = 0.5 + 0.5 * sin(uTime * uPaint.y * 0.2695);
-  float rayOp = mix(0.55, 0.9, ro);
-  c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 7.0, beamD(q, vec2(397.0, -10.0), vec2(237.0, 375.0), 12.0, 33.0))) * 0.24 * rayOp);
-  c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 6.0, beamD(q, vec2(435.0, -10.0), vec2(317.0, 331.0), 5.0, 12.0))) * 0.24 * 0.65 * rayOp);
-  c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 5.0, beamD(q, vec2(371.0, 6.0), vec2(237.0, 281.0), 4.0, 10.0))) * 0.24 * 0.45 * rayOp);
+  // 斜光：三束从右上切入林隙，18.5 秒明暗，呼吸深度从 0.55–0.9 抬到 0.40–1.0。
+  float ro = 0.5 + 0.5 * sin(uTime * uPaint.y * 0.3396);
+  float rayOp = mix(0.40, 1.0, ro);
+  c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 7.0, beamD(q, vec2(397.0, -10.0), vec2(237.0, 375.0), 12.0, 33.0))) * 0.30 * rayOp);
+  c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 6.0, beamD(q, vec2(435.0, -10.0), vec2(317.0, 331.0), 5.0, 12.0))) * 0.30 * 0.65 * rayOp);
+  c = mix(c, vec3(1.0, 0.894, 0.631), (1.0 - smoothstep(-4.0, 5.0, beamD(q, vec2(371.0, 6.0), vec2(237.0, 281.0), 4.0, 10.0))) * 0.30 * 0.45 * rayOp);
   // 近景大干：左、右两根与画框两根，树皮渐变。
   float btL = clamp((q.x - 91.0) / 19.0, 0.0, 1.0);
   vec3 barkL = mix(vec3(0.071, 0.247, 0.239), vec3(0.208, 0.455, 0.365), btL);
@@ -738,24 +760,28 @@ void main() {
   c = mix(c, vec3(0.600, 0.533, 0.353), cover(max(abs(q.y - 181.0) - 0.45, glassD)) * 0.75);
   c = mix(c, vec3(0.600, 0.533, 0.353), cover(max(abs(q.y - 188.0) - 0.45, glassD)) * 0.75);
   c = mix(c, vec3(1.0, 0.969, 0.812), cover(max(abs(q.x - 445.5) - 1.6, max(glassD, abs(q.y - 181.0) - 11.0))) * 0.8);
-  // 三枚萤火。
-  for (int i = 0; i < 3; i++) {
+  // 七枚萤火。前三枚沿用画稿那三个位置与周期（与卡片一致），后四枚补进林隙空档。
+  // 漂移幅度、光晕半径与亮度包络各抬一档：原来 3 枚 × 0.25 光晕的结果是
+  // 「25.7% 的像素在动、平均只有 1.36」—— 大面积微变被眼睛读成没动。
+  const vec2 fBase[7] = vec2[7](vec2(226.0, 240.0), vec2(385.0, 286.0), vec2(294.0, 346.0),
+    vec2(163.0, 297.0), vec2(451.0, 251.0), vec2(352.0, 213.0), vec2(122.0, 262.0));
+  const float fDrift[7] = float[7](11.3, 17.9, 13.7, 15.1, 9.8, 20.3, 12.6);
+  const float fRise[7] = float[7](7.9, 11.1, 9.1, 10.4, 6.8, 13.2, 8.3);
+  const float fBlink[7] = float[7](4.7, 6.1, 5.9, 5.2, 4.4, 6.8, 3.9);
+  for (int i = 0; i < 7; i++) {
     float n = float(i);
-    vec2 base = n < 0.5 ? vec2(226.0, 240.0) : (n < 1.5 ? vec2(385.0, 286.0) : vec2(294.0, 346.0));
-    float td = n < 0.5 ? 11.3 : (n < 1.5 ? 17.9 : 13.7);
-    float tr = n < 0.5 ? 7.9 : (n < 1.5 ? 11.1 : 9.1);
-    float tg = n < 0.5 ? 4.7 : (n < 1.5 ? 6.1 : 5.9);
-    vec2 at = base + vec2(sin(uTime * uPaint.y * 6.2832 / td + n * 2.1) * (17.0 - n * 2.0),
-      sin(uTime * uPaint.y * 6.2832 / tr + n * 4.2) * (13.0 - n * 1.5));
-    float shine = mix(0.12, 0.85, 0.5 + 0.5 * sin(uTime * uPaint.y * 6.2832 / tg + n * 1.3));
-    float r = 4.0 - n * 0.5;
-    c = mix(c, vec3(1.0, 0.910, 0.631), cover(length(q - at) - r) * shine * 0.25);
-    c = mix(c, vec3(1.0, 0.910, 0.631), cover(length(q - at) - (1.3 - n * 0.18)) * shine);
+    vec2 at = fBase[i] + vec2(sin(uTime * uPaint.y * 6.2832 / fDrift[i] + n * 2.1) * (26.0 - n * 1.6),
+      sin(uTime * uPaint.y * 6.2832 / fRise[i] + n * 4.2) * (20.0 - n * 1.2));
+    float shine = mix(0.08, 0.98, 0.5 + 0.5 * sin(uTime * uPaint.y * 6.2832 / fBlink[i] + n * 1.3));
+    float r = 5.6 - n * 0.35;
+    c = mix(c, vec3(1.0, 0.910, 0.631), cover(length(q - at) - r) * shine * 0.45);
+    c = mix(c, vec3(1.0, 0.910, 0.631), cover(length(q - at) - (1.6 - n * 0.09)) * shine);
   }
-  // 底部暗坡与蕨叶（8.3 秒轻转）。
+  // 底部暗坡与蕨叶（6.6 秒轻转）。摆角从 0.6° 抬到 2°：0.0105 弧度在 r=200 处
+  // 只挪 2 个画稿单位，等于没动。卡片侧 cx-forest-fern 同步到 2deg，两边同一语言。
   c = paint(c, max(372.0 + sin(q.x * 0.03) * 6.0 - q.y, q.x - 168.0), vec3(0.090, 0.247, 0.200));
   c = paint(c, max(392.0 + sin(q.x * 0.04 + 2.0) * 4.0 - q.y, q.x - 452.0), vec3(0.090, 0.247, 0.200));
-  float fernA = 0.0105 * sin(uTime * uPaint.y * 0.7565);
+  float fernA = 0.034 * sin(uTime * uPaint.y * 0.95);
   vec2 fq = vec2(q.x - 82.0, q.y - 400.0);
   fq = mat2(cos(fernA), -sin(fernA), sin(fernA), cos(fernA)) * fq;
   fq += vec2(82.0, 400.0);
@@ -776,10 +802,28 @@ void main() {
   // Navigation illustrations are independent vector studies of the registered
   // scenes. Shared linework and warm light unite four distinct scene palettes.
   // Static gradients supply depth; CSS transforms carry the moving layers.
+  //
+  // body 可以是整串 SVG（该场景还没拆层，舞台仍全程序化），也可以是图层数组。图层三种：
+  //   { svg }                  静态底 —— 卡片与舞台共用，舞台侧走光栅化纹理
+  //   { motion, svg }          带 cx-* 的动画层 —— 卡片由 CSS keyframes 驱动，
+  //                            舞台侧仍是 GLSL 程序化动画，两边相位各自跑，所以不进底纹理
+  //   { keep, svg }            静态但**压在动画层之上**的造型（如前景岩压住近带云海）——
+  //                            进了底纹理会被云盖住，遮挡关系就翻了，所以留在着色器里
+  // 拆层的目的只有一个：让「同一幅画被手写两遍」变成一份画稿两个消费者。
   function celArt(scene, defs, body) {
-    return '<svg xmlns="http://www.w3.org/2000/svg" class="ws-scene-art celx celx-' + scene
-      + '" viewBox="0 0 640 400" aria-hidden="true" focusable="false">'
-      + '<defs>' + defs + '</defs>' + body + '</svg>';
+    var layers = typeof body === 'string' ? [{ svg: body }] : body;
+    function join(want) {
+      return layers.filter(want).map(function (l) { return l.svg; }).join('');
+    }
+    var head = '<svg xmlns="http://www.w3.org/2000/svg" class="ws-scene-art celx celx-' + scene
+      + '" viewBox="0 0 640 400" aria-hidden="true" focusable="false"><defs>' + defs + '</defs>';
+    var staticBody = join(function (l) { return !l.motion && !l.keep; });
+    return {
+      svg: head + join(function () { return true; }) + '</svg>',
+      // 不带 defs 里没引用的渐变也无害，整份 defs 一起给，省掉逐层判引用。
+      staticSvg: typeof body === 'string' || !staticBody.trim()
+        ? null : head + staticBody + '</svg>'
+    };
   }
 
   // 01 / Alpine air. Irregular ridgelines, exposed strata and sculpted cloud
@@ -791,56 +835,70 @@ void main() {
     <linearGradient id="cx-sky-face" x1="1" y1="0" x2="0" y2="1"><stop stop-color="#edc2b9"/><stop offset=".5" stop-color="#b3a7b3"/><stop offset="1" stop-color="#758aab"/></linearGradient>
     <radialGradient id="cx-sky-cloud" cx=".44" cy=".12" r=".85" gradientTransform="translate(0 -.07) scale(1 1.3)"><stop stop-color="#fff9e9"/><stop offset=".33" stop-color="#fff0dc"/><stop offset=".66" stop-color="#dcd8ed"/><stop offset="1" stop-color="#9fb4d6"/></radialGradient>
     <radialGradient id="cx-sky-shadow" cx=".4" cy="0" r="1"><stop stop-color="#f1ebed"/><stop offset=".48" stop-color="#c2cbe3"/><stop offset="1" stop-color="#8da5ca"/></radialGradient>
-    <linearGradient id="cx-sky-crag" x1="1" y1="0" x2="0" y2="1"><stop stop-color="#678c90"/><stop offset="1" stop-color="#264f66"/></linearGradient>`, `
-    <path fill="url(#cx-sky-air)" d="M0 0h640v400H0z"/>
-    <path class="cx-motion cx-sky-glow" fill="url(#cx-sky-sun)" d="M0 0h640v400H0z"/>
+    <linearGradient id="cx-sky-crag" x1="1" y1="0" x2="0" y2="1"><stop stop-color="#678c90"/><stop offset="1" stop-color="#264f66"/></linearGradient>`, [
+    { svg: `
+    <path fill="url(#cx-sky-air)" d="M0 0h640v400H0z"/>` },
+    { motion: 'cx-sky-glow', svg: `
+    <path class="cx-motion cx-sky-glow" fill="url(#cx-sky-sun)" d="M0 0h640v400H0z"/>` },
+    { motion: 'cx-sky-cirrus', svg: `
     <g class="cx-motion cx-sky-cirrus" fill="#eef9f7" opacity=".55">
       <path d="M337 48c41-16 66-12 87-19 25-9 46-8 72-14-30 13-54 14-74 21-23 8-42 5-85 12Z"/>
       <path d="M377 60c40-9 55-6 80-13 27-7 44-9 65-11-37 12-47 11-63 16-23 7-52 6-82 8Z" opacity=".5"/>
-    </g>
+    </g>` },
+    { motion: 'cx-sky-birds', svg: `
     <g class="cx-motion cx-sky-birds" fill="none" stroke="#3d5a7a" stroke-width="2" stroke-linecap="round" opacity=".62">
       <g class="cx-motion cx-sky-bob">
         <path d="M96 74c6-5 12-5 17 0m10-9c5-4 10-4 14 0"/>
       </g>
-    </g>
+    </g>` },
+    { svg: `
     <path d="m315 214 24-25 11 5 18-16 14 3 21-26 13 6 22-20 15 9 11-6 14 20 12-4 22 25 15-5 25 20 13-5 25 20 12-6 18 11 20-5v179H315Z" fill="#99aaca"/>
-    <path d="m438 141-9 28 14 10-5 14 21 7-10-28 4-22 11-6 14 20 12-4 22 25-44-14 25 41-49-23-30-26Z" fill="#e6d2ce" opacity=".68"/>
-    <path d="M0 260 27 236 38 235 60 209 70 211 96 187 104 191 137 159 144 162 155 146 165 148 194 113 202 115 214 97 222 99 236 79 245 90 250 89 267 115 277 117 285 133 293 132 305 152 319 160 323 170 342 178 355 194 364 192 389 218 407 221 442 265v81H0Z" fill="url(#cx-sky-rock)"/>
+    <path d="m438 141-9 28 14 10-5 14 21 7-10-28 4-22 11-6 14 20 12-4 22 25-44-14 25 41-49-23-30-26Z" fill="#e6d2ce" opacity=".68"/>` },
+    { svg: `
+    <path d="M0 260 27 236 38 235 60 209 70 211 96 187 104 191 137 159 144 162 155 146 165 148 194 113 202 115 214 97 222 99 236 79 245 90 250 89 267 115 277 117 285 133 293 132 305 152 319 160 323 170 342 178 355 194 364 192 389 218 407 221 442 265v81H0Z" fill="url(#cx-sky-rock)"/>` },
+    { svg: `
     <path d="m236 79-5 45 8 13-10 28 15-6-10 35 12 17-19 36 30-17 19 14 15-5 34 21 55 14-34-36-12-29-17-11-12-19-13-20-12-26-18-19-9-24-8-1Z" fill="url(#cx-sky-face)"/>
-    <path d="m214 97-22 53-3 21-35 43 22-9-9 22-31 27 43-17 35-46 9-26-8-10 8-32 7-32Z" fill="#c4bdc8" opacity=".66"/>
+    <path d="m214 97-22 53-3 21-35 43 22-9-9 22-31 27 43-17 35-46 9-26-8-10 8-32 7-32Z" fill="#c4bdc8" opacity=".66"/>` },
+    { svg: `
     <path d="m236 79-7 25-10 9 4-14-9 15-12 1-8 17-16 16 6-19 10-16 8 2 12-18 8 2Z" fill="#f5efe0"/>
     <path d="m236 79 9 11 5-1 17 26 10 2 8 16-16-9-9-18-8-5-1 12-8-15-2 17-10 9Z" fill="#fff4de"/>
-    <path d="m233 133-6 28-14 24-16 10 15-22 9-29 3-1m40-19 17 27 5 23 15 23-13-9-13-21-3-25Z" fill="#e5e5e2"/>
+    <path d="m233 133-6 28-14 24-16 10 15-22 9-29 3-1m40-19 17 27 5 23 15 23-13-9-13-21-3-25Z" fill="#e5e5e2"/>` },
+    { svg: `
     <path d="m201 132-19 48-22 19 5-14 14-14Zm-54 33-18 40-19 14 12-24Zm72 35-9 25-25 27 9-28Zm30-57 9 21-7 29 14 18-1-35Zm64 38 17 30 18 14-10-28Z" fill="#455d87" opacity=".72"/>
     <path d="m238 113 7 12-3 22 7 17m4-26 10 19 2 24 15 26m-63-78-12 25-4 17m-24 3-18 29-19 14m99-19-10 25-17 18m88-42 14 23 18 14m-39-9 3 14 19 15" fill="none" stroke="#f5d7c4" stroke-width=".85" opacity=".6"/>
-    <path d="m112 226 25-16 16-18m-50 48 20-5 30-25m-6 35 27-17 9-15m92 6 20 21 13 6m-62 6 30-4 33 20m-8-36 31 21 22 3" fill="none" stroke="#344f79" stroke-width="1" opacity=".38"/>
+    <path d="m112 226 25-16 16-18m-50 48 20-5 30-25m-6 35 27-17 9-15m92 6 20 21 13 6m-62 6 30-4 33 20m-8-36 31 21 22 3" fill="none" stroke="#344f79" stroke-width="1" opacity=".38"/>` },
+    { motion: 'cx-sky-bank-far', svg: `
     <g class="cx-motion cx-sky-bank-far">
       <path d="M-54 265c12-16 29-22 45-17-7-19 15-32 33-25 3-19 31-23 42-7 12-8 30-5 37 8 21-8 42 1 44 15 14-7 33-5 44 5 20-22 46-23 66-10 13-23 48-22 59-2 16-8 33-5 41 8 23-20 59-16 69 6 18-9 35-7 45 8 27-13 46-6 55 8 16-21 43-24 58-10 17-28 59-26 71-1 20-7 37 0 45 18v86H-54Z" fill="url(#cx-sky-shadow)"/>
       <path d="M337 251c-5-18 13-32 31-27 3-23 25-40 47-34 12-24 42-28 60-9 18-9 43 2 44 23 26-4 42 11 40 28 24-5 46 6 47 24 23-7 44 5 47 21-76 22-90 4-123 5-44 1-62-12-100-6-33 6-64-9-93-25Z" fill="url(#cx-sky-cloud)"/>
       <path d="M399 202c9-22 35-31 54-15-13-3-31-2-40 9l-14 6Zm79 5c13-8 29 0 29 13-8-10-16-10-29-13Z" fill="#fff9e8" opacity=".7"/>
       <path d="M-29 239c11-16 32-16 41-6 9-23 29-26 48-13-19-2-30 4-36 18 24-6 43 8 52 16-46 8-62-10-105-15Z" fill="#f9f0e6"/>
-    </g>
+    </g>` },
+    { motion: 'cx-sky-bank-mid', svg: `
     <g class="cx-motion cx-sky-bank-mid">
       <path d="M-65 335c1-25 27-41 49-35-11-25 12-48 36-43-1-26 26-45 48-32 20-24 58-14 61 16 26-8 48 8 47 30 22-6 45 6 49 26 27-2 42 10 43 29 28-18 57-9 70 11v82H-65Z" fill="url(#cx-sky-cloud)"/>
       <path d="M26 267c-3-19 10-32 24-32-12 13-11 28-4 36-17-5-33 3-41 15 1-10 9-17 21-19Zm58-28c20-8 39 10 37 27-7-14-17-22-37-27Z" fill="#fffbed" opacity=".8"/>
       <path d="M75 311c21-18 53-15 66 5 16-12 45-5 49 16 17-3 34 4 41 18-51-7-73 8-103-1-20-6-46-9-72-4 2-16 8-26 19-34Z" fill="url(#cx-sky-shadow)" opacity=".74"/>
       <path d="M254 325c12-21 41-32 60-16-1-24 26-41 47-29 12-24 43-29 62-9 14-8 35 2 37 17 17-10 41-3 46 16 22-12 49 3 51 20 24-7 49 6 51 27-78 17-135 0-183 9-65 13-107-6-171-35Z" fill="url(#cx-sky-cloud)"/>
       <path d="M366 286c6-17 28-20 41-9-13-1-30 4-41 9Zm65 23c18-21 47-11 49 7-15-12-28-11-49-7Z" fill="#fffae8" opacity=".65"/>
-    </g>
+    </g>` },
+    { motion: 'cx-sky-bank-near', svg: `
     <g class="cx-motion cx-sky-bank-near">
       <path d="M195 415c-11-21 8-44 32-42-6-22 17-41 37-32 14-26 46-32 66-11 16-12 43-4 47 16 25-9 49 4 53 25 26-10 48 0 61 16 22-23 52-20 72-3 10-17 37-17 50-4 21-10 45-5 56 12v59H195Z" fill="url(#cx-sky-shadow)"/>
       <path d="M433 399c-7-24 17-45 39-38-3-23 16-42 40-37 0-31 29-49 54-32 17-26 54-22 64 7 27-11 51 6 51 32 26 0 43 22 35 43l-1 52H433Z" fill="url(#cx-sky-cloud)"/>
       <path d="M524 322c1-22 22-33 37-20-13-2-27 7-37 20Zm50 22c10-19 34-21 48-7-18-5-33 0-48 7Z" fill="#fff5de" opacity=".8"/>
-    </g>
+    </g>` },
+    { keep: true, svg: `
     <path d="M0 291 15 284 27 292 42 288 56 305 63 308 67 325 82 324 88 341 101 346 104 361 119 367 127 386 150 400H0Z" fill="url(#cx-sky-crag)"/>
     <path d="m0 297 17-7 10 9 14-5 11 19-10 8-18-4-3 17-21 3Zm62 31 12 0 10 17 15 8-7 11-11-17-22-3Z" fill="#d4c69f" opacity=".66"/>
     <path d="m23 322 4 33-8 22m29-56 9 26-2 27 12 26m13-50 8 17-2 18 11 15M6 348l7 20-7 32" fill="none" stroke="#274c61" stroke-width="1.5"/>
-    <path d="m6 306 11 5m19-4 8 9m-6 27 6 17m23 2 7 17m27 3 8 13" fill="none" stroke="#e6d2ac" stroke-width=".8" opacity=".55"/>
+    <path d="m6 306 11 5m19-4 8 9m-6 27 6 17m23 2 7 17m27 3 8 13" fill="none" stroke="#e6d2ac" stroke-width=".8" opacity=".55"/>` },
+    { motion: 'cx-sky-haze', svg: `
     <g class="cx-motion cx-sky-haze" fill="#fff2dc">
       <path d="M143 264c48-8 77-7 113-2 28 3 43-1 69-2-21 10-51 10-77 7-41-5-71 1-105-3Z" opacity=".45"/>
       <path d="M181 291c27-3 39-3 61-1 26 3 43 2 59 0-27 10-82 5-120 1Z" opacity=".38"/>
-    </g>
-  `);
+    </g>` }
+  ]);
 
   // 02 / Tidal light. A fixed headland and horizon establish scale; the water
   // alone carries broken reflections, advancing crests and withdrawing foam.
@@ -1048,6 +1106,58 @@ void main() {
     <path d="m55 14 3 9 14 4m41-13 8 5 12-3m36 23 5 9 14-2m25-8 11-6 8 4m20-15 9 5 10-4m51-11 7 6 11-5m65 4 10 7 9-3m58 11 11 3 7-6m45-6 5 8 12 1m44-7 8 5 7-4" fill="none" stroke="#71a774" stroke-width="1" opacity=".28"/>
   `);
 
+  // 底纹理：把画稿的静态层光栅化成一张 GL 纹理，舞台直接采样它 —— 山形与卡片同源，
+  // 不再靠 GLSL 手抄折线。
+  //
+  // 用 data: URI + <img> 解码而不是 fetch：宿主 CSP 是 connect-src 'none'，帧内 fetch
+  // 一律失败，而 img-src 放行 data:/blob:（见 pluginHostBridge.ts 的 pluginSandboxDocument）。
+  // 解码没完成或失败时 uArtOk 保持 0，着色器整幅回落到程序化底 —— 不能有「纹理没到=黑屏」。
+  // 首帧之前不做任何 DOM/GL 动作：本文件在 Node 契约扫描里也会被求值。
+  function artBase(svg) {
+    var img = null, cv = null, tex = null, h = 0, ok = false, failed = false;
+    return {
+      bind: function (gl, U) {
+        if (!svg || failed) { gl.uniform1f(U.uArtOk, 0); return; }
+        if (!img) {
+          img = new Image();
+          img.onload = function () { ok = true; };
+          img.onerror = function () { failed = true; };
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        }
+        if (!ok) { gl.uniform1f(U.uArtOk, 0); return; }
+        // 画稿 400 单位恒铺满画布高（见 PAINT 的 drawing/art 换算），所以纹理高度
+        // 直接对齐 drawingBufferHeight。上限 2048 控显存，约 10MB RGBA。
+        var th = Math.max(512, Math.min(2048, gl.drawingBufferHeight | 0));
+        if (!tex) {
+          tex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        }
+        if (h !== th) {
+          h = th;
+          if (!cv) cv = document.createElement('canvas');
+          cv.width = Math.round(th * 1.6);
+          cv.height = th;
+          var cx = cv.getContext('2d');
+          cx.clearRect(0, 0, cv.width, cv.height);
+          cx.drawImage(img, 0, 0, cv.width, cv.height);
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          // 不翻转：着色器用 q.y/400 直接当 v，画稿 y 轴向下与 canvas 一致。
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+        }
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.uniform1i(U.uArt, 3);
+        gl.uniform1f(U.uArtOk, 1);
+      }
+    };
+  }
+
   [
     { id: 'anime-sky', label: '晴空云海', aliases: ['晴空云海','晴空','云海','anime sky'],
       note: '风吹过云的留白，光落在远山。', tag: '01 / DAYLIGHT', art: artSky, shader: SKY,
@@ -1062,6 +1172,13 @@ void main() {
       note: '沿着林间小径，走向一盏温暖的灯。', tag: '04 / LANTERNS', art: artForest, shader: FOREST,
       labels: ['林间亮度','枝叶微风','萤火密度'] }
   ].forEach(function (scene) {
+    // 底纹理是**逐场景迁移**的：着色器里真的采样 uArt 的场景才有静态底，
+    // 判据只能取自着色器源码本身，不能靠注释或名单 —— 名单会漏改，而漏改的
+    // 表现是"这张画稿没生效"且不报错。还没迁的场景连 uniform 都不声明 ——
+    // 声明了却没人采样，就是契约脚本那条"死参数"（check-creative 早先正是
+    // 用它抓到 tunnel 的 uPush）。
+    var usesArt = (PAINT + scene.shader).indexOf('uArt') >= 0;
+    scene.base = usesArt ? artBase(scene.art.staticSvg) : null;
     CreativeGL.register({
       id: scene.id, label: scene.label, aliases: scene.aliases, ownsLyrics: false,
       params: [
@@ -1070,13 +1187,20 @@ void main() {
         ['detail',scene.labels[2],0,1,0.02,'',0.62]
       ],
       camera: { 'cam.yaw':0, 'cam.pitch':0, 'cam.dist':20, 'cam.fov':55, 'cam.height':0 },
-      presentation: { family:'anime', description:scene.note, tag:scene.tag, art:scene.art },
+      presentation: { family:'anime', description:scene.note, tag:scene.tag,
+        art:scene.art.svg, artStatic:scene.art.staticSvg },
       geom: { mode:'TRIANGLES', verts:6, instances:1 }, depth:false, blend:'surface',
       bloomScale:0.06, toneMapped:false,
-      uniforms:['uPaint','uFrame'],
-      decl:'uniform vec3 uPaint;\nuniform vec4 uFrame;\n',
+      uniforms: usesArt ? ['uPaint','uFrame','uArt','uArtOk'] : ['uPaint','uFrame'],
+      decl: 'uniform vec3 uPaint;\nuniform vec4 uFrame;\n'
+        + (usesArt ? 'uniform sampler2D uArt;\nuniform float uArtOk;\n' : ''),
+      // 底纹理的上传器一起登记（函数键注册表原样保留，对象会被 JSON 深拷贝掉）：
+      // 契约脚本要顺着 setup 的这一跳去查 uArt/uArtOk 到底有没有被赋值，
+      // 只看 setup 的文本会把它当成"永远是 0"的参数。
+      artBind: scene.base ? scene.base.bind : null,
       vert:VERT, frag:PAINT + scene.shader,
       setup:function (gl,U,S) {
+        if (scene.base) scene.base.bind(gl, U);
         gl.uniform3f(U.uPaint,S.p.light,S.p.motion,S.p.detail);
         // Shared camera/model controls pan and crop the drawing without adding
         // perspective. Y rotation becomes a horizontal panorama adjustment.

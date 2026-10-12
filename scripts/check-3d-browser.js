@@ -143,6 +143,8 @@ async function main() {
     pass('native volume drag submits before release without duplicate change submission');
 
     await page.mouse.move(700, 500);
+    // 设置钮收在头部飞出组里：先悬停触发钮展开（与真实交互一致）再点击。
+    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-settings-toggle').click();
     await page.locator('#s3d-lyric-visual').selectOption('classic');
     const settings = page.locator('#s3d-settings');

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 皮肤：heijiao（黑胶）—— 生命周期 + 唱片拖转 + 导航抽屉
+// 皮肤：heijiao（黑胶）—— 生命周期 + 唱片拖转 + 导航抽屉 + 队列排布切换
 // --------------------------------------------------------------------------
 // 这套皮肤要三件事，都必须由 JS 做，理由各自不同：
 //
@@ -23,6 +23,11 @@
 //    把手按钮与展开状态类都是皮肤自造的，业务 HTML 里没有；「当前视图名」
 //    跟着业务层 setView 走，靠 MutationObserver 盯 .rail 的类变化同步 ——
 //    业务层没有（也不该有）"通知皮肤"的钩子。
+//
+// 4) **队列排布两档**（卡片 / 行列表）
+//    同样是皮肤自造的按钮组 + 状态类。切档只写一个类，几何交给 CSS：
+//    卡片档的规则整组挂在 `.q-list:not(.hj-queue-list)` 下，列表档 = 撤掉
+//    覆盖、落回 style.css 的行列表基线，本文件里不量任何像素。
 //
 // 关键实现决策（都是踩过才知道的，写下来免得日后重犯）：
 //
@@ -55,7 +60,14 @@
   var GRAB_CLASS = 'hj-grabbing';
   var STORE_KEY = 'vmusic.heijiao.lyrics';
   var NAV_OPEN_CLASS = 'hj-nav-open';
-  var NAV_STORE_KEY = 'vmusic.heijiao.nav';
+  var NAV_LEAVE_GRACE_MS = 350;   // 指针从把手走到菜单项的余量
+
+  // 队列排布（卡片 / 行列表）。状态类打在 #queue-list 自己身上，CSS 用
+  // .q-list:not(.hj-queue-list) 收口 —— 列表档因此直接落回 style.css 的
+  // 行列表基线，不需要皮肤再写一份行几何（写了就会跟基线漂移）。
+  var QUEUE_STORE_KEY = 'vmusic.heijiao.queue';
+  var QUEUE_LIST_ID = 'queue-list';
+  var QUEUE_LIST_CLASS = 'hj-queue-list';
 
   var AUTO_DEG_PER_SEC = 14;      // 播放中自转：约 26s 一圈，与基础 disc-spin 同速
   var FLICK_DEG_PER_SEC = 720;    // 惯性初速上限：1 圈/秒
@@ -71,6 +83,14 @@
   var toggleBtn = null;
   var navHandle = null;
   var navObserver = null;
+  var navRail = null;
+  var navPinned = false;
+  var navHover = false;
+  var navSuppress = false;   // 点把手关掉之后，压住悬停直到指针真的离开
+  var navHoverCapable = true;
+  var navLeaveTimer = 0;
+  var armNode = null;
+  var queueViews = null;
 
   // 旋转状态。全部收在闭包里，不挂 window —— 挂上去就成了全局可变状态，
   // 切皮肤时清不干净（这类"漏一处就在别的皮肤里继续转"的残留最难查）。
@@ -135,8 +155,8 @@ var lastFrame = 0;
     try { localStorage.setItem(STORE_KEY, open ? 'open' : 'closed'); } catch (e) { /* 隐私模式 */ }
   }
 
-  function readStored() {
-    try { return localStorage.getItem(STORE_KEY); } catch (e) { return null; }
+  function readStored(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
   }
 
   // ---------------------------------------------------------------------------
@@ -147,16 +167,65 @@ var lastFrame = 0;
     return document.body.classList.contains(NAV_OPEN_CLASS);
   }
 
-  /// 与歌词展开同一个模式：唯一写入口 + 持久化写在这里。抽屉是**用户的选择**
-  /// 而不是临时状态 —— 切走再切回来，开着的还开着。
-  function setNavOpen(open) {
-    document.body.classList.toggle(NAV_OPEN_CLASS, !!open);
-    if (navHandle) navHandle.setAttribute('aria-expanded', String(!!open));
-    try { localStorage.setItem(NAV_STORE_KEY, open ? 'open' : 'closed'); } catch (e) { /* 隐私模式 */ }
+  /// 展开态 = 钉住 || 悬停。钉住只对**触屏**存在（触屏没有悬停可依赖，一次点按
+  /// 必须自己开关）；有指针的设备上它恒为 false，抽屉完全跟着指针走。
+  /// 两样都不落库：一个移开就收的浮层，把"开着"记进 localStorage 只会在下次
+  /// 开机时凭空盖住内容。
+  function syncNav() {
+    var open = navPinned || navHover;
+    if (isNavOpen() === open) return;
+    document.body.classList.toggle(NAV_OPEN_CLASS, open);
+    if (navHandle) navHandle.setAttribute('aria-expanded', String(open));
   }
 
-  function readNavStored() {
-    try { return localStorage.getItem(NAV_STORE_KEY); } catch (e) { return null; }
+  function setNavPinned(pinned) {
+    navPinned = !!pinned;
+    syncNav();
+  }
+
+  function navEnter() {
+    if (!navHoverCapable || navSuppress) return;
+    if (navLeaveTimer) { clearTimeout(navLeaveTimer); navLeaveTimer = 0; }
+    navHover = true;
+    syncNav();
+  }
+
+  /// 把手与抽屉之间隔着 16px 空隙（把手 10~48、抽屉 64~121），指针从把手走向
+  /// 菜单项的路上必然先 leave 再 enter。不留这点余量，抽屉会在半路收掉，
+  /// 表现就是"永远点不到菜单项"。
+  function navLeave() {
+    // 指针真的离开了，"点把手关掉"那次意图就过期了：再划回来算新的一次。
+    navSuppress = false;
+    if (navLeaveTimer) clearTimeout(navLeaveTimer);
+    navLeaveTimer = setTimeout(function () {
+      navLeaveTimer = 0;
+      navHover = false;
+      syncNav();
+    }, NAV_LEAVE_GRACE_MS);
+  }
+
+  /// 点把手。**开着的时候点必须真的关掉** —— 用户报的"点击关闭无效果"就是
+  /// 早先只翻钉住位造成的：指针停在把手上时悬停那一项恒为真，翻完还是开着。
+  /// 所以这里关掉之外还要压住悬停，直到指针离开（navLeave 里解除），
+  /// 否则同一次悬停会立刻把它顶回来，看上去仍然"点了没反应"。
+  /// 关着的时候点 = 打开并保持（触屏没有悬停可用，这是它唯一的开关）。
+  function navToggle() {
+    if (isNavOpen()) {
+      navPinned = false;
+      navHover = false;
+      navSuppress = true;
+      if (navLeaveTimer) { clearTimeout(navLeaveTimer); navLeaveTimer = 0; }
+      syncNav();
+    } else {
+      setNavPinned(true);
+    }
+  }
+
+  function navEscape() {
+    navHover = false;
+    navSuppress = true;
+    if (navLeaveTimer) { clearTimeout(navLeaveTimer); navLeaveTimer = 0; }
+    setNavPinned(false);
   }
 
   /// 把手的文字 = 当前视图名。来源只能是 DOM：setView 在业务层切 active 类，
@@ -174,18 +243,11 @@ var lastFrame = 0;
     if (label.textContent !== text) label.textContent = text;
   }
 
-  /// 点把手之外的任何地方都收起（点导航项也一样：导航完成，抽屉就该回去）。
-  /// 把手自己的 onclick 先于文档级 click 执行，toggle 完才轮到这里 ——
-  /// isNavOpen 那道闸保证两个处理器不会互相打架。
-  function onDocClick(e) {
-    if (!isNavOpen()) return;
-    var t = e.target;
-    if (navHandle && t && navHandle.contains(t)) return;
-    setNavOpen(false);
-  }
-
+  /// 键盘/触屏的出口：Escape 连钉住一起解掉。鼠标侧不需要"点别处收起"——
+  /// 移开就收，所以这里也不挂文档级 click（那条会把点菜单项当成"外面"，
+  /// 还会在切皮肤时把 mount 途中恢复的展开态一并收掉）。
   function onDocKeyDown(e) {
-    if (e.key === 'Escape' && isNavOpen()) setNavOpen(false);
+    if (e.key === 'Escape' && isNavOpen()) navEscape();
   }
 
   function mountNavDrawer() {
@@ -199,7 +261,20 @@ var lastFrame = 0;
     navHandle.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-down"/></svg>' +
       '<span class="hj-nav-label"></span>';
-    navHandle.onclick = function () { setNavOpen(!isNavOpen()); };
+    navHandle.onclick = navToggle;
+    navRail = rail;
+    // 触屏没有"悬停"这回事：手指按下会同时派发 pointerenter，若照收，
+    // 一次点击就是"开→立刻关"，看上去点了没反应。所以只在设备真有指针
+    // 悬停能力时才走悬停那条路，触屏交给上面的 navToggle 单点开关。
+    try {
+      navHoverCapable = !window.matchMedia || window.matchMedia('(hover: hover)').matches;
+    } catch (e) { navHoverCapable = true; }
+    // pointerenter/leave 不冒泡（与 mouseenter 同族），正好只认这两个节点自己。
+    // 抽屉收起时是 visibility:hidden，收不到指针事件，所以热区只有把手。
+    navHandle.addEventListener('pointerenter', navEnter);
+    navHandle.addEventListener('pointerleave', navLeave);
+    rail.addEventListener('pointerenter', navEnter);
+    rail.addEventListener('pointerleave', navLeave);
     document.body.appendChild(navHandle);
     syncNavLabel();
     // 视图切换（点击、快捷键、命令面板）最终都落在 .rail 条目的 active 类上，
@@ -211,16 +286,27 @@ var lastFrame = 0;
         attributes: true, attributeFilter: ['class', 'hidden']
       });
     }
-    document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onDocKeyDown);
-    setNavOpen(readNavStored() === 'open');
+    syncNav();   // 初始就是收起：抽屉只跟随指针，没有"上次开着"这回事
   }
 
   function unmountNavDrawer() {
-    document.removeEventListener('click', onDocClick);
     document.removeEventListener('keydown', onDocKeyDown);
+    if (navLeaveTimer) { clearTimeout(navLeaveTimer); navLeaveTimer = 0; }
+    if (navRail) {
+      navRail.removeEventListener('pointerenter', navEnter);
+      navRail.removeEventListener('pointerleave', navLeave);
+      navRail = null;
+    }
+    if (navHandle) {
+      navHandle.removeEventListener('pointerenter', navEnter);
+      navHandle.removeEventListener('pointerleave', navLeave);
+    }
     if (navObserver) { navObserver.disconnect(); navObserver = null; }
     document.body.classList.remove(NAV_OPEN_CLASS);
+    navHover = false;
+    navPinned = false;
+    navSuppress = false;
     if (navHandle && navHandle.parentNode) navHandle.parentNode.removeChild(navHandle);
     navHandle = null;
   }
@@ -417,6 +503,99 @@ var lastFrame = 0;
   }
 
   // ---------------------------------------------------------------------------
+  // 唱机：唱臂节点
+  // ---------------------------------------------------------------------------
+
+  /// 唱臂是皮肤自造的节点（业务 HTML 里 .disc-wrap 只有唱片与律动环）。
+  /// 它只负责"画"：落臂/抬臂完全由 CSS 读 body.is-playing，JS 不接播放态 ——
+  /// 已经有一条 stage:playing-changed 在驱动自转，再挂一条就会两处状态互相追。
+  /// viewBox 是 100×100 且与 .disc-wrap 同框（1 单位 = 盘面 1%），
+  /// 支点 (108,40) 落在盘面右缘外，所以臂会探出方框 —— 靠 svg 的
+  /// overflow:visible 画出来，不放大容器（放大就等于把唱臂算进拖转命中区）。
+  function mountArm() {
+    if (!discWrap || armNode) return;
+    armNode = document.createElement('div');
+    armNode.className = 'hj-arm';
+    armNode.setAttribute('aria-hidden', 'true');
+    armNode.innerHTML =
+      '<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">' +
+        '<line class="hj-arm-rest" x1="98" y1="88.5" x2="104" y2="88.5"/>' +
+        '<g class="hj-arm-swing">' +
+          '<line class="hj-arm-tube" x1="105" y1="40" x2="79" y2="79"/>' +
+          '<line class="hj-arm-glint" x1="105" y1="40" x2="79" y2="79"/>' +
+          '<line class="hj-arm-stub" x1="105" y1="40" x2="107.5" y2="36"/>' +
+          '<rect class="hj-arm-head" x="75.4" y="77.2" width="7.2" height="3.6" rx="1.1" transform="rotate(124 79 79)"/>' +
+          '<circle class="hj-arm-weight" cx="107.5" cy="36" r="2.1"/>' +
+        '</g>' +
+        '<circle class="hj-arm-pivot" cx="105" cy="40" r="3.6"/>' +
+        '<circle class="hj-arm-pin" cx="105" cy="40" r="1.1"/>' +
+      '</svg>';
+    discWrap.appendChild(armNode);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 队列排布：卡片 / 行列表
+  // ---------------------------------------------------------------------------
+  // 卡片是本皮肤对所有列表的统一做法，但队列同时是**有序清单**：想一眼看清
+  // "下一首是谁"时，一屏五列的卡片反而不如一行一首按序号排下来读得快。
+  // 所以只有队列给两档，曲库 / 收藏 / 歌单详情不给 —— 它们没有顺序语义。
+  //
+  // 状态类打在 #queue-list 上而不是 body 上：CSS 那侧要用
+  // `.q-list:not(.hj-queue-list)` 把整组卡片规则一起关掉，行几何完全交回
+  // style.css 的基线（见 skin.heijiao.css 第 4 节）。
+
+  /// 唯一写入口，与 setOpen 同一条纪律：持久化写在这里而不是点击回调里，
+  /// 将来任何新增的切换路径（快捷键、命令面板）都自动被记住。
+  /// 不认识的值回落到卡片 —— 那是本皮肤的默认档。
+  function setQueueMode(mode, persist) {
+    var want = mode === 'list' ? 'list' : 'grid';
+    var list = el(QUEUE_LIST_ID);
+    if (list) list.classList.toggle(QUEUE_LIST_CLASS, want === 'list');
+    if (queueViews) {
+      var buttons = queueViews.querySelectorAll('button[data-hj-q-view]');
+      for (var i = 0; i < buttons.length; i++) {
+        var on = buttons[i].getAttribute('data-hj-q-view') === want;
+        buttons[i].classList.toggle('active', on);
+        buttons[i].setAttribute('aria-pressed', String(on));
+      }
+    }
+    if (persist !== false) {
+      try { localStorage.setItem(QUEUE_STORE_KEY, want); } catch (e) { /* 隐私模式 */ }
+    }
+  }
+
+  function queueMode() {
+    var list = el(QUEUE_LIST_ID);
+    return list && list.classList.contains(QUEUE_LIST_CLASS) ? 'list' : 'grid';
+  }
+
+  /// 按钮组是皮肤自造的节点（业务 HTML 里没有），挂进队列视图的工具行，
+  /// 卸载时摘掉 —— 与 .hj-lyric-toggle 同一套约定。
+  function mountQueueViews() {
+    var tools = document.querySelector('#view-queue .col-tools');
+    if (!tools || queueViews) return;
+    queueViews = document.createElement('div');
+    queueViews.className = 'hj-q-views';
+    queueViews.setAttribute('role', 'group');
+    queueViews.setAttribute('aria-label', '队列显示方式');
+    [['grid', '卡片'], ['list', '列表']].forEach(function (pair) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.setAttribute('data-hj-q-view', pair[0]);
+      b.textContent = pair[1];
+      b.setAttribute('aria-pressed', 'false');
+      b.onclick = function () { setQueueMode(pair[0]); };
+      queueViews.appendChild(b);
+    });
+    // 排在「存为歌单」之前：它是**怎么看**，不是对队列内容做的操作。
+    tools.insertBefore(queueViews, tools.firstChild);
+    // 恢复一律 persist=false：开机那次无条件写回会把"没选过"和"选过"压成
+    // 同一个值，默认档就此再也改不动（与 setPlaylistMode 同一条理由）。
+    setQueueMode(readStored(QUEUE_STORE_KEY), false);
+  }
+
+  // ---------------------------------------------------------------------------
   // 生命周期
   // ---------------------------------------------------------------------------
 
@@ -447,6 +626,7 @@ var lastFrame = 0;
       discWrap.setAttribute('aria-label', '唱片，可拖动或用方向键旋转，回车展开或收起歌词');
       discWrap.setAttribute('aria-valuemin', '0');
       discWrap.setAttribute('aria-valuemax', '360');
+      mountArm();
     }
 
     if (window.matchMedia) {
@@ -471,11 +651,14 @@ var lastFrame = 0;
     }
     // 先设文案再落状态类：反过来会让按钮上留着一帧"收起歌词"
     // 而歌词还没展开。
-    setOpen(readStored() === 'open');
+    setOpen(readStored(STORE_KEY) === 'open');
 
     // 导航抽屉：把手挂 body 上（fixed 浮件，不参与 .app 的栅格），
     // 卸载时统一摘掉。
     mountNavDrawer();
+
+    // 队列的卡片/列表切换按钮，同样是皮肤自造节点、卸载时摘掉。
+    mountQueueViews();
 
     // 设置浮层与所有皮肤共用一份（skins/skin-settings-sheet.js）：
     // #view-settings 搬进浮层，setView('settings') 被拦截成开浮层，
@@ -493,6 +676,10 @@ var lastFrame = 0;
     if (window.SkinSettingsSheet) window.SkinSettingsSheet.unmount();
     unmountNavDrawer();
     document.body.classList.remove(OPEN_CLASS);
+    // 排布状态类也在这一步摘：#queue-list 是业务节点，切走后它还在 DOM 里，
+    // 留着类就是把黑胶的选择带进别的皮肤；再切回来时要从存储重新解析一次。
+    var queueList = el(QUEUE_LIST_ID);
+    if (queueList) queueList.classList.remove(QUEUE_LIST_CLASS);
 
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
     // looping 必须一并复位：留着 true 的话，下次挂载时 ensureLoop 的
@@ -526,8 +713,12 @@ var lastFrame = 0;
       discWrap.removeAttribute('tabindex');
     }
 
+    if (armNode && armNode.parentNode) armNode.parentNode.removeChild(armNode);
+    armNode = null;
     if (toggleBtn && toggleBtn.parentNode) toggleBtn.parentNode.removeChild(toggleBtn);
     toggleBtn = null;
+    if (queueViews && queueViews.parentNode) queueViews.parentNode.removeChild(queueViews);
+    queueViews = null;
     discWrap = null;
     mounted = false;
     angle = 0;
@@ -547,6 +738,7 @@ var lastFrame = 0;
     isDragging: function () { return dragging; },
     isReducingMotion: function () { return reduceMotion; },
     isNavOpen: isNavOpen,
+    queueMode: queueMode,
     navLabel: function () {
       var label = navHandle ? navHandle.querySelector('.hj-nav-label') : null;
       return label ? label.textContent : '';

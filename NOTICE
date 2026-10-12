@@ -91,6 +91,19 @@ integration and all code are written independently for this project, and the
 numeric behaviour contracts are re-expressed against this project's own Stage
 facade and stanza theme adapter.
 
+The same rule covers the 镜台 (diorama, "Last Train to the Stars") lyric stage
+(`tools/diorama-stage/src/` + `plugin/ui/vendor/diorama-stage.js` +
+`plugin/ui/stage-diorama.js`). Its behaviour — lyrics as world objects
+(multi-page roadside signboards with a spectral curve strip, and sky
+constellation text reflected in water), the paragraph-kind camera rigs, the
+deterministic absolute-time travel/reading camera, and the pause-freeze
+contract — was specified by studying the diorama stage mode of VCPChat
+(CC BY-NC-SA 4.0). No source file of that project is copied into this
+repository: the engine, shaders, timeline compiler, camera model and adapter
+are independent implementations written for this project, re-expressed against
+this project's Stage facade, lyric-token pipeline and StanzaSongForm
+paragraph analysis.
+
 The 汽水音乐 (Soda Music) QR sign-in flow
 (`crates/hertz-studio/src/online/qishui.rs`, section "扫码登录") is an independent
 Rust implementation. The *protocol facts* it relies on — the Passport Web

@@ -154,15 +154,17 @@ function enabledSkin(app) {
 function checkSkinRestore() {
   section('布局皮肤：刷新后 data-skin 与配套 CSS 的启用状态都还在');
 
+  // 样本取 sheen 而不是 workbench：后者是隐藏皮肤（界面上没有入口），开页会
+  // 主动回落到 classic，用它当样本测的就不是"刷新恢复"了。
   const store = new Map();
   const first = boot(makeApp(store));
-  first.sandbox.Skins.apply('workbench');
-  eq(store.get('vmusic.skin'), 'workbench', '选择写进 localStorage');
+  first.sandbox.Skins.apply('sheen');
+  eq(store.get('vmusic.skin'), 'sheen', '选择写进 localStorage');
 
   const second = boot(makeApp(store));
-  eq(second.html.getAttribute('data-skin'), 'workbench', '刷新后 html 上还是这套皮肤');
-  eq(enabledSkin(second), 'workbench', '刷新后启用的还是这套皮肤的 CSS');
-  eq(second.sandbox.Skins.currentId(), 'workbench', 'Skins.currentId 与之一致');
+  eq(second.html.getAttribute('data-skin'), 'sheen', '刷新后 html 上还是这套皮肤');
+  eq(enabledSkin(second), 'sheen', '刷新后启用的还是这套皮肤的 CSS');
+  eq(second.sandbox.Skins.currentId(), 'sheen', 'Skins.currentId 与之一致');
 
   // 换回去也要成立，否则只是"记住了第一次"。
   second.sandbox.Skins.apply('liunian');

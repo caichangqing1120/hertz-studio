@@ -56,6 +56,10 @@ ui_assets! {
     "/stage-focus.js", JS => const STAGE_FOCUS_JS: &str = include_str!("../../../plugin/ui/stage-focus.js");
     "/stage-lyrics.js", JS => const STAGE_LYRICS_JS: &str = include_str!("../../../plugin/ui/stage-lyrics.js");
     "/stage-shelf.js", JS => const STAGE_SHELF_JS: &str = include_str!("../../../plugin/ui/stage-shelf.js");
+    "/vendor/coast-stage.js", JS => const COAST_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/coast-stage.js");
+    "/stage-coast.js", JS => const STAGE_COAST_JS: &str = include_str!("../../../plugin/ui/stage-coast.js");
+    "/vendor/diorama-stage.js", JS => const DIORAMA_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/diorama-stage.js");
+    "/stage-diorama.js", JS => const STAGE_DIORAMA_JS: &str = include_str!("../../../plugin/ui/stage-diorama.js");
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");

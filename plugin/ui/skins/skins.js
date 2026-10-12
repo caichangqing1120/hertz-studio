@@ -43,6 +43,10 @@
       id: 'workbench',
       name: '工作台',
       note: '固定窄侧栏 + 内容分栏，直角细线、高信息密度',
+      // 隐藏：界面上不给入口（设置页那组卡片、顶栏弹层、命令面板三处宿主都
+      // 按 visible() 渲染），但 CATALOG 里留着这份定义 —— 已经设成它的用户
+      // 不会被困住，apply() 也照旧能把它调出来排障。解除隐藏 = 删这一个字段。
+      hidden: true,
     },
     {
       id: 'liunian',
@@ -132,6 +136,15 @@
     return null;
   }
 
+  /// 界面上给入口的那几套。`hidden` 的皮肤仍在 CATALOG 里（apply 能切过去、
+  /// 已设过它的用户不会被困住），只是不出现在任何选择器里。
+  ///
+  /// 三处宿主都从这里取——设置页那组卡片、顶栏弹层、命令面板——所以"隐藏一套
+  /// 皮肤"只动 CATALOG 一处，不存在漏改某个列表的可能。
+  function visible() {
+    return CATALOG.filter(function (d) { return !d.hidden; });
+  }
+
   /// 皮肤那几份 CSS 在页面上的载体。
   ///
   /// 独立形态下它们是 index.html 里声明的 `<link data-skin-css disabled>`；
@@ -203,8 +216,16 @@
   function init() {
     var saved = null;
     try { saved = localStorage.getItem(KEY); } catch (e) { saved = null; }
-    // 存过但不认识（比如皮肤被删了）就回落 classic，而不是写个无效属性。
-    apply(saved && byId(saved) ? saved : DEFAULT_ID, { silent: true });
+    var def = saved ? byId(saved) : null;
+    // 存过但不认识（比如皮肤被删了）回落 classic；存的是**已隐藏**的皮肤同样
+    // 回落——界面上已经没有它的入口，继续停在里面等于把用户锁在一套换不回来
+    // 的布局里。
+    var start = def && !def.hidden ? saved : DEFAULT_ID;
+    apply(start, { silent: true });
+    if (def && def.hidden) {
+      // init 走 silent 不写盘，这里补一次：否则下次开页又读回那个没有入口的皮肤。
+      try { localStorage.setItem(KEY, start); } catch (e) { /* 隐私模式 */ }
+    }
     bindEntry();
     return current;
   }
@@ -221,7 +242,7 @@
   function renderInto(host, isMenu) {
     if (!host) return;
     host.innerHTML = '';
-    CATALOG.forEach(function (def) {
+    visible().forEach(function (def) {
       var on = def.id === current;
       var b = document.createElement('button');
       b.type = 'button';
@@ -372,6 +393,7 @@
       if (!def || typeof def.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(def.id) || byId(def.id)) return false;
       if (def.lifecycle && !validLifecycle(def.lifecycle)) return false;
       var entry = { id: def.id, name: def.name || def.id, note: def.note || '' };
+      if (def.hidden) entry.hidden = true;
       if (def.lifecycle) entry.lifecycle = { mount: def.lifecycle.mount, unmount: def.lifecycle.unmount };
       CATALOG.push(entry);
       return true;
@@ -389,8 +411,10 @@
       if (host) host(detail);
       return detail;
     },
+    /// 对外可见的皮肤清单。命令面板从这里建「皮肤：X」命令，所以隐藏一套皮肤
+    /// 也是自动生效的——搜不出来，也就切不过去。
     list: function () {
-      return CATALOG.map(function (d) { return { id: d.id, name: d.name, note: d.note }; });
+      return visible().map(function (d) { return { id: d.id, name: d.name, note: d.note }; });
     },
     apply: apply,
     current: function () { return byId(current); },
@@ -403,6 +427,7 @@
     init: init,
     render: renderList,
     /// 契约脚本与排障用：皮肤之间的差别必须体现在布局上，不是颜色。
+    /// 与 list() 的差别是它**包含隐藏的**皮肤——排障时要看得见全貌。
     catalog: function () { return CATALOG.slice(); },
   };
 })();

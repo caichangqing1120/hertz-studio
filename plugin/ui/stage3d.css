@@ -425,16 +425,60 @@ body.s3d-open > .bar { display: none; }
   outline-offset: 2px;
 }
 
-.s3d-head-sep {
-  flex: none;
-  width: 1px;
-  height: 22px;
-  margin: 0 3px;
-  border-radius: 1px;
-  background: linear-gradient(180deg, transparent,
-      color-mix(in srgb, var(--s3d-text) 15%, transparent) 30% 70%, transparent);
+/* ----- 头部按钮组：收拢 + 飞出 -----
+   触发按钮常驻；功能牌折进 .s3d-head-menu，悬停/聚焦/触屏首击时向左展开。
+   胶囊本体靠 max-width 撑开（等高同底，视觉上还是一条玻璃条），功能牌逐个
+   错峰入场；触发按钮图标旋转 90° 表示「展开了」。隐藏态要压过
+   .s3d.s3d-open .s3d-head .s3d-btn 的平涂（同权重会输），所以整段都带 .s3d-open。 */
+.s3d-head-cluster {
+  display: flex;
+  flex-direction: row-reverse; /* 触发按钮固定在最右，菜单向左展开 */
+  align-items: center;
+  gap: 6px;
 }
-
+.s3d-head-trigger svg { transition: transform 0.32s var(--ease, ease); }
+.s3d-head-menu {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+  transition: max-width 0.36s var(--ease, ease), opacity 0.28s var(--ease, ease),
+    transform 0.36s var(--ease, ease);
+}
+.s3d.s3d-open .s3d-head-menu .s3d-btn {
+  opacity: 0;
+  transform: translateX(8px);
+  pointer-events: none;
+  transition: opacity var(--dur-1, 0.16s) var(--ease, ease),
+    transform var(--dur-1, 0.16s) var(--ease, ease),
+    background-color var(--dur-1, 0.16s) var(--ease, ease),
+    border-color var(--dur-1, 0.16s) var(--ease, ease),
+    color var(--dur-1, 0.16s) var(--ease, ease),
+    box-shadow var(--dur-1, 0.16s) var(--ease, ease);
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu {
+  max-width: 320px;
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-trigger svg {
+  transform: rotate(90deg);
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  transition-delay: 0ms;
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(2) { transition-delay: 30ms; }
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(3) { transition-delay: 60ms; }
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(4) { transition-delay: 90ms; }
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(5) { transition-delay: 120ms; }
 /* ---------------------------------------------------------------------------
    底部舞台坞
    --------------------------------------------------------------------------- */
@@ -1094,7 +1138,6 @@ body.s3d-open > .bar { display: none; }
   .s3d-brand small { font-size: 8px; }
   /* 盘体常驻之后 2px 会把五颗挤成一条，分隔线也省掉腾出宽度。 */
   .s3d-head { gap: 4px; padding: 5px 6px; }
-  .s3d-head-sep { display: none; }
   .s3d-reading { left: 5%; width: 90%; top: 90px; bottom: 240px; }
   .s3d-eyebrow { margin-bottom: 18px; }
   .s3d-player { width: calc(100% - 28px); bottom: max(16px,env(safe-area-inset-bottom)); padding: 14px 18px; grid-template-columns: minmax(0,1fr) auto; gap: 12px; border-radius: 20px; }
@@ -1482,6 +1525,30 @@ body.s3d-open > .bar { display: none; }
 .s3d-art-overlay { z-index: 4; }
 .s3d-creative-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
 .s3d-creative-source::before, .s3d-creative-source::after { display: none; }
+/* 「纯真3D」海岸公路：与 creative 同层的第三背景源。默认不接指针，
+   开「舞台交互」后才接管（拖拽环绕/滚轮推拉），不抢歌词行的点击。 */
+.s3d-coast { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #0b1626; }
+.s3d-coast[hidden] { display: none; }
+.s3d-coast .coast-canvas { display: block; width: 100%; height: 100%; }
+.s3d-coast.coast-interact { pointer-events: auto; cursor: grab; }
+.s3d-coast.coast-interact:active { cursor: grabbing; }
+.s3d-coast-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-coast-source::before, .s3d-coast-source::after { display: none; }
+.s3d-coast-source .s3d-reading { z-index: 3; }
+/* 「镜台 · 末班车」：第四背景源。歌词长在场景里（站牌/星幕），stanza 叠层由
+   sceneOwnsLyrics 收起；遮幅条的开合度由引擎机位给出（--diorama-bar 像素）。 */
+.s3d-diorama { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #05080f; }
+.s3d-diorama[hidden] { display: none; }
+.s3d-diorama .diorama-canvas { display: block; width: 100%; height: 100%; }
+.s3d-diorama .diorama-bars::before, .s3d-diorama .diorama-bars::after {
+  content: ''; position: absolute; left: 0; right: 0; height: var(--diorama-bar, 0px);
+  background: #000; z-index: 3;
+}
+.s3d-diorama .diorama-bars::before { top: 0; }
+.s3d-diorama .diorama-bars::after { bottom: 0; }
+.s3d-diorama-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-diorama-source::before, .s3d-diorama-source::after { display: none; }
+.s3d-diorama-source .s3d-reading { z-index: 3; }
 .s3d-creative-source .s3d-reading { z-index: 3; }
 .s3d-creative-source .s3d-sleeve { z-index: 3; }
 .s3d-creative-source #s3d-creative .creative-canvas { visibility: visible; z-index: 1; mix-blend-mode: screen; }

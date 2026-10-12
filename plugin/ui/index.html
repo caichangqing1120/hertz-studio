@@ -193,6 +193,20 @@
     <circle cx="15" cy="12" r="2"/>
     <circle cx="8" cy="18" r="2"/>
   </symbol>
+  <symbol id="i-coast" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round">
+    <!-- 落日悬在海平线上：半轮太阳 + 地平线 + 一道浪 -->
+    <path d="M6.5 13a5.5 5.5 0 0 1 11 0"/>
+    <path d="M3 13h18"/>
+    <path d="M4 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2"/>
+  </symbol>
+  <symbol id="i-diorama" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round">
+    <!-- 末班车：向地平线汇聚的铁轨 + 枕木 + 一轮悬月 -->
+    <path d="M8.5 21 11 9M15.5 21 13 9"/>
+    <path d="M9.8 13h4.4M9 17h6M11 9h2"/>
+    <circle cx="18.6" cy="5.4" r="1.9"/>
+  </symbol>
   <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
     <!-- 整体右移 1：原图形贴到 x=0，在一排居中绘制的图标里会明显偏左。 -->
@@ -1598,18 +1612,23 @@
   <div class="s3d-vignette" aria-hidden="true"></div>
   <div class="s3d-brand"><span class="s3d-brand-mark" aria-hidden="true">h<span>z</span></span><div>hertz studio<small>沉 浸 声 场</small></div></div>
   <div class="s3d-head">
-    <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
-    <button class="s3d-btn" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
-    <!-- 视图组（歌词 / 设置）与窗口组（复位 / 全屏 / 关闭）之间的分隔。
-         五颗等宽等色的圆牌连成一排读不出分组，靠这条淡出细线给视线一个落点。 -->
-    <span class="s3d-head-sep" aria-hidden="true"></span>
-    <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
-    </button>
-    <button class="s3d-btn" id="s3d-fs" title="全屏 (F)" aria-label="全屏" aria-pressed="false">
-      <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
-      <svg class="ic-compress" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-compress"/></svg>
-    </button>
+    <!-- 功能牌收拢进触发按钮：悬停/聚焦飞出（触屏首击展开），关闭键独立常驻。 -->
+    <div class="s3d-head-cluster" id="s3d-head-cluster">
+      <button class="s3d-btn s3d-head-trigger" id="s3d-head-trigger" title="舞台控制" aria-label="舞台控制" aria-expanded="false" aria-controls="s3d-head-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
+      <div class="s3d-head-menu" id="s3d-head-menu">
+        <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
+        <button class="s3d-btn" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
+        <button class="s3d-btn" id="s3d-coast-toggle" title="纯真3D · 海岸公路" aria-label="纯真3D · 海岸公路" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-coast"/></svg></button>
+        <button class="s3d-btn" id="s3d-diorama-toggle" title="镜台 · 末班车" aria-label="镜台 · 末班车" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-diorama"/></svg></button>
+        <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
+        </button>
+        <button class="s3d-btn" id="s3d-fs" title="全屏 (F)" aria-label="全屏" aria-pressed="false">
+          <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
+          <svg class="ic-compress" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-compress"/></svg>
+        </button>
+      </div>
+    </div>
     <button class="s3d-btn s3d-btn-x" id="s3d-close" title="关闭 (Esc)" aria-label="关闭三维舞台">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
     </button>
@@ -1659,7 +1678,19 @@
       <p class="s3d-fl-auto-state" id="s3d-fl-auto-state" hidden></p>
     </div>
     <label for="s3d-scene-source">舞台来源</label>
-    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option></select>
+    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option></select>
+    <div id="s3d-coast-tuning" hidden>
+      <label for="s3d-coast-tod">海岸时刻 <output id="s3d-coast-tod-value">黄昏</output></label>
+      <input id="s3d-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
+      <label for="s3d-coast-interact"><input id="s3d-coast-interact" type="checkbox" checked> 舞台交互（拖拽转视角）</label>
+      <p class="s3d-setting-note">拖拽环绕、滚轮推拉、双击复位；静置后自动回到巡航镜头。</p>
+    </div>
+    <div id="s3d-diorama-tuning" hidden>
+      <label for="s3d-diorama-carrier">歌词载体</label>
+      <select id="s3d-diorama-carrier"><option value="auto">随曲式（副歌升空）</option><option value="sign">只立站牌</option><option value="constellation">只上星幕</option></select>
+      <label for="s3d-diorama-reflection"><input id="s3d-diorama-reflection" type="checkbox" checked> 水面镜反射</label>
+      <p class="s3d-setting-note">夜行列车沿镜面水原驶向星空；歌词是沿途站牌与落在水面上的光。关闭反射可换取低端设备的流畅。</p>
+    </div>
     <label for="s3d-stage-theme">设置风格</label>
     <select id="s3d-stage-theme"><option value="classic">默认</option><option value="starfall">星落</option><option value="ios">iOS</option></select>
     <label for="s3d-shelf-mode">3D 歌单架</label>
@@ -2034,6 +2065,10 @@
 <!-- 3D 歌单架（封面流）：只依赖 Stage 只读出口，必须排在 stage3d.js 之前 -->
 <script defer src="stage-shelf.js"></script>
 <script defer src="stage-settings.js"></script>
+<script defer src="vendor/coast-stage.js"></script>
+<script defer src="stage-coast.js"></script>
+<script defer src="vendor/diorama-stage.js"></script>
+<script defer src="stage-diorama.js"></script>
 <script defer src="stage3d.js"></script>
 <script defer src="stage-immersive.js"></script>
 <script defer src="vendor/qrcode.js"></script>

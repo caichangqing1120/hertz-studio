@@ -298,8 +298,11 @@ async function journey(browser) {
     assert.ok(resumed.t>reduced.t,'normal motion resumes on the existing song clock');
     await page.locator('#s3d-play').click();
     await page.waitForFunction(()=>!document.body.classList.contains('is-playing'));
+    // 歌词钮在头部飞出组内：先悬停触发钮展开（头部按钮收拢后的标准动作）。
+    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-lyrics-toggle').click();
     assert.equal(await page.locator('#s3d-reading').isVisible(),false);
+    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-lyrics-toggle').click();
     assert.equal(await page.locator('#s3d-reading').isVisible(),true);
     pass('pause and OS reduced motion freeze scenery; playback and lyric toggles remain functional');

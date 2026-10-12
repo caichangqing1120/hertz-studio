@@ -1182,8 +1182,12 @@ section('GLSL 静态校验');
       `${s.id} 片元着色器没有未声明的 uniform` + (missingF.length ? ' → ' + missingF.join(', ') : ''));
 
     // 声明了却没在 setup 里设：编译能过，但那个参数永远是 0。
+    // setup 可以把自己的一跳委托给场景登记的 artBind（底纹理要等 SVG 解码完成
+    // 才能上传，逻辑独立成一个 bind），所以这里把它的源码一起算进来 ——
+    // 委托必须显式登记在场景上，没登记就等于"没人给它赋值"，仍然报红。
     const scen = sandbox.CreativeGL.sceneById(s.id);
-    const setupSrc = scen.setup ? scen.setup.toString() : '';
+    const setupSrc = (scen.setup ? scen.setup.toString() : '')
+      + (typeof scen.artBind === 'function' ? scen.artBind.toString() : '');
     const rows = (scen.uniforms || []).filter((n) => {
       const declaredSomewhere = (src.decl + src.vert + src.frag).includes(n);
       if (!declaredSomewhere) return false;           // 只在 decl 里出现的才算"场景私有"

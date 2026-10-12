@@ -17,6 +17,8 @@
  *     ② 列表不再是行，而是**卡片网格**。行列表在 1/3 + 2/3 的双栏里每行都要
  *        压到 300px 以下，七列（索引/封面/标题/专辑/音质/时长/操作）必然要
  *        砍列，砍哪一列都是信息损失；卡片让每首歌独占一格，七列信息全部留得下。
+ *        （队列视图例外，它是两档：卡片 / 行列表，由队列头部自造的按钮组切，
+ *         见下面第 4 节末尾。）
  *
  * 纪律（见 skins.js 文件头）：
  *   · 本文件**零颜色字面量** —— 配色一律 var(--…) 走 themes.js；
@@ -43,19 +45,35 @@
      网格卡片的意义（一眼扫到更多首）就没了。 */
   --skin-card-min: 168px;
 
-  /* 导航抽屉把手行高度：把手是 fixed 的浮件，栅格里没有它的位置，
-     由外壳 padding 让出。把手 38px + 上下各 5px 呼吸 = 48。 */
-  --skin-nav-h: 48px;
+  /* 顶部给抽屉留的呼吸缝。把手在顶栏那一行、抽屉是悬停出来的临时浮层，
+     所以这里**不再按抽屉实高留位**（原来是 48px，抽屉收着时空着一条，
+     用户看到的"顶部空行太大"就是它）。12px 只是与下方卡片圆角错开一点，
+     展开时抽屉从顶栏下沿盖进来 51px —— 它移开就收，不该长期占住版面。
+     窄屏（≤1100）把手退回这条带里，那边把它改回 48px。 */
+  --skin-nav-h: 12px;
 
-  /* 播放条实高兜底。不能只写 --bar-h（那只是 min-height，真实高度随断点重排：
-     一行 80px / ≤900px 两行 117px / ≤620px 三行 163px）—— 拿它当让位依据，
-     面板底边会插进播放条上沿，而两块都是暗玻璃，不量 rect 根本看不出来。 */
-  --skin-bar-foot: 80px;
+  /* 播放条实高兜底。不能只写 --bar-h（那只是 min-height，真实高度随断点重排），
+     也不能只算条本身 —— 它还有一个下外边距，漏掉就等于整块内容往下多长一截。
+     三个值都是浏览器实测「视口底 − 播放条顶」：宽屏一条 76+18=94、
+     ≤900px 两行 105+16=121、≤620px 三行 207+12=219。
+     曾经这里是 80/117/163，宽屏恒定少 14px —— 症状是左卡底边压住播放条上沿
+     一条边，且因为两块都是暗玻璃，不量 rect 看不出来。 */
+  --skin-bar-foot: 94px;
 
   /* 唱片可点尺寸。这是**上限**不是定值：左卡宽度 = 中部宽度的 1/3，窄了就得缩。
-     用户实测 300px 偏小（封面是这套皮肤的主角），放到 360 —— 1440 宽屏下
-     左卡内容区约 410px，360 恰好留下呼吸边；再窄由 min(100%,…) 自己收。 */
-  --skin-disc-max: 360px;
+     用户实测 300px 偏小（封面是这套皮肤的主角），放到 360；这轮又说"盘子小了点"，
+     放到 440 —— 但盘面不能单独放大：台面按盘面的百分比外扩，16% 时 360 的盘
+     配 475px 的台面，在 1707 下已经贴着卡片内容宽（499）的边缘，再放就溢出被裁。
+     所以外扩同时收到 10%，并把盘面的实际宽度改成"容器 ÷ 1.2 与上限取小"
+     （见下面 .disc-wrap 的 width），这样任何宽度下台面都在卡片里。
+     1707 下盘面 = 499/1.2 = 415（比原来 +15%），台面 457，左右各留 21px。 */
+  --skin-disc-max: 440px;
+
+  /* 台面从盘面左右各探出去的比例，**无单位**（0.1 = 10%）。做成一个令牌是因为
+     它同时决定两处：台面的 inset，和 .disc-wrap 反推可用宽度时的除数
+     （100% / (1 + 2×0.1)）。写成两个数就会漂移 —— 漂了的表现为台面被卡片
+     裁掉一条边，而盘面看起来"莫名其妙不居中"。 */
+  --skin-deck-overhang: 0.1;
 
   /* ==== 排版令牌 ==== */
   --skin-h1: var(--skin-title);
@@ -156,8 +174,10 @@
 }
 
 /* --- 导航：抽屉式可折叠 -------------------------------------------------
-   用户要求把整条通栏换成抽屉：收起时只剩一枚居中把手（显示当前视图名），
-   展开时导航项从把手下方落下一块浮卡。收起态用 visibility 而不是 opacity：
+   用户要求把整条通栏换成抽屉：收起时只剩一枚把手（显示当前视图名），
+   展开时导航项落下一块浮卡。把手住在**顶栏那一行**（本皮肤最顶部），
+   抽屉紧贴顶栏下沿展开 —— 它不再悬在中部与顶栏之间那条空带上。
+   收起态用 visibility 而不是 opacity：
    check-skin-matrix 对「可见的 .rail」查实底 alpha，opacity:0 会被误判成
    “导航条没实底”；visibility:hidden 让矩阵探针读到的就是不可见，绕开它。
    visibility 参与过渡时的插值语义正好是想要的：展开立刻可见、收起等
@@ -190,7 +210,10 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 /* 不带族的选择器只管布局。布局对所有主题一致、材质才需要压过装饰层。 */
 [data-skin="heijiao"] .rail {
   position: fixed;
-  top: calc(var(--topbar-h) + var(--skin-nav-h) + 2px);
+  /* 从顶栏下沿直接展开（原来落在 --skin-nav-h 那条空带之下，读起来像
+     悬在页面中间）。抽屉实高 57px，让位带 48px 兜不住，多出的 15px
+     压在卡片自己的 24px 上内边距上 —— 列表首行仍在抽屉之下。 */
+  top: calc(var(--topbar-h) + 6px);
   left: 50%;
   transform: translateX(-50%) translateY(-10px);
   width: max-content;
@@ -214,10 +237,13 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 }
 
 /* 把手：收起态唯一的常驻浮件。显示当前视图名 —— 导航收起来之后
-   「我在哪」全靠它说。z 高于抽屉一层，抽屉从它正下方展开。 */
+   「我在哪」全靠它说。它骑在**顶栏那一行**（顶栏 z-index:40，这里 57 压过它），
+   抽屉从顶栏正下方展开，所以把手与抽屉之间不再有那条 48px 的空带。
+   顶栏中间本来就有空地（1707 宽下搜索框右沿 632、图标簇左沿 1241），
+   窄到 1100px 以下那条自由带只剩 18px，下面响应式里把手退回空带。 */
 [data-skin="heijiao"] .hj-nav-handle {
   position: fixed;
-  top: calc(var(--topbar-h) + 5px);
+  top: calc((var(--topbar-h) - 38px) / 2);
   left: 50%;
   transform: translateX(-50%);
   z-index: 57;
@@ -301,6 +327,11 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
 [data-skin="heijiao"] .topsearch {
   height: 48px;
   border-radius: var(--skin-ctl-radius);
+  /* 给居中的把手让出顶栏正中那条通道。50% 正好落在视口中线（用百分比不用
+     50vw：vw 含滚动条宽度，而 left:50% 的居中基准不含，两者会错开半个滚动条）；
+     再减 88px（品牌 70 + 间距 18，搜索框左缘相对顶栏内容盒的偏移）与把手半宽
+     53px，剩下的 49px 是呼吸。约 1470px 以上仍是原来的 520px 上限先卡住。 */
+  max-width: min(520px, calc(50% - 190px));
 }
 
 /* --- 内容面板（右 2/3） ------------------------------------------------- */
@@ -445,7 +476,10 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
  *     反过来横向也会被判成滚动而卡顿。none 会连页面滚动一起禁掉（更糟，
  *     用户困在一张唱片里出不来），所以是 pan-y 而不是 none。 */
 [data-skin="heijiao"] .disc-wrap {
-  width: min(100%, var(--skin-disc-max));
+  /* 除数里的 0.1 必须与 --skin-deck-overhang 同值：先给台面留出左右两份，
+     剩下的才是盘面。用 100% 直接夹的话，台面（比盘面宽 20%）必然溢出卡片
+     被 overflow:hidden 裁掉一条边。 */
+  width: min(calc(100% / (1 + var(--skin-deck-overhang) * 2)), var(--skin-disc-max));
   aspect-ratio: 1;
   /* margin-top:auto：收起态把「唱片+曲名+按钮」整块在卡内垂直居中
      （free space 一半在唱片上方、一半在按钮下方）。展开态由
@@ -527,6 +561,125 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
 [data-skin="heijiao"] .disc-ring {
   opacity: calc(0.18 + var(--stage-energy) * 0.5);
 }
+
+/* --- 唱机：台面与唱臂 ---------------------------------------------------
+   参考物是一台便携唱机：唱片压在转盘垫上、转盘垫坐在机箱台面里，一根唱臂从
+   台面右侧的支点搭到外圈纹路。台面不新增 DOM —— .disc-wrap 是 grid +
+   place-items:center，伪元素必须 position:absolute 才不会被算成第二格。
+   台面按**盘面百分比**外扩（左右 16%、下 6%）而不是固定像素：唱片本身按
+   --skin-disc-max 与矮屏那条 clamp 缩放，写死像素会在小唱片上撑出一块比机箱
+   还宽的板子。16% 在 360px 盘面上是 58px，左右共 116px，恰好留在左卡 499px
+   内容宽之内（360 + 116 = 476）；向下的 6% 又落在曲名那 14px 上边距里，
+   不会把机箱底板垫到歌名字下变成一行脏影。
+   配色一个都不写死：机箱 = 主题强调色掺进卡片底色，22 套主题各出各的那台机器；
+   金属件走 currentColor 叠透明度。 */
+[data-skin="heijiao"] .disc-wrap::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -4% calc(var(--skin-deck-overhang) * -100%) -2%;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--text) 6%, transparent), transparent 46%),
+    color-mix(in srgb, var(--brand) 7%, var(--skin-surface-card));
+  border: 1px solid var(--skin-line-soft);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text) 12%, transparent),
+    var(--skin-shadow-card);
+}
+
+/* 唱臂。**pointer-events:none 是硬要求**：它盖在唱片的右上象限，而那一层
+   正是拖转的命中区，接了事件就表现为"唱片有一半转不动"。 */
+[data-skin="heijiao"] .hj-arm {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  color: var(--text);
+}
+
+/* 转盘垫：比盘面大一圈的圆，从唱片四周露出一道边 —— 没有它，唱片就是浮在
+   台面上的一张贴纸而不是"压在机器上"。挂在唱臂节点的 ::before 上，是因为
+   .disc-wrap 的 ::before 给了台面、::after 被 stage.css 的 fx-on 泛光占了。 */
+[data-skin="heijiao"] .hj-arm::before {
+  content: "";
+  position: absolute;
+  inset: -2.5%;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 55%, var(--skin-surface-card));
+  box-shadow:
+    /* 那道 1px 内描边就是转盘的外沿。没有它，深主题下转盘与唱片都是黑的，
+       量出来差 3% 亮度，肉眼只看到"一张唱片"，拟物关系整个丢掉。 */
+    inset 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
+    0 6px 16px -8px var(--skin-shadow-card);
+}
+
+/* 支点与配重在 100×100 方框外（唱机比唱片宽），不放开 overflow 就断臂。 */
+[data-skin="heijiao"] .hj-arm svg {
+  position: relative;          /* 压在转盘垫那一层之上 */
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* 落臂 / 抬臂的唯一开关，绕支点转而不是平移 —— 真唱臂是转出去的。
+   未播放停在盘外右前（-29°，针头正好落在臂托上），播放后搭到外圈纹路。
+   状态源是业务层每帧维护的 body.is-playing，皮肤不再自己接一遍播放事件。 */
+[data-skin="heijiao"] .hj-arm-swing {
+  transform-box: view-box;
+  transform-origin: 105px 40px;
+  transform: rotate(-29deg);
+  transition: transform 0.55s var(--ease, ease);
+}
+
+[data-skin="heijiao"] body.is-playing .hj-arm-swing { transform: rotate(0deg); }
+
+/* 唱臂是**黄铜件**。皮肤里一个颜色字面量都不许写（check-skins 扫 hex、rgb()、
+   颜色关键字三样），金色只能借主题自己那枚强调金令牌 --highlight（默认 #f4d28a，
+   23 套主题里 20 套都是暖金族；ios-light / chaoxi-day 那两套它本来就是蓝/墨，
+   那时臂跟着变冷色，不是画错）。
+   掺 --bg 而不是直接用 --highlight：纯令牌色在暗台面上是"一片霓虹黄"，
+   按黄铜的反光规律拆成暗金本体 + 亮金高光两层，才读得出它是圆的金属杆。 */
+[data-skin="heijiao"] .hj-arm-tube,
+[data-skin="heijiao"] .hj-arm-rest {
+  stroke: color-mix(in srgb, var(--highlight) 72%, var(--bg));
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+
+[data-skin="heijiao"] .hj-arm-stub {
+  stroke: color-mix(in srgb, var(--highlight) 72%, var(--bg));
+  stroke-width: 2.8;
+  stroke-linecap: round;
+}
+
+/* 高光：压在臂管正中那条细亮线，与暗金本体一起构成"圆柱"的读感。
+   单独看宽度会以为臂管太粗，实际是粗管 + 细芯两层。 */
+[data-skin="heijiao"] .hj-arm-glint {
+  stroke: color-mix(in srgb, var(--highlight) 92%, var(--text));
+  stroke-width: 0.5;
+  stroke-linecap: round;
+}
+
+[data-skin="heijiao"] .hj-arm-rest { stroke-width: 1.3; opacity: 0.8; }
+[data-skin="heijiao"] .hj-arm-head { fill: color-mix(in srgb, var(--highlight) 88%, var(--text)); }
+[data-skin="heijiao"] .hj-arm-weight { fill: color-mix(in srgb, var(--highlight) 55%, var(--bg)); }
+
+[data-skin="heijiao"] .hj-arm-pivot {
+  fill: color-mix(in srgb, var(--highlight) 38%, var(--bg));
+  stroke: color-mix(in srgb, var(--highlight) 85%, transparent);
+  stroke-width: 0.9;
+}
+
+[data-skin="heijiao"] .hj-arm-pin { fill: color-mix(in srgb, var(--highlight) 90%, var(--text)); }
+
+/* 展开歌词时唱机整套退场：唱片缩成 56px 的翻面把手，台面与唱臂都会跟着缩成
+   一坨没有比例的零件，而那一屏的主角是歌词。 */
+[data-skin="heijiao"] body.hj-lyrics-open .hj-arm,
+[data-skin="heijiao"] body.hj-lyrics-open .disc-wrap::before { display: none; }
 
 /* 曲名 / 艺人。两行都 flex:none —— 这是定高 flex 列里最容易被压扁的一档
    （sheen 实测 21px 的字被切成 14px 的半截）。余量明确落给歌词。 */
@@ -653,7 +806,6 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
    实测摘要、结果、音源状态被拆进三条 200px 窄缝，一屏只看得下一张卡。
    网格必须落在真正装卡片的那层（下方 .search-results 规则）。 */
 [data-skin="heijiao"] .lib-list,
-[data-skin="heijiao"] .q-list,
 [data-skin="heijiao"] .fav-list,
 [data-skin="heijiao"] .op-history-list,
 [data-skin="heijiao"] .pd-list {
@@ -667,6 +819,30 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   min-height: 0;
   flex: none;
   padding-bottom: 0;
+}
+
+/* 队列单独一份，因为它有**两档**排布：卡片（本皮肤的默认）与行列表。
+   切换由皮肤自造的按钮组驱动（skin.heijiao.js 的 setQueueMode），
+   状态类 hj-queue-list 打在 #queue-list 自己身上。
+   列表档的实现是**撤掉覆盖**而不是另写一套行几何 —— style.css 里那份
+   行列表基线是其余六套皮肤共用的，重写一份迟早跟它漂移。 */
+
+/* ⚠ 「不自滚」这条留在 :not() 外面，两档都要。基线的 .q-list 是
+   overflow-y:auto + flex:1，跟着整条回退就会在黑胶的 .view 里再套一层
+   滚动容器（黑胶的滚动权在 .view，见第 2 节），两层滚动条并排正是
+   本项目反复出过的体验事故。 */
+[data-skin="heijiao"] .q-list {
+  overflow: visible;
+  min-height: 0;
+  flex: none;
+  padding-bottom: 0;
+}
+
+[data-skin="heijiao"] .q-list:not(.hj-queue-list) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
+  gap: var(--skin-gap);
+  align-content: start;
 }
 
 /* 在线视图（单曲搜索 / 分类浏览如"热门"）的卡片网格。
@@ -823,9 +999,20 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
    卡片把它放到左列并跨三行 —— 用户反馈"队列没显示封面"，卡片模式下
    一张 48px 的小封面足够认清是哪首，又不破坏队列的"有序清单"密度。
    拖拽把手 .q-grip 是**行列表专属**的产物（卡片模式下拖不动），
-   display:none 摘掉，否则隐式格会在最前面插一条空轨道。 */
+   display:none 摘掉，否则隐式格会在最前面插一条空轨道。
 
-[data-skin="heijiao"] .q-row {
+   整组行规则都要求父容器不带 hj-queue-list = 只有卡片档生效。
+   ⚠ 容器限定写成 `:where(.q-list:not(…))` 而不是直接串起来，是为了**特异性
+   与改造前逐字相同**（:where() 恒为 0）。直接串上去会从 (0,2,0) 涨到 (0,4,0)，
+   把 look 层那两条针对 `.q-row` 的规则（anime-ui.css 的 border-radius:12px、
+   cel-ui.css 的 border:1px transparent，都是 (0,2,1)）反超 —— 症状是同一屏里
+   队列卡片的圆角/描边跟曲库卡片不一致，而这两条对 .track 的行为并没有变。
+
+   ⚠ .q-row.playing 那条尤其不能漏：基线给行留了 border-top:2px transparent
+   当拖拽落点指示，卡片档有整圈边框所以 border-color 只是换个颜色，
+   列表档没边框 —— 不关掉的话正在播放的那行上面会凭空多出一条品牌色横线。 */
+
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto;
   grid-template-areas:
@@ -843,9 +1030,9 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   overflow: hidden;
 }
 
-[data-skin="heijiao"] .q-row .q-grip { display: none; }
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row .q-grip { display: none; }
 
-[data-skin="heijiao"] .q-row .q-art {
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row .q-art {
   grid-area: art;
   display: block;
   width: 48px;
@@ -855,14 +1042,29 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   overflow: hidden;
 }
 
-[data-skin="heijiao"] .q-row .q-num { grid-area: num; }
-[data-skin="heijiao"] .q-row .q-main { grid-area: main; min-width: 0; }
-[data-skin="heijiao"] .q-row .q-dur {
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row .q-num { grid-area: num; }
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row .q-main { grid-area: main; min-width: 0; }
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row .q-dur {
   grid-area: dur;
   justify-self: start;
 }
-[data-skin="heijiao"] .q-row .t-act { grid-area: act; justify-self: end; }
-[data-skin="heijiao"] .q-row.playing { border-color: var(--brand); }
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row .t-act { grid-area: act; justify-self: end; }
+[data-skin="heijiao"] :where(.q-list:not(.hj-queue-list)) .q-row.playing { border-color: var(--brand); }
+
+/* --- 队列排布切换（卡片 / 列表）----------------------------------------
+   按钮组是皮肤自造的节点（skin.heijiao.js 挂进 #view-queue .col-tools），
+   所以只有黑胶看得到它；画法复用 style.css 组件层的 .chip / .chip.active，
+   这里只排布，不碰状态色（纪律：皮肤 CSS 禁交互状态选择器）。 */
+[data-skin="heijiao"] .hj-q-views {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+[data-skin="heijiao"] .hj-q-views .chip {
+  padding: 4px 10px;
+  font-size: var(--fs-sm);
+}
 
 /* --- 每日推荐横廊：顺势也成网格 ---------------------------------------- */
 /* 原本是一行可横滑的长廊（.daily-list）。双栏下右栏更窄，横滑反而更累，
@@ -984,7 +1186,15 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
 @media (max-width: 1100px) {
   [data-skin="heijiao"] {
     --skin-card-min: 150px;
+    /* 这一档把手回到让位带里（见下面的 top），带子要够它 38px 实高 + 上下呼吸。 */
+    --skin-nav-h: 48px;
   }
+  /* 顶栏这一行放不下居中的把手了：900px 下搜索框右沿 569、图标簇左沿 587，
+     中间的自由带只剩 18px，而把手要 106px。所以窄屏回退到让位带里
+     （把手在带内、抽屉落在带下方），搜索框那道让位上限同时解除。 */
+  [data-skin="heijiao"] .hj-nav-handle { top: calc(var(--topbar-h) + 5px); }
+  [data-skin="heijiao"] .rail { top: calc(var(--topbar-h) + var(--skin-nav-h) + 2px); }
+  [data-skin="heijiao"] .topsearch { max-width: 520px; }
   [data-skin="heijiao"] .app {
     grid-template-columns: minmax(0, 1fr);
     /* 单列要**放开**行高：两行是上下堆叠的，各按内容长高，整页一起滚。
@@ -1023,7 +1233,7 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   [data-skin="heijiao"] {
     --skin-gap: 16px;
     --skin-pad: 18px;
-    --skin-bar-foot: 117px;   /* 播放条在 ≤900px 重排成两行 */
+    --skin-bar-foot: 121px;   /* 播放条在 ≤900px 重排成两行：105 实高 + 16 下边距 */
     --skin-title: 20px;
   }
   [data-skin="heijiao"] .app {
@@ -1039,7 +1249,7 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   [data-skin="heijiao"] {
     --skin-gap: 12px;
     --skin-pad: 14px;
-    --skin-bar-foot: 163px;   /* ≤620px 重排成三行 */
+    --skin-bar-foot: 219px;   /* ≤620px 重排成三行：207 实高 + 12 下边距 */
     --skin-title: 19px;
     --skin-card-min: 132px;
   }
@@ -1070,6 +1280,7 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
 @media (prefers-reduced-motion: reduce) {
   [data-skin="heijiao"] .disc-wrap,
   [data-skin="heijiao"] .rail,
+  [data-skin="heijiao"] .hj-arm-swing,
   [data-skin="heijiao"] .hj-nav-handle svg,
   [data-skin="heijiao"] .track,
   [data-skin="heijiao"] .q-row {

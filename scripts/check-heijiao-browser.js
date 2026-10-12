@@ -9,6 +9,7 @@
 //   ③ 拖转：指针拖 → 角度跟手；松手有惯性；**旋转不影响页面滚动**
 //   ④ 窄屏回退：≤1100px 变纵向堆叠，封面卡排在上方
 //   ⑤ prefers-reduced-motion：拖转仍在，自转与惯性关掉
+//   ⑥ 队列两档（卡片 / 行列表）：切档各自的几何，以及列表档是否真落回基线
 //
 // ③ 里"不影响滚动"要真量：量的是滚动容器 scrollTop 在拖唱片之后有没有动，
 // 不是"看起来没动"。纵向拖过唱片 → scrollTop 必须不变；横向拖 → 转。
@@ -65,7 +66,7 @@ async function measure(page) {
   const fixture = await startFixture();
   let browser;
   try {
-    await fixture.seed();
+    const track = await fixture.seed();
     browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await fixture.connect(context);
@@ -349,8 +350,95 @@ async function measure(page) {
     await rmContext.close();
 
     // ---------------------------------------------------------------------
-    section('⑦ 卸载干净：切走皮肤不留残角/残状态');
+    section('⑦ 队列两档：卡片 / 行列表');
 
+    // 队列是这套皮肤里唯一有两档的列表（其余列表只有卡片）。按钮组是皮肤
+    // 自造的，挂在队列视图的工具行上；切档只往 #queue-list 写一个状态类。
+    // 这里量的不是"类有没有写上"，而是两档各自的几何 —— 尤其"列表档是否
+    // 真的落回 style.css 那份基线"，那是契约脚本看不见的一半。
+    const probeQueue = () => page.evaluate(() => {
+      const list = document.getElementById('queue-list');
+      // 就地补满十条：WS 的 state 帧会拿服务端那份队列把注入的整盘换掉
+      // （online/play 与切歌都会），量之前重新喂一次才不靠运气。
+      if (list.querySelectorAll('.q-row').length < 10) {
+        state.queue = new Array(10).fill(state.queue[0] || state.snapshot.track_id);
+        renderQueue();
+      }
+      const rows = list.querySelectorAll('.q-row');
+      const box = (n) => {
+        const b = n.getBoundingClientRect();
+        return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) };
+      };
+      const cs = getComputedStyle(list);
+      const shown = (n) => !!n && getComputedStyle(n).display !== 'none';
+      const r0 = rows[0], r1 = rows[1];
+      const group = document.querySelector('#view-queue .hj-q-views');
+      return {
+        display: cs.display, overflowY: cs.overflowY,
+        flex: cs.flexGrow + ' ' + cs.flexShrink + ' ' + cs.flexBasis,
+        listClass: list.className,
+        r0: box(r0), r1: box(r1), listBox: box(list),
+        borderTopWidth: getComputedStyle(r0).borderTopWidth,
+        art: shown(r0.querySelector('.q-art')),
+        grip: shown(r0.querySelector('.q-grip')),
+        dur: shown(r0.querySelector('.q-dur')),
+        act: shown(r0.querySelector('.t-act')),
+        groupShown: shown(group),
+        chips: Array.from(document.querySelectorAll('#view-queue .hj-q-views button'))
+          .map((b) => b.getAttribute('data-hj-q-view') + ':' + (b.classList.contains('active') ? 'on' : 'off')),
+        mode: window.__heijiaoSkin.queueMode(),
+        stored: (() => { try { return localStorage.getItem('vmusic.heijiao.queue'); } catch (e) { return 'ERR'; } })(),
+      };
+    });
+    const clickQueueView = () => page.evaluate(() => {
+      const item = document.querySelector('.rail-item[data-view="queue"]');
+      if (item) item.click();
+    });
+    const clickQueueMode = (mode) => page.evaluate((m) => {
+      document.querySelector('#view-queue .hj-q-views button[data-hj-q-view="' + m + '"]').click();
+    }, mode);
+
+    await clickQueueView();
+    let q = await probeQueue();
+    console.log('  卡片档 行 ' + q.r0.w + '×' + q.r0.h + '  列表容器 ' + q.display);
+    check(q.groupShown, '队列头部有自造的切换按钮组');
+    check(q.chips.length === 2 && q.chips[0].endsWith(':on'), '默认档是卡片', q.chips.join(','));
+    check(q.display === 'grid', '卡片档：容器是网格', q.display);
+    check(q.r1.y === q.r0.y && q.r1.x > q.r0.x, '卡片档：前两条并排',
+      'Δx=' + (q.r1.x - q.r0.x));
+    check(q.r0.w < q.listBox.w / 2, '卡片档：一行放得下多张', q.r0.w + '/' + q.listBox.w);
+    check(q.art && q.dur && q.act && !q.grip, '卡片档：封面在、拖拽把手收掉');
+    check(q.borderTopWidth === '1px', '卡片档：行带整圈 1px 卡片边框', q.borderTopWidth);
+
+    await clickQueueMode('list');
+    q = await probeQueue();
+    console.log('  列表档 行 ' + q.r0.w + '×' + q.r0.h + '  列表容器 ' + q.display);
+    check(q.mode === 'list' && /hj-queue-list/.test(q.listClass), '切档写了状态类', q.listClass);
+    check(q.chips[1].endsWith(':on') && q.chips[0].endsWith(':off'), '高亮跟到「列表」', q.chips.join(','));
+    check(q.stored === 'list', '选择落库', String(q.stored));
+    check(q.display === 'flex', '列表档：容器回到基线的纵向 flex', q.display);
+    check(q.r1.y > q.r0.y + q.r0.h - 2, '列表档：行改成上下堆叠', 'Δy=' + (q.r1.y - q.r0.y));
+    check(Math.abs(q.r0.w - q.listBox.w) <= 2, '列表档：每行拿到整宽', q.r0.w + '/' + q.listBox.w);
+    check(!q.art && q.grip && q.dur && q.act, '列表档：封面收掉、把手回来（= 基线那份行）');
+    check(q.borderTopWidth === '2px',
+      '列表档：卡片那圈边框已整组关掉，只剩基线留给拖拽落点的 2px 上边',
+      q.borderTopWidth);
+    // 两档都不自滚：黑胶的滚动权在 .view 一个容器。列表档若跟着回退到基线的
+    // overflow-y:auto + flex:1，就会在黑胶里凭空多一层滚动条 —— 这条留在
+    // :not() 门控外面写，靠源码断言看不全，必须量计算值。
+    check(q.overflowY === 'visible' && q.flex === '0 0 auto',
+      '列表档仍不自滚（滚动权唯一在 .view）', q.overflowY + ' / flex ' + q.flex);
+
+    await clickQueueMode('grid');
+    q = await probeQueue();
+    check(q.display === 'grid' && q.art && q.stored === 'grid', '切回卡片档，几何与选择都回来');
+
+    // ---------------------------------------------------------------------
+    section('⑧ 卸载干净：切走皮肤不留残角/残状态');
+
+    // 先切到列表档再走人：状态类留在业务节点 #queue-list 上才会跨皮肤存活，
+    // 卸载必须把它摘掉（停在默认档的话，这条断言是在量一个不存在的类）。
+    await clickQueueMode('list');
     await page.evaluate(() => window.Skins.apply('classic'));
     await page.waitForTimeout(400);
     const cleaned = await page.evaluate(() => {
@@ -359,25 +447,33 @@ async function measure(page) {
         turn: el ? el.style.getPropertyValue('--hj-turn').trim() : '(节点已不在)',
         role: el ? el.getAttribute('role') : null,
         btn: !!document.querySelector('.hj-lyric-toggle'),
-        bodyOpen: document.body.classList.contains('hj-lyrics-open')
+        bodyOpen: document.body.classList.contains('hj-lyrics-open'),
+        qViews: !!document.querySelector('.hj-q-views'),
+        qClass: document.getElementById('queue-list').className
       };
     });
     check(cleaned.turn === '', '切走后 --hj-turn 被摘掉', cleaned.turn || '(空)');
     check(cleaned.role === null, '切走后 slider 语义被摘掉', String(cleaned.role));
     check(!cleaned.btn, '切走后自造的按钮被摘掉');
     check(!cleaned.bodyOpen, '切走后 body 上的状态类被摘掉');
+    check(!cleaned.qViews, '切走后队列的切换按钮也摘掉');
+    check(!/hj-queue-list/.test(cleaned.qClass),
+      '切走后队列的状态类被摘掉（#queue-list 是业务节点，留着就把选择带进别的皮肤）',
+      cleaned.qClass);
 
     // 再切回黑胶：应当重新挂上（不是"挂一次就再也回不来"）。
     await page.evaluate(() => window.Skins.apply('heijiao'));
     await page.waitForTimeout(400);
     const remounted = await page.evaluate(() => ({
       mounted: !!(window.__heijiaoSkin && window.__heijiaoSkin.isMounted()),
-      hasDisc: !!(window.__heijiaoSkin && window.__heijiaoSkin.hasDisc())
+      hasDisc: !!(window.__heijiaoSkin && window.__heijiaoSkin.hasDisc()),
+      mode: window.__heijiaoSkin ? window.__heijiaoSkin.queueMode() : 'NO-PROBE'
     }));
     check(remounted.mounted && remounted.hasDisc, '再切回黑胶能重新挂载');
+    check(remounted.mode === 'list', '再切回黑胶时队列档位从存储恢复', remounted.mode);
 
     // ---------------------------------------------------------------------
-    section('⑧ 运行时错误');
+    section('⑨ 运行时错误');
     check(errors.length === 0, '页面无运行时错误', errors.slice(0, 3).join(' | '));
 
     console.log('\n' + (failures ? '失败 ' + failures : '通过') + ' / 共 ' + checks + ' 项');
