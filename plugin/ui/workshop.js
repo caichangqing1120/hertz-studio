@@ -30,6 +30,11 @@
   var shareViewRevision = 0, shareEditRevision = 0;
   var resetting = false;
   var renderedPage = null;
+  // 「动画绘景」入口暂时下架：四幅画稿的构图与配色还没到能拿出手的程度，先收起用户
+  // 可见的两处入口——这里的画册，以及 index.html「舞台来源」下拉里那个 option。
+  // 画稿资产、注册表、SVG 适配层与 CSS 一律原样保留，已经停在该来源的舞台不受影响；
+  // 恢复时把开关改回 true，并删掉那个 option 上的 hidden。
+  var showAnimeScenery = false;
   var artObserver = null, artPreviews = [], artPaused = false, artRate = 1;
 
   // Navigation illustrations use CSS, independently of audio playback. This
@@ -515,7 +520,7 @@
     var CS = stage_api();
     var cur = CS.preset();
 
-    renderAnimeGallery(body, CS, cur);
+    if (showAnimeScenery) renderAnimeGallery(body, CS, cur);
 
     var guide = guideCard();
     if (guide) body.appendChild(guide);

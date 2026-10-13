@@ -1689,7 +1689,10 @@
       <p class="s3d-fl-auto-state" id="s3d-fl-auto-state" hidden></p>
     </div>
     <label for="s3d-scene-source">舞台来源</label>
-    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option><option value="tunnel">隧图 · 深空</option><option value="anime-svg">动画绘景</option></select>
+    <!-- 「动画绘景」暂时下架：画稿还不够精美，入口先收起（开关见 workshop.js 的
+         showAnimeScenery）。这里保留 option 只加 hidden，不删整项——已经停在这个
+         来源的偏好要能显示出来，也随时能切走。 -->
+    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option><option value="tunnel">隧图 · 深空</option><option value="anime-svg" hidden>动画绘景</option></select>
     <div id="s3d-coast-tuning" hidden>
       <label for="s3d-coast-tod">海岸时刻 <output id="s3d-coast-tod-value">黄昏</output></label>
       <input id="s3d-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
