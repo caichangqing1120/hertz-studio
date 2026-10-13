@@ -325,6 +325,25 @@ body.s3d-open > .bar { display: none; }
   height: 19px;
 }
 
+/* 「打开一个面板」的两颗钮：药丸 + 名字。
+   圆牌留给开关与动作（歌词/复位/全屏），药丸留给容器（控制=展开这一排，
+   设置=舞台设置面板）——同一排里两种几何各管一件事，之前两颗都画 #i-tune，
+   谁开什么都分不出来。高度仍跟 --s3d-btn 走，和圆牌同高，只有宽度让给文字。 */
+.s3d-head .s3d-btn.s3d-btn-pill {
+  width: auto;
+  padding: 0 13px 0 11px;
+  gap: 7px;
+  border-radius: 999px;
+}
+.s3d-btn-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.s3d-head .s3d-btn.s3d-btn-pill svg { flex-shrink: 0; }
+
 .s3d-btn .ic-compress {
   display: none;
 }
@@ -432,6 +451,10 @@ body.s3d-open > .bar { display: none; }
   gap: 6px;
 }
 .s3d-head-trigger svg { transition: transform 0.32s var(--ease, ease); }
+/* 功能牌不许被撑开中的容器压扁：菜单靠 max-width 0→320px 展开，按钮默认
+   flex-shrink:1，于是展开那 360ms 里 44px 的圆牌被挤成 21×44 的竖椭圆（实测），
+   图标跟着变形。钉成不伸缩，让容器去裁，视觉上就是一道从左往右的擦入。 */
+.s3d-head-menu .s3d-btn { flex: 0 0 auto; }
 .s3d-head-menu {
   display: flex;
   align-items: center;

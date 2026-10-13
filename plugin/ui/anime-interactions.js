@@ -103,7 +103,7 @@
     sync();
   }
 
-  function createBurst(x, y, cfg) {
+  function createBurst(x, y, cfg, control) {
     var host = doc.fullscreenElement || doc.body;
     if (layer && layer.parentNode !== host) clear();
     while (bursts.length >= MAX_BURSTS) removeBurst(bursts[0]);
@@ -118,6 +118,10 @@
     }
     var node = doc.createElement('div');
     node.className = 'anime-interactions-burst';
+    // 只记「这一击落在哪个界面区」，放大多少由 CSS 的原型决定（特效长相归 CSS）。
+    // 舞台是全屏暗底、控件是 44px 的圆牌，同一份细碎粒子在那儿等于没放。
+    var zone = control && control.closest ? control.closest('[data-fx-zone]') : null;
+    if (zone && zone.dataset.fxZone) node.className += ' fx-' + zone.dataset.fxZone;
     node.style.left = x + 'px';
     node.style.top = y + 'px';
     var burst = { node: node, timer: null, done: false, onEnd: null };
@@ -176,7 +180,7 @@
     var x = pointer ? event.clientX : rect.left + rect.width / 2;
     var y = pointer ? event.clientY : rect.top + rect.height / 2;
     lastBurstAt = time;
-    createBurst(x, y, effect());
+    createBurst(x, y, effect(), control);
   }
 
   function onReady() { waiting = false; init(); }

@@ -55,13 +55,14 @@ assert.ok(index.indexOf('vendor/coast-stage.js') < index.indexOf('stage-coast.js
   'vendor 必须先于 stage-coast.js 加载');
 assert.ok(index.indexOf('stage-coast.js') < index.indexOf('src="stage3d.js"'),
   'stage-coast.js 必须先于 stage3d.js 加载');
-assert.ok(index.includes('id="s3d-coast-toggle"'), '缺少「纯真3D」飞出牌');
+assert.ok(!index.includes('id="s3d-coast-toggle"'),
+  '舞台效果不进头部那一排：海岸公路只从「舞台来源」进');
 assert.ok(index.includes('id="s3d-head-cluster"') && index.includes('id="s3d-head-trigger"'),
   '缺少头部收拢/飞出按钮组');
 assert.ok(index.includes('<option value="coast">'), '舞台来源下拉缺少海岸公路');
 assert.ok(index.includes('id="s3d-coast-tod"') && index.includes('id="s3d-coast-interact"'),
   '缺少海岸时刻/交互设置项');
-pass('index.html：脚本顺序、飞出组、入口牌、设置项齐全');
+pass('index.html：脚本顺序、飞出组、来源下拉、设置项齐全');
 
 const stage3d = fs.readFileSync(path.join(root, 'plugin/ui/stage3d.js'), 'utf8');
 assert.ok(stage3d.includes("'coast'"), 'stage3d.js 未接入 sceneSource coast');

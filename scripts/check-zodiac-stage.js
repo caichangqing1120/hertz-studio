@@ -84,13 +84,14 @@ assert.ok(index.indexOf('vendor/zodiac-stage.js') < index.indexOf('stage-zodiac.
   'vendor 必须先于 stage-zodiac.js 加载');
 assert.ok(index.indexOf('stage-zodiac.js') < index.indexOf('src="stage3d.js"'),
   'stage-zodiac.js 必须先于 stage3d.js 加载');
-assert.ok(index.includes('id="s3d-zodiac-toggle"'), '缺少「星座」飞出牌');
+assert.ok(!index.includes('id="s3d-zodiac-toggle"'),
+  '舞台效果不进头部那一排：星座只从「舞台来源」进');
 assert.ok(index.includes('id="i-zodiac"'), '缺少星座图标');
 assert.ok(index.includes('<option value="zodiac">星座</option>'), '舞台来源下拉缺少星座');
 assert.ok(index.includes('id="s3d-zodiac-lines"') && index.includes('id="s3d-zodiac-field"')
   && index.includes('id="s3d-zodiac-interact"'),
   '缺少星座连线/背景星场/交互设置项');
-pass('index.html：脚本顺序、飞出组、入口牌、设置项齐全');
+pass('index.html：脚本顺序、飞出组、来源下拉、设置项齐全');
 
 const stage3d = fs.readFileSync(path.join(root, 'plugin/ui/stage3d.js'), 'utf8');
 assert.ok(stage3d.includes("'zodiac'"), 'stage3d.js 未接入 sceneSource zodiac');

@@ -40,6 +40,12 @@ html[data-fx]:not([data-fx="plain"]) .anime-interactions-particle {
   pointer-events: none;
 }
 
+/* 舞台区放大档：#stage3d 上声明 data-fx-zone="stage"，引擎把区名记到 burst 节点。
+   整屏暗底上的 44px 圆牌，配 2×9px 的碎片等于没放（实测单击后逐帧数亮像素，
+   现状与不放的差在噪声里）。只在这里给一个倍率，形状与配色仍归各主题的原型。
+   scale 是独立变换属性，与关键帧里的 transform 相乘而不覆盖它，位移和旋转照旧。 */
+html[data-fx]:not([data-fx="plain"]) .anime-interactions-burst.fx-stage { scale: 1.75; }
+
 /* ---- 矿石黑 · shard：晶体碎片 --------------------------------------
    近黑底上的白刃：细长斜条带薄荷辉光，快进快出，像矿石崩出的晶屑。 */
 html[data-fx="shard"] .anime-interactions-particle {

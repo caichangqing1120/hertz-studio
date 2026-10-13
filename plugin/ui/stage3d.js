@@ -2632,11 +2632,6 @@
         if (interactInput) interactInput.checked = coastInteract;
       }
     }
-    var toggle = $('s3d-coast-toggle');
-    if (toggle) {
-      toggle.setAttribute('aria-pressed', String(useCoast));
-      toggle.title = useCoast ? '回到沉浸声场' : '纯真3D · 海岸公路';
-    }
     if (!global.StageCoast || !StageCoast.setHost) {
       if (active && useCoast) showFallback('海岸舞台模块未加载，请选择沉浸声场', 'coast');
       return;
@@ -2682,11 +2677,6 @@
         var interactInput = $('s3d-zodiac-interact');
         if (interactInput) interactInput.checked = zodiacInteract;
       }
-    }
-    var toggle = $('s3d-zodiac-toggle');
-    if (toggle) {
-      toggle.setAttribute('aria-pressed', String(useZodiac));
-      toggle.title = useZodiac ? '回到沉浸声场' : '星座';
     }
     if (!global.StageZodiac || !StageZodiac.setHost) {
       if (active && useZodiac) showFallback('星座舞台模块未加载，请选择沉浸声场', 'zodiac');
@@ -4018,16 +4008,6 @@
       if (cluster.classList.contains('is-open') && !cluster.contains(document.activeElement)) collapse();
     });
     cluster._collapse = collapse;
-    var coast = $('s3d-coast-toggle');
-    if (coast) coast.addEventListener('click', function () {
-      configure({ sceneSource: sceneSource === 'coast' ? 'immersive' : 'coast' });
-      savePreferences();
-    });
-    var zodiac = $('s3d-zodiac-toggle');
-    if (zodiac) zodiac.addEventListener('click', function () {
-      configure({ sceneSource: sceneSource === 'zodiac' ? 'immersive' : 'zodiac' });
-      savePreferences();
-    });
   }
 
   function coastTodLabel(v) {

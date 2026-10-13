@@ -68,8 +68,9 @@ async function main() {
       return host && !host.hidden && host.querySelector('.zodiac-canvas');
     });
     await page.waitForFunction(() => ZodiacStagePure.stats() !== null && StageZodiac.degradedBecause() === null);
-    assert.equal(await page.evaluate(() => document.getElementById('s3d-zodiac-toggle').getAttribute('aria-pressed')), 'true');
-    pass('旧偏好迁移 + 星座入画：sceneSource=tunnel→zodiac、画布挂载、入口牌按下态');
+    assert.equal(await page.evaluate(() => document.getElementById('s3d-scene-source').value), 'zodiac',
+      '星座激活后「舞台来源」停在星座');
+    pass('旧偏好迁移 + 星座入画：sceneSource=tunnel→zodiac、画布挂载、来源下拉同步');
 
     // ---- 十二宫齐活：12 座星点与连线全部构建 ----
     await page.waitForFunction(() => {
@@ -206,11 +207,12 @@ async function main() {
     // ---- 回到沉浸声场：画布卸载、GL 资源释放 ----
     await wakeChrome();
     await page.hover('#s3d-head-trigger');
-    await page.click('#s3d-zodiac-toggle');
+    await page.click('#s3d-settings-toggle');
+    await page.waitForFunction(() => !document.getElementById('s3d-settings').hidden);
+    await page.selectOption('#s3d-scene-source', 'immersive');
     await page.waitForFunction(() => Stage3D.preferences().sceneSource === 'immersive');
     await page.waitForFunction(() => ZodiacStagePure.stats() === null);
     assert.equal(await page.evaluate(() => document.getElementById('s3d-zodiac').hidden), true);
-    assert.equal(await page.evaluate(() => document.getElementById('s3d-zodiac-toggle').getAttribute('aria-pressed')), 'false');
     pass('回到沉浸声场：星座画布卸载、上下文释放');
 
     assert.deepEqual(report.errors, [], '页面无未捕获错误');

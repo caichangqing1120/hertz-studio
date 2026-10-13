@@ -1611,20 +1611,25 @@
      它是唯一的全屏演出层，独占指针 / 独占全屏 / 独占后处理链。
      默认 hidden + visibility:hidden：不可见时不参与命中测试也不参与合成。
      内部节点由 stage3d.js 填充（舞台坞的清单来自它的 STAGES 目录），这里只
-     放骨架和四个固定按钮，避免 JS 里拼整段 DOM。 -->
-<div class="s3d" id="stage3d" aria-hidden="true" aria-modal="true" role="dialog" aria-label="沉浸式三维舞台" tabindex="-1">
+     放骨架和四个固定按钮，避免 JS 里拼整段 DOM。
+     data-fx-zone 是点击特效的场景钩子：舞台是全屏暗底，落点在这一区的点击
+     由 anime-interactions.css 按 zone 放大一档，否则主题的细碎粒子在 44px 的
+     圆牌尺度上等于没有。 -->
+<div class="s3d" id="stage3d" data-fx-zone="stage" aria-hidden="true" aria-modal="true" role="dialog" aria-label="沉浸式三维舞台" tabindex="-1">
   <div class="s3d-canvas-wrap" id="s3d-canvas-wrap"></div>
   <div class="s3d-vignette" aria-hidden="true"></div>
   <div class="s3d-brand"><span class="s3d-brand-mark" aria-hidden="true">h<span>z</span></span><div>hertz studio<small>沉 浸 声 场</small></div></div>
   <div class="s3d-head">
-    <!-- 功能牌收拢进触发按钮：悬停/聚焦飞出（触屏首击展开），关闭键独立常驻。 -->
+    <!-- 功能牌收拢进触发按钮：悬停/聚焦飞出（触屏首击展开），关闭键独立常驻。
+         两颗「打开面板」的钮走药丸并带名字（控制=展开这一行，设置=舞台设置面板），
+         开关与动作仍是圆牌 —— 同一排里两种几何各管一件事，图标也就不再撞车。
+         海岸公路 / 星座这类舞台效果不在这排上：它们是「换一整个舞台」而不是
+         拧一个旋钮，入口在设置面板的「舞台来源」与舞台控制舱的分段里。 -->
     <div class="s3d-head-cluster" id="s3d-head-cluster">
-      <button class="s3d-btn s3d-head-trigger" id="s3d-head-trigger" title="舞台控制" aria-label="舞台控制" aria-expanded="false" aria-controls="s3d-head-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
+      <button class="s3d-btn s3d-btn-pill s3d-head-trigger" id="s3d-head-trigger" title="舞台控制" aria-label="舞台控制" aria-expanded="false" aria-controls="s3d-head-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg><span class="s3d-btn-label">控制</span></button>
       <div class="s3d-head-menu" id="s3d-head-menu">
         <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
-        <button class="s3d-btn" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
-        <button class="s3d-btn" id="s3d-coast-toggle" title="纯真3D · 海岸公路" aria-label="纯真3D · 海岸公路" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-coast"/></svg></button>
-        <button class="s3d-btn" id="s3d-zodiac-toggle" title="星座" aria-label="星座" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-zodiac"/></svg></button>
+        <button class="s3d-btn s3d-btn-pill" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg><span class="s3d-btn-label">设置</span></button>
         <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
         </button>
