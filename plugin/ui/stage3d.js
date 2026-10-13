@@ -1471,6 +1471,26 @@
     el.hidden = false;
   }
 
+  // 海岸/镜台/隧图三个独立 three.js 舞台的 GL 上下文由各自适配层自持；
+  // 丢失/恢复/放弃经 stage:scene-context 事件透传到同一条降级横幅（语义与
+  // 主 GL 画布的 onContextLost 一致），避免画布静默变白而用户毫不知情。
+  var SCENE_CTX_NAME = { coast: '海岸公路', diorama: '镜台', tunnel: '隧图' };
+  document.addEventListener('stage:scene-context', function (e) {
+    var d = e.detail || {};
+    if (!SCENE_CTX_NAME[d.source]) return;
+    var fallback = $('s3d-fallback');
+    if (d.state === 'lost') {
+      showFallback(SCENE_CTX_NAME[d.source] + '舞台的图形上下文丢失，正在自动恢复…', d.source);
+    } else if (d.state === 'recovered') {
+      if (fallback && fallback.dataset.source === d.source) fallback.hidden = true;
+    } else if (d.state === 'failed') {
+      showFallback(SCENE_CTX_NAME[d.source] + '舞台的图形渲染已停止，可切回沉浸声场或重新打开舞台。', d.source);
+    }
+    // 重跑布局自检：镜台/隧图的歌词接管（sceneOwnsLyrics）在恢复期要回落给
+    // stanza 叠层兜底，恢复后再拿回；宿主显隐/横幅清理也一并归位。
+    syncLayout();
+  });
+
   // -------------------------------------------------------------------------
   // 尺寸与 DPR
   // -------------------------------------------------------------------------
@@ -2641,9 +2661,12 @@
       return;
     }
     if (active && useCoast) StageCoast.setPrefs({ tod: coastTod, interact: coastInteract });
-    else if (!useCoast && StageCoast.degradedBecause()) {
-      var fallback = $('s3d-fallback');
-      if (fallback && fallback.dataset.source === 'coast') fallback.hidden = true;
+    // 成功挂载（含上下文丢失后的自动重建）或离开海岸时，收掉残留的 coast 横幅；
+    // 失败分支已提前 return。恢复进行中（degradedBecause 非空）时保留横幅。
+    var coastFallback = $('s3d-fallback');
+    if (coastFallback && coastFallback.dataset.source === 'coast'
+      && (!useCoast || (active && !StageCoast.degradedBecause()))) {
+      coastFallback.hidden = true;
     }
   }
 
@@ -2693,9 +2716,13 @@
         palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
           backgroundColor: theme.backgroundColor } : null,
       });
-    } else if (!useDiorama && StageDiorama.degradedBecause()) {
-      var stale = $('s3d-fallback');
-      if (stale && stale.dataset.source === 'diorama') stale.hidden = true;
+    }
+    // 成功挂载（含上下文丢失后的自动重建）或离开镜台时，收掉残留的 diorama 横幅；
+    // 恢复进行中（degradedBecause 非空）保留横幅，并让 stanza 叠层临时兜底歌词。
+    var dioramaFallback = $('s3d-fallback');
+    if (dioramaFallback && dioramaFallback.dataset.source === 'diorama'
+      && (!useDiorama || (active && !StageDiorama.degradedBecause()))) {
+      dioramaFallback.hidden = true;
     }
   }
 
@@ -2745,9 +2772,13 @@
           backgroundColor: theme.backgroundColor, primaryColor: theme.primaryColor,
           tertiaryColor: theme.tertiaryColor } : null,
       });
-    } else if (!useTunnel && StageTunnel.degradedBecause()) {
-      var staleTunnel = $('s3d-fallback');
-      if (staleTunnel && staleTunnel.dataset.source === 'tunnel') staleTunnel.hidden = true;
+    }
+    // 成功挂载（含上下文丢失后的自动重建）或离开隧图时，收掉残留的 tunnel 横幅；
+    // 恢复进行中（degradedBecause 非空）保留横幅，并让 stanza 叠层临时兜底歌词。
+    var tunnelFallback = $('s3d-fallback');
+    if (tunnelFallback && tunnelFallback.dataset.source === 'tunnel'
+      && (!useTunnel || (active && !StageTunnel.degradedBecause()))) {
+      tunnelFallback.hidden = true;
     }
   }
 

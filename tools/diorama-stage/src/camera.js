@@ -18,6 +18,11 @@ const BASE_SPEED = 12.2;          // m/s，巡航基速
 const SURGE = 8.5;                // 每个乐句起点的加速冲量（米）
 const RIG_BLEND = 2.4;            // 段落机位过渡时长（秒）
 const READING_REACH = 24;         // 距站牌多远开始注视（米）
+// 呼吸：机位不求值逐帧积分，而是 t 的慢频叠加 —— 于是 seek 到同一秒的画面
+// 与顺着播到那里完全一致（这条不变量是全部契约的地基）。
+const BREATH_FOV = 0.85;          // 视野呼吸幅度（度）：0 = 死定，2 = 明显推拉
+const BREATH_AHEAD = 0.06;        // 注视前距的呼吸比例（景别随呼吸微开合）
+const BOB_AMP = 0.055;            // 眼高上下浮动（米）
 
 // 段落曲式 → 机位编制。height 是轨面以上的眼高，side 是横向偏置（正=右），
 // openness 驱动遮幅开合（副歌最开阔）。
@@ -92,18 +97,22 @@ export function poseAt(timeline, t, opts = {}, reading = null) {
   const d = distanceAt(timeline, t, opts);
   const { rig, openness } = rigAt(timeline, t);
   const swayAmp = reduced ? 0 : 0.32 * motion;
-  const bobAmp = reduced ? 0 : 0.045 * motion;
+  const bobAmp = reduced ? 0 : BOB_AMP * motion;
   // 三个不可公度的慢频率叠加：不再有「每句同一朵波形」的机械感。
   const sway = swayAmp * (Math.sin(t * 0.113) * 0.6 + Math.sin(t * 0.041 + 2.1) * 0.4);
-  const bob = bobAmp * (Math.sin(t * 0.71) * 0.5 + Math.sin(t * 0.23 + 1.3) * 0.5);
+  const bob = bobAmp * (Math.sin(t * 0.71) * 0.5 + Math.sin(t * 0.23 + 1.3) * 0.5)
+    + bobAmp * 0.8 * Math.sin(t * 0.097 + 0.6);
+  // 呼吸：视野与注视前距同相位地开合，像坐在车厢里随路面的起伏。
+  const breath = reduced ? 0 : motion * (Math.sin(t * 0.187) * 0.6 + Math.sin(t * 0.071 + 2.3) * 0.4);
   const seed = hashString(timeline.signature || 'diorama') % 1000;
   const x = rig.side * (1 + 0.06 * Math.sin(t * 0.052 + seed)) + sway;
   const y = Math.max(1.2, rig.height + bob);
   const z = -d;
+  const lookAhead = rig.lookAhead * (1 + BREATH_AHEAD * breath);
 
   let lx = x * 0.25;
   let ly = 1.35 + 0.1 * Math.sin(t * 0.067);
-  let lz = -(d + rig.lookAhead);
+  let lz = -(d + lookAhead);
   let roll = 0;
   if (reading && reading.weight > 0) {
     const w = clamp(reading.weight) * 0.9;
@@ -116,7 +125,8 @@ export function poseAt(timeline, t, opts = {}, reading = null) {
   return {
     position: { x, y, z },
     look: { x: lx, y: ly, z: lz },
-    roll, fov: rig.fov, openness, rig: curKindOf(timeline, t), distance: d,
+    roll, fov: rig.fov + BREATH_FOV * breath, openness, rig: curKindOf(timeline, t),
+    distance: d, breath,
   };
 }
 

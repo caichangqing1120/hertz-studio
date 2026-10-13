@@ -12,6 +12,12 @@
 //   StageCoast.setHost(el|null)     挂进宿主层 / 卸载；返回是否成功
 //   StageCoast.setPrefs(p)          { tod: 0..1, interact: bool } 即时生效
 //   StageCoast.degradedBecause()    最近一次挂载失败的原因，null 为可用
+//
+// GL 上下文丢失（GPU 进程重启/休眠唤醒/上下文被浏览器回收）时画布会变成
+// 一张白板；three 自己监听 restored 可以自愈，但真实丢失里 restored 不一定
+// 会来。这里与主 3D 舞台（stage3d.js onContextLost）同策略：宽限等原生
+// 恢复，超时就换新画布重建，滑动窗口内限定尝试次数，用完预算发 failed
+// 横幅事件，状态经 stage:scene-context CustomEvent 透传给 Stage3D。
 (function () {
   'use strict';
 
@@ -28,6 +34,97 @@
   var lastTick = 0;
   var lastW = 0, lastH = 0;
   var ZEROS = new Float32Array(64);
+
+  // —— GL 上下文丢失恢复（与 stage3d.js 主画布的恢复预算同语义）—— //
+  var RECOVERY_GRACE_MS = 1500;      // 先等浏览器自己的 restored（three 可自愈）
+  var RECOVERY_DELAYS = [800, 1600, 3000];
+  var RECOVERY_WINDOW_MS = 60000;
+  var RECOVERY_MAX = 4;
+  var ctxLost = false;
+  var graceTimer = 0, retryTimer = 0;
+  var retries = 0;
+  var recoveryAt = [];
+
+  function emitCtx(state) {
+    try {
+      document.dispatchEvent(new CustomEvent('stage:scene-context',
+        { detail: { source: 'coast', state: state } }));
+    } catch (_) { /* 无 CustomEvent 的老环境静默：不影响播放 */ }
+  }
+
+  function clearRecoveryTimers() {
+    if (graceTimer) { clearTimeout(graceTimer); graceTimer = 0; }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; }
+  }
+
+  // 宽限期满上下文仍是死的：换一张新画布重挂（旧画布的上下文已经救不回）。
+  function rebuildAfterLoss() {
+    graceTimer = 0;
+    if (!ctxLost || !mounted || !host) return;
+    var ok = false;
+    try { CS().unmount(); } catch (_) { /* 死上下文上释放资源：three 会静默 */ }
+    detachContextWatch();
+    if (canvas) { canvas.remove(); canvas = null; }
+    ok = mountInto(host);
+    if (ok) {
+      ctxLost = false;
+      retries = 0;
+      reason = null;
+      emitCtx('recovered');
+      return;
+    }
+    // 新画布仍起不来（GPU 还没回来）：退避再试，预算内不放弃。
+    if (retries < RECOVERY_DELAYS.length) {
+      retryTimer = setTimeout(rebuildAfterLoss, RECOVERY_DELAYS[retries]);
+      retries += 1;
+    } else {
+      reason = '海岸舞台的图形上下文未能恢复，请切回沉浸声场或重新打开舞台';
+      emitCtx('failed');
+    }
+  }
+
+  function onContextLost(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (ctxLost || !mounted || !host) return;
+    var now = Date.now();
+    recoveryAt = recoveryAt.filter(function (t) { return now - t < RECOVERY_WINDOW_MS; });
+    if (recoveryAt.length >= RECOVERY_MAX) {
+      ctxLost = true;
+      reason = '海岸舞台的图形上下文反复丢失，已停止自动恢复，请切回沉浸声场';
+      emitCtx('failed');
+      return;
+    }
+    recoveryAt.push(now);
+    ctxLost = true;
+    retries = 0;
+    reason = '海岸舞台的图形上下文丢失，正在自动恢复';
+    emitCtx('lost');
+    graceTimer = setTimeout(rebuildAfterLoss, RECOVERY_GRACE_MS);
+  }
+
+  function onContextRestored() {
+    // 浏览器救回了上下文：three 会自行重建程序/纹理，这里只需收旗。
+    if (!ctxLost) return;
+    ctxLost = false;
+    clearRecoveryTimers();
+    retries = 0;
+    reason = null;
+    emitCtx('recovered');
+  }
+
+  function attachContextWatch() {
+    if (!canvas) return;
+    canvas.addEventListener('webglcontextlost', onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+  }
+
+  function detachContextWatch() {
+    if (canvas) {
+      canvas.removeEventListener('webglcontextlost', onContextLost, false);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored, false);
+    }
+    clearRecoveryTimers();
+  }
 
   function CS() { return window.CoastStagePure; }
 
@@ -88,6 +185,7 @@
     reason = null;
     CS().resize(w, h);
     mounted = true;
+    attachContextWatch();
     return true;
   }
 
@@ -99,6 +197,8 @@
         cancelAnimationFrame(raf);
         raf = 0;
         mounted = false;
+        ctxLost = false;
+        detachContextWatch();
         CS().unmount();
       }
       if (canvas) { canvas.remove(); canvas = null; }
@@ -135,6 +235,8 @@
     downgraded = true;
     if (host) {
       CS().unmount();
+      detachContextWatch();
+      if (canvas) { canvas.remove(); canvas = null; }
       mounted = mountInto(host);
     }
   });

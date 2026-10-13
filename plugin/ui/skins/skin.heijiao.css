@@ -75,6 +75,14 @@
      裁掉一条边，而盘面看起来"莫名其妙不居中"。 */
   --skin-deck-overhang: 0.1;
 
+  /* 机箱底板向下探出去的比例（同样是盘面高度的百分比）。**左右给不了**：
+     1707 下台面已经 496.8px 宽、压着卡片内容宽 495px 那条线，再加就撞
+     .stage 的 overflow:hidden 被整条裁掉 —— 能长的方向只剩上下。
+     原来这个位置是 2%（8px），唱片几乎与底板齐平，整机读起来像"一张纸垫在
+     盘子后面"而不是"盘子坐在机箱里"。9% 在 440 的盘上是 40px 的前面板。
+     曲名的让位量用同一个令牌算（见下面 .stage-title），改这一处两边一起跟。 */
+  --skin-deck-foot: 0.09;
+
   /* ==== 排版令牌 ==== */
   --skin-h1: var(--skin-title);
   /* 曲名 / 卡片标题：比默认大半档。卡片里封面是 168px 见方的一大块，
@@ -577,18 +585,20 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
    参考物是一台便携唱机：唱片压在转盘垫上、转盘垫坐在机箱台面里，一根唱臂从
    台面右侧的支点搭到外圈纹路。台面不新增 DOM —— .disc-wrap 是 grid +
    place-items:center，伪元素必须 position:absolute 才不会被算成第二格。
-   台面按**盘面百分比**外扩（左右 16%、下 6%）而不是固定像素：唱片本身按
-   --skin-disc-max 与矮屏那条 clamp 缩放，写死像素会在小唱片上撑出一块比机箱
-   还宽的板子。16% 在 360px 盘面上是 58px，左右共 116px，恰好留在左卡 499px
-   内容宽之内（360 + 116 = 476）；向下的 6% 又落在曲名那 14px 上边距里，
-   不会把机箱底板垫到歌名字下变成一行脏影。
+   台面按**盘面百分比**外扩（左右 --skin-deck-overhang、上 4%、下
+   --skin-deck-foot）而不是固定像素：唱片本身按 --skin-disc-max 与矮屏那条
+   clamp 缩放，写死像素会在小唱片上撑出一块比机箱还宽的板子。10% 在 1707 的
+   414px 盘面上是 41px，左右共 83px，恰好留在左卡 495px 内容宽之内
+   （414 + 83 = 497，再多一像素就被 .stage 的 overflow:hidden 裁掉一条边）；
+   向下的那 9% 是机箱的前面板，曲名按同一个令牌留出净空（见 .stage-title），
+   不会把底板垫到歌名字下变成一行脏影。
    配色一个都不写死：机箱 = 主题强调色掺进卡片底色，22 套主题各出各的那台机器；
    金属件走 currentColor 叠透明度。 */
 [data-skin="heijiao"] .disc-wrap::before {
   content: "";
   position: absolute;
   z-index: 0;
-  inset: -4% calc(var(--skin-deck-overhang) * -100%) -2%;
+  inset: -4% calc(var(--skin-deck-overhang) * -100%) calc(var(--skin-deck-foot) * -100%);
   border-radius: 20px;
   background:
     linear-gradient(180deg,
@@ -700,7 +710,12 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
 }
 
 [data-skin="heijiao"] .stage-title {
-  margin-top: 14px;
+  /* 给机箱前面板让位。--skin-deck-foot 是**盘面高度**的百分比，而盘面 = 卡片宽 ÷1.2
+     与 --skin-disc-max 取小，所以这里拿 --skin-disc-max 算出来的是**上界**
+     （盘面只可能比它小）—— 宁可多让几像素，也不能让底板压在歌名上变成一行脏影。
+     多让的量由 .hj-lyric-toggle 的 margin-bottom:auto 吸收，整卡高度不变。
+     写成固定像素会在矮屏那一档（--skin-disc-max 降到 280）压出 20px 空档。 */
+  margin-top: calc(14px + var(--skin-deck-foot) * var(--skin-disc-max));
   text-align: center;
   font-size: var(--skin-h1);
   font-weight: var(--skin-w-head);

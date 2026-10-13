@@ -86,7 +86,7 @@ export function mount(canvas, opts = {}) {
   if (!renderer.getContext()) return false;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.25;
+  renderer.toneMappingExposure = 1.18;
   renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
@@ -102,7 +102,9 @@ export function mount(canvas, opts = {}) {
     { type: THREE.HalfFloatType, samples: q.msaa });
   const composer = new EffectComposer(renderer, composerRT);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.45, 0.6, 0.72);
+  // 泛光：灯带/灯晕/月轮的自发光靠它扩散开。阈值 0.7 让「只有真的亮的东西」
+  // 起晕，星野与水面的暗部不被抬起来（黑位守住，孤寂感才在）。
+  const bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.52, 0.72, 0.7);
   bloom.enabled = q.bloom;
   composer.addPass(bloom);
   const grain = new ShaderPass(grainShader);
@@ -114,8 +116,10 @@ export function mount(canvas, opts = {}) {
     lyrics: true, glow: 1, reduced: !!opts.reduced,
     palette: opts.palette || {},
   };
+  // 环境强度压到 0.6：夜空是暗的，金属只要读出「有反射」就够，不能变成白天。
+  scene.environmentIntensity = 0.6;
   const world = createWorld(THREE, scene, {
-    quality, palette: prefs.palette, reflection: prefs.reflection,
+    quality, palette: prefs.palette, reflection: prefs.reflection, renderer,
   });
   const lyrics = createLyrics(THREE, scene);
   const audio = {
@@ -175,7 +179,9 @@ export function resize(width, height) {
   const buffer = st.renderer.getDrawingBufferSize(new THREE.Vector2());
   st.camera.aspect = width / height;
   st.camera.updateProjectionMatrix();
-  st.world.resize(buffer.x, buffer.y);
+  // pr 传给世界：点精灵的 gl_PointSize 是设备像素，不跟着 DPR 走会在高分屏上
+  // 变成一小撮几乎看不见的尘。
+  st.world.resize(buffer.x, buffer.y, st.pr);
   st.lyrics.setViewAspect(width / height);
   st.dirty = true;
 }

@@ -94,6 +94,23 @@ function estimateAspect(phrase) {
   return (w * ATLAS_FONT * 0.94 + ATLAS_MARGIN * 2) / ATLAS_H;
 }
 
+// 牌背后的呼吸光晕：一张径向渐变贴片，牌上有人在唱时从背后透出来。它是
+// 「自发光」最便宜的形式 —— 一枚贴片，没有点光、没有额外 pass。
+function haloTexture(THREE) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.42, 'rgba(255,255,255,0.28)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function atlasTexture(THREE, canvas) {
   const t = new THREE.CanvasTexture(canvas);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -274,6 +291,7 @@ function makeTranslation(THREE, text, worldW) {
 
 export function createLyrics(THREE, scene) {
   const plane = new THREE.PlaneGeometry(1, 1);
+  const haloTex = haloTexture(THREE);
   const live = new Map();     // key: 'sign:s0' / 'sky:p3' → node
   const addrCache = new Map(); // 载体地址按 (id, speed) 记忆化
   let timeline = null;
@@ -345,11 +363,19 @@ export function createLyrics(THREE, scene) {
     const strip = new THREE.Mesh(plane, stripMat);
     strip.scale.set(boardW - 0.1, 0.3, 1);
     strip.position.set(0, boardY - BOARD_H / 2 + 0.22, 0.045);
-    group.add(backing, trim, ...legs, strip);
+    // 背光晕：贴在牌后一点点，牌上有人在唱时亮起来，牌本身仍是实体。
+    const haloMat = new THREE.MeshBasicMaterial({
+      map: haloTex, transparent: true, opacity: 0, depthWrite: false, fog: false,
+      blending: THREE.AdditiveBlending, color: accent(),
+    });
+    const halo = new THREE.Mesh(plane, haloMat);
+    halo.scale.set(boardW + 2.2, BOARD_H + 2.0, 1);
+    halo.position.set(0, boardY, -0.14);
+    group.add(backing, trim, ...legs, strip, halo);
 
     const node = {
       kind: 'sign', sign, address, side, group, boardY, boardW,
-      backing, trim, legs, strip, stripMat, backingMat, trimMat,
+      backing, trim, legs, strip, stripMat, backingMat, trimMat, halo, haloMat,
       pages: new Map(),
     };
     scene.add(group);
@@ -436,8 +462,10 @@ export function createLyrics(THREE, scene) {
     scene.remove(node.group);
     const junk = [];
     if (node.kind === 'sign') {
-      junk.push(node.backing.geometry, node.trim.geometry, node.strip.geometry,
-        node.backingMat, node.trimMat, node.stripMat);
+      // strip / halo 用的是共享的 plane，回收时不能跟着一起 dispose ——
+      // 别的牌还在用它（three 会在下一帧重新上传，但那是白扔一次显存带宽）。
+      junk.push(node.backing.geometry, node.trim.geometry,
+        node.backingMat, node.trimMat, node.stripMat, node.haloMat);
       node.pages.forEach((page) => disposePage(page, junk));
       node.legs.forEach((leg) => junk.push(leg.geometry));
     } else {
@@ -477,6 +505,7 @@ export function createLyrics(THREE, scene) {
           node.backingMat.emissive.copy(accent());
           node.trimMat.emissive.copy(accent());
           node.stripMat.uniforms.uAccent.value.copy(accent());
+          node.haloMat.color.copy(accent());
           node.pages.forEach((page) => applyPagePalette(page));
         } else {
           applyPagePalette(node.page);
@@ -537,6 +566,7 @@ export function createLyrics(THREE, scene) {
       // —— 每页 uniform —— //
       live.forEach((node) => {
         const pages = node.kind === 'sign' ? node.sign.phrases : [node.phrase];
+        let nodeAct = 0;
         for (const p of pages) {
           const idx = timeline.phraseIndex.get(p);
           const w = windows[idx];
@@ -588,6 +618,7 @@ export function createLyrics(THREE, scene) {
             node.stripMat.uniforms.uRunner.value = time >= p.end ? exit : -1;
             node.backingMat.emissiveIntensity = Math.max(node.backingMat.emissiveIntensity, act * fade * 0.05);
             node.trimMat.emissiveIntensity = Math.max(node.trimMat.emissiveIntensity, act * fade * 0.3);
+            nodeAct = Math.max(nodeAct, act * fade);
           } else {
             const page = node.page;
             const enter = smooth((time - w.enterAt) / ENTER_SKY);
@@ -606,6 +637,8 @@ export function createLyrics(THREE, scene) {
         if (node.kind === 'sign') {
           node.stripMat.uniforms.uBins.value.set(audio.bins || zeros);
           node.stripMat.uniforms.uEnergy.value = clamp(audio.energy || 0);
+          // 背光晕随「这一句里正在唱的字」呼吸：没人在唱时，牌只是一块牌子。
+          node.haloMat.opacity = nodeAct * (0.14 + glow * 0.2);
         }
       });
     },
@@ -654,6 +687,7 @@ export function createLyrics(THREE, scene) {
       live.clear();
       addrCache.clear();
       plane.dispose();
+      haloTex.dispose();
       timeline = null;
     },
   };

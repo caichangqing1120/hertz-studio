@@ -3044,6 +3044,22 @@ function checkHeijiaoSkin() {
   ok(/\[data-skin="heijiao"\] \.disc-wrap\s*\{[^}]*cursor:\s*grab/.test(hjBody),
     '唱片给出 grab 光标（"能拖"先在手形上说一遍）');
 
+  section('黑胶：机箱台面的深度与曲名让位同源');
+
+  // 台面左右已被卡片宽度钉死（1707 下 497px 宽 vs 卡片内容宽 495，再多一像素
+  // 就被 .stage 的 overflow:hidden 裁掉一条边），所以"把底座做大"只有上下可走。
+  // 而向下长必须同时把曲名推开 —— 底板压在歌名上会变成一行脏影（这是当初把
+  // 下沿从 6% 一路收到 2% 的原因）。两处共用 --skin-deck-foot 才算锁死：
+  // 写成两个数就会漂，漂了的表现要么啃到歌名，要么中间凭空多一条空档。
+  ok(/--skin-deck-foot:\s*0\.\d+/.test(hjBody), '机箱前面板的深度是一个令牌');
+  ok(/\.disc-wrap::before\s*\{[^}]*inset:[^;]*var\(--skin-deck-foot\)/.test(hjBody),
+    '台面 inset 的下沿走这个令牌');
+  ok(/\.stage-title\s*\{[^}]*margin-top:\s*calc\([^;]*var\(--skin-deck-foot\)[^;]*var\(--skin-disc-max\)/.test(hjBody),
+    '曲名让位 = 固定底数 + 同一比例 × 盘面上限（盘面只会比上限小 → 只会多让不会压字）');
+  // 左右外扩与盘面宽度反推必须同值，否则台面被卡片裁边、盘面看着不居中。
+  ok(/\.disc-wrap\s*\{[^}]*width:\s*min\([^;]*var\(--skin-deck-overhang\)[^;]*var\(--skin-disc-max\)/.test(hjBody),
+    '盘面宽度按 --skin-deck-overhang 反推（与台面左右同源）');
+
   section('黑胶：两块必须显式认领栅格轨道（不能靠源序）');
 
   // .app 的子元素源序是 rail / column / stage，而本皮肤把 .rail 设成
