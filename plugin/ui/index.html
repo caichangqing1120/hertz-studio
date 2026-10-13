@@ -203,19 +203,14 @@
     <path d="M3 13h18"/>
     <path d="M4 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2"/>
   </symbol>
-  <symbol id="i-diorama" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round">
-    <!-- 末班车：向地平线汇聚的铁轨 + 枕木 + 一轮悬月 -->
-    <path d="M8.5 21 11 9M15.5 21 13 9"/>
-    <path d="M9.8 13h4.4M9 17h6M11 9h2"/>
-    <circle cx="18.6" cy="5.4" r="1.9"/>
-  </symbol>
-  <symbol id="i-tunnel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round">
-    <!-- 隧图：拱形隧道门 + 消失点 + 两侧尾迹 -->
-    <path d="M4 21V11a8 8 0 0 1 16 0v10"/>
-    <path d="M9.5 21v-9a2.5 2.5 0 0 1 5 0v9"/>
-    <path d="M2 21h20"/>
+  <symbol id="i-zodiac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+    <!-- 星座：折线串起的一串星点 -->
+    <path d="M4.5 18.5 9 9.5l5 4 5.5-8"/>
+    <circle cx="4.5" cy="18.5" r="1.7" fill="currentColor" stroke="none"/>
+    <circle cx="9" cy="9.5" r="1.7" fill="currentColor" stroke="none"/>
+    <circle cx="14" cy="13.5" r="1.7" fill="currentColor" stroke="none"/>
+    <circle cx="19.5" cy="5.5" r="1.7" fill="currentColor" stroke="none"/>
   </symbol>
   <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
@@ -1629,8 +1624,7 @@
         <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
         <button class="s3d-btn" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
         <button class="s3d-btn" id="s3d-coast-toggle" title="纯真3D · 海岸公路" aria-label="纯真3D · 海岸公路" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-coast"/></svg></button>
-        <button class="s3d-btn" id="s3d-diorama-toggle" title="镜台 · 末班车" aria-label="镜台 · 末班车" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-diorama"/></svg></button>
-        <button class="s3d-btn" id="s3d-tunnel-toggle" title="隧图 · 深空" aria-label="隧图 · 深空" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tunnel"/></svg></button>
+        <button class="s3d-btn" id="s3d-zodiac-toggle" title="星座" aria-label="星座" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-zodiac"/></svg></button>
         <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
         </button>
@@ -1692,23 +1686,18 @@
     <!-- 「动画绘景」暂时下架：画稿还不够精美，入口先收起（开关见 workshop.js 的
          showAnimeScenery）。这里保留 option 只加 hidden，不删整项——已经停在这个
          来源的偏好要能显示出来，也随时能切走。 -->
-    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="diorama">镜台 · 末班车</option><option value="tunnel">隧图 · 深空</option><option value="anime-svg" hidden>动画绘景</option></select>
+    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="zodiac">星座</option><option value="anime-svg" hidden>动画绘景</option></select>
     <div id="s3d-coast-tuning" hidden>
       <label for="s3d-coast-tod">海岸时刻 <output id="s3d-coast-tod-value">黄昏</output></label>
       <input id="s3d-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
       <label for="s3d-coast-interact"><input id="s3d-coast-interact" type="checkbox" checked> 舞台交互（拖拽转视角）</label>
       <p class="s3d-setting-note">拖拽环绕、滚轮推拉、双击复位；静置后自动回到巡航镜头。</p>
     </div>
-    <div id="s3d-diorama-tuning" hidden>
-      <label for="s3d-diorama-carrier">歌词载体</label>
-      <select id="s3d-diorama-carrier"><option value="auto">随曲式（副歌升空）</option><option value="sign">只立站牌</option><option value="constellation">只上星幕</option></select>
-      <label for="s3d-diorama-reflection"><input id="s3d-diorama-reflection" type="checkbox" checked> 水面镜反射</label>
-      <p class="s3d-setting-note">夜行列车沿镜面水原驶向星空；歌词是沿途站牌与落在水面上的光。关闭反射可换取低端设备的流畅。</p>
-    </div>
-    <div id="s3d-tunnel-tuning" hidden>
-      <label for="s3d-tunnel-warp"><input id="s3d-tunnel-warp" type="checkbox" checked> 星流与尾迹</label>
-      <label for="s3d-tunnel-objects"><input id="s3d-tunnel-objects" type="checkbox" checked> 深空天体</label>
-      <p class="s3d-setting-note">深空穿行：歌词散点凝聚成字形、逐字擦亮后消散。关闭天体或星流可换取低端设备的流畅。</p>
+    <div id="s3d-zodiac-tuning" hidden>
+      <label for="s3d-zodiac-lines"><input id="s3d-zodiac-lines" type="checkbox" checked> 星座连线</label>
+      <label for="s3d-zodiac-field"><input id="s3d-zodiac-field" type="checkbox" checked> 背景星场</label>
+      <label for="s3d-zodiac-interact"><input id="s3d-zodiac-interact" type="checkbox" checked> 交互旋转（拖拽环绕 / 滚轮推拉 / 双击复位）</label>
+      <p class="s3d-setting-note">十二座粒子星图沿黄道环缓缓成环，星点随音乐闪烁增辉。拖拽环绕、滚轮缩放；关闭连线或背景星场可换取低端设备的流畅。</p>
     </div>
     <div id="s3d-anime-tuning" hidden>
       <label for="s3d-anime-scene">绘景作品</label>
@@ -1716,7 +1705,7 @@
       <label for="s3d-anime-mirror"><input id="s3d-anime-mirror" type="checkbox"> 镜像对称（左右两侧一致）</label>
     </div>
     <label for="s3d-stage-theme">设置风格</label>
-    <select id="s3d-stage-theme"><option value="classic">默认</option><option value="starfall">星落</option><option value="ios">iOS</option></select>
+    <select id="s3d-stage-theme"><option value="starfall">星落</option><option value="ios">iOS</option></select>
     <label for="s3d-shelf-mode">3D 歌单架</label>
     <select id="s3d-shelf-mode"><option value="stage">舞台封面流</option><option value="side">右侧歌单架</option><option value="off">关闭</option></select>
     <button class="btn s3d-workshop" id="s3d-workshop">进入创意工坊</button>
@@ -2102,10 +2091,8 @@
 <script defer src="stage-settings.js"></script>
 <script defer src="vendor/coast-stage.js"></script>
 <script defer src="stage-coast.js"></script>
-<script defer src="vendor/diorama-stage.js"></script>
-<script defer src="stage-diorama.js"></script>
-<script defer src="vendor/tunnel-stage.js"></script>
-<script defer src="stage-tunnel.js"></script>
+<script defer src="vendor/zodiac-stage.js"></script>
+<script defer src="stage-zodiac.js"></script>
 <script defer src="stage3d.js"></script>
 <!-- 动画绘景 SVG 舞台适配层：读 CreativeGL 注册表的 presentation.art，必须排在
      creative-anime.js（注册表）之后；与 stage3d.js 无加载期依赖，只被调用。 -->

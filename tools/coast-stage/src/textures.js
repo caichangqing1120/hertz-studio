@@ -157,16 +157,6 @@ export function makeRoadTextures() {
   ctx.moveTo(-0.5, -0.45);
   ctx.lineTo(-0.2, -0.45);
   ctx.stroke();
-  // 骑行者头像简笔
-  ctx.beginPath();
-  ctx.arc(-0.05, -1.0, 0.16, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(0.08, -1.05);
-  ctx.lineTo(0.75, -0.85);
-  ctx.lineTo(0.1, -0.9);
-  ctx.closePath();
-  ctx.fill();
   // 前进箭头
   ctx.beginPath();
   ctx.moveTo(0, -2.9);

@@ -211,14 +211,14 @@ async function main() {
     'the adapter route is embedded (missing route = 404)');
   assert.ok(assets.includes('"/stage-anime-svg.css"'), 'the stylesheet route is embedded');
   const stage = fs.readFileSync(path.join(ui, 'stage3d.js'), 'utf8');
-  // 宿主同步挂在布局同步里（与 coast/diorama 并列，顺序不定；新的来源继续往里加）。
+  // 宿主同步挂在布局同步里（与 coast/zodiac 并列，顺序不定；新的来源继续往里加）。
   assert.ok(/syncLayout\(\)\s*\{[^}]*syncAnimeSvgStage\(\);/.test(stage),
     'the host sync runs with the layout sync');
   assert.ok(stage.includes("value.sceneSource === 'anime-svg'"), 'restore accepts the new source');
   assert.ok(stage.includes('animeScene: animeScene, animeMirror: animeMirror'), 'prefs carry the new fields');
   // sceneCovered 与 bg.setMode 都按函数级切片查：新来源加进来后中间会陆续排上
-  // 别的来源（coast/diorama 就是这么加进来的），逐字比对中间形态必崩。
-  const covered = stage.slice(stage.indexOf('function sceneCovered()'), stage.indexOf('function dioramaOwnsLyrics'));
+  // 别的来源（coast/zodiac 就是这么加进来的），逐字比对中间形态必崩。
+  const covered = stage.slice(stage.indexOf('function sceneCovered()'), stage.indexOf('function sceneOwnsLyrics()'));
   assert.ok(covered.includes("sceneSource === 'anime-svg'"), 'the new source covers the 3D scene');
   assert.ok(stage.includes("stanza.bg.setMode(sceneSource === 'creative'"), 'the lyric background yields to the new source');
   assert.ok(/stanza\.bg\.setMode\([^)]*'anime-svg'/.test(stage), 'the new source is in the setMode list');

@@ -1,38 +1,20 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 「隧图 · 深空」引擎共享数学工具。全部纯函数：同一输入永远得到同一输出，
+// 「星座」引擎共享数学工具。全部纯函数：同一输入永远得到同一输出，
 // 时间求值不依赖调用顺序 —— seek 到任意时刻的画面与顺着播到那里完全一致。
-// 这条不变量同时让行驶距离/凝聚分段/字形时间轴能在 Node 沙箱里被契约脚本直接验证。
-// 数学工具与 diorama-stage 同源（本项目自己的实现）。
 
 export const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
 
 export const lerp = (a, b, t) => a + (b - a) * t;
 
-// smoothstep 形的缓动（3-2 多项式）：入场/退场/机位混合统一用它。
+// smoothstep 形的缓动（3-2 多项式）。
 export function smooth(v) {
   const t = clamp(v);
   return t * t * (3 - 2 * t);
 }
 
-// 四次缓出/三次缓入：凝聚生命周期的加速与减速段各自专用。
-export function easeOutQuart(v) {
-  const t = clamp(v);
-  return 1 - Math.pow(1 - t, 4);
-}
-
-export function easeInCubic(v) {
-  const t = clamp(v);
-  return t * t * t;
-}
-
-export function easeOutCubic(v) {
-  const t = clamp(v);
-  return 1 - Math.pow(1 - t, 3);
-}
-
-// 字符串 → 32 位种子（FNV-1a 变体）。同一段词永远得到同一片星空/同一条尾迹。
+// 字符串 → 32 位种子（FNV-1a 变体）。同一星座永远得到同一片景深分布。
 export function hashString(str) {
   let h = 0x811c9dc5;
   const s = String(str == null ? '' : str);
@@ -43,8 +25,7 @@ export function hashString(str) {
   return h >>> 0;
 }
 
-// mulberry32：种子化 PRNG。星场分布、天体模板、粒子散点都用它，
-// 换曲重进后世界长得一模一样。
+// mulberry32：种子化 PRNG。背景星场、星座景深散点都用它，换曲重进世界不变。
 export function seededRandom(seed) {
   let a = (typeof seed === 'number' ? seed : hashString(seed)) >>> 0;
   return () => {
@@ -80,7 +61,6 @@ export function aggregateBands(bands, count, out) {
       sum += v * v;
     }
     const level = 0.6 * peak + 0.4 * Math.sqrt(sum / (to - from));
-    // 静噪底 -0.008 以下视为无声；0.6 次幂把动态范围压进可见区间。
     target[i] = clamp(Math.pow(Math.max(0, level - 0.008), 0.6) * 1.65);
   }
   return target;
@@ -96,8 +76,7 @@ export function envelopeBands(cur, target, dtSec) {
   return out;
 }
 
-// 帧率无关的一阶低通。tau 是「追到 63% 所需秒数」；攻击/释放不对称的包络
-//（低频、人声）各给一个 tau，快起慢落。
+// 帧率无关的一阶低通。tau 是「追到 63% 所需秒数」。
 export function damp(cur, target, tauSec, dtSec) {
   if (!(tauSec > 0)) return target;
   return cur + (target - cur) * (1 - Math.exp(-Math.max(0, dtSec) / tauSec));

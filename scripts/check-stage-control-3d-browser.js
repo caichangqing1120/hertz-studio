@@ -55,15 +55,15 @@ async function main() {
     pass('三维舞台上开舱自动进真3D 语境');
 
     // —— 真实点击：舱体在 3D 舞台上可交互（inert 陷阱的守卫） ——
-    const dioramaBtn = page.locator('#sc-3d-body .sc-seg-btn', { hasText: '镜台' });
-    await dioramaBtn.scrollIntoViewIfNeeded();
-    await dioramaBtn.click();
+    const zodiacBtn = page.locator('#sc-3d-body .sc-seg-btn', { hasText: '星座' });
+    await zodiacBtn.scrollIntoViewIfNeeded();
+    await zodiacBtn.click();
     await page.waitForTimeout(400);
-    assert.equal(await page.evaluate(() => Stage3D.preferences().sceneSource), 'diorama',
+    assert.equal(await page.evaluate(() => Stage3D.preferences().sceneSource), 'zodiac',
       '真实点击切换舞台来源');
     assert.ok(await page.evaluate(() =>
-      !![...document.querySelectorAll('#sc-3d-body button')].find((b) => b.textContent === '只上星幕')),
-      '来源专属重织出镜台控件');
+      !![...document.querySelectorAll('#sc-3d-body button')].find((b) => b.textContent === '星座连线')),
+      '来源专属重织出星座控件');
     pass('舱体在三维舞台之上可交互（没有被 inert 静音）');
 
     // —— 药丸写回 ——

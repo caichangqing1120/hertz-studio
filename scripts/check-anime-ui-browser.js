@@ -623,6 +623,8 @@ async function main() {
 
     const baseline = await page.evaluate(() => ({ stage: Stage3D.defaults(), creative: CreativeStage.preset() }));
     await page.locator('#stage3d-entry').click();
+    // 设置钮收在头部飞出组里：先悬停触发钮展开（与真实交互一致）再点击。
+    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-settings-toggle').click();
     await page.locator('#s3d-workshop').click();
     await page.locator('#workshop').waitFor({ state: 'visible' });

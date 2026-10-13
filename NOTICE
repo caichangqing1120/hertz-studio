@@ -91,33 +91,6 @@ integration and all code are written independently for this project, and the
 numeric behaviour contracts are re-expressed against this project's own Stage
 facade and stanza theme adapter.
 
-The same rule covers the 镜台 (diorama, "Last Train to the Stars") lyric stage
-(`tools/diorama-stage/src/` + `plugin/ui/vendor/diorama-stage.js` +
-`plugin/ui/stage-diorama.js`). Its behaviour — lyrics as world objects
-(multi-page roadside signboards with a spectral curve strip, and sky
-constellation text reflected in water), the paragraph-kind camera rigs, the
-deterministic absolute-time travel/reading camera, and the pause-freeze
-contract — was specified by studying the diorama stage mode of VCPChat
-(CC BY-NC-SA 4.0). No source file of that project is copied into this
-repository: the engine, shaders, timeline compiler, camera model and adapter
-are independent implementations written for this project, re-expressed against
-this project's Stage facade, lyric-token pipeline and StanzaSongForm
-paragraph analysis.
-
-The same rule covers the 隧图 (tunnel, "Deep Space Transit") lyric stage
-(`tools/tunnel-stage/src/` + `plugin/ui/vendor/tunnel-stage.js` +
-`plugin/ui/stage-tunnel.js`). Its behaviour — the playback-clock-driven
-deterministic travel through a 3200-unit deep-space tunnel, the twin
-world-anchored wake routes shared between JS and GLSL, the warp streaks
-wrapped by the track clock, the bass-triggered shockwave rings, the six
-point-cloud celestial slots with shade-channel cohesion lifecycles, and
-lyrics that condense from scattered particles into glyph planes wiped bright
-word-by-word before dissolving — was specified by studying the tunnel stage
-mode of VCPChat (CC BY-NC-SA 4.0). No source file of that project is copied
-into this repository: the engine, shaders, template generators, camera model
-and adapter are independent implementations written for this project,
-re-expressed against this project's Stage facade and lyric-token pipeline.
-
 The 汽水音乐 (Soda Music) QR sign-in flow
 (`crates/hertz-studio/src/online/qishui.rs`, section "扫码登录") is an independent
 Rust implementation. The *protocol facts* it relies on — the Passport Web

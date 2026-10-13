@@ -573,7 +573,7 @@ function block3d(name) {
   return [...seg.slice(start, end).matchAll(/\['([^']+)',/g)].map((m) => m[1]);
 }
 const srcVals = block3d('sources');
-ok(srcVals.length >= 4, `真3D 来源清单可解析（实测 ${srcVals.length} 项）`);
+ok(srcVals.length >= 3, `真3D 来源清单可解析（实测 ${srcVals.length} 项）`);
 for (const v of srcVals) {
   ok(new RegExp("value\\.sceneSource === '" + v + "'").test(s3src),
     `来源 ${v} 被 Stage3D.configure 白名单接受`);
@@ -583,12 +583,9 @@ for (const v of block3d('layouts')) {
     && ['focus', 'sleeve', 'single'].indexOf(v) >= 0,
     `布局 ${v} 被 Stage3D.configure 接受`);
 }
-for (const v of block3d('carriers')) {
-  ok(new RegExp("value\\.dioramaCarrier === '" + v + "'").test(s3src),
-    `镜台载体 ${v} 被 Stage3D.configure 接受`);
-}
+ok(!/carriers/.test(controlSrc), '镜台载体分段必须随镜台一并移除');
 // 布尔药丸：configure 必须按 boolean 收
-for (const k of ['lyrics', 'coastInteract', 'dioramaReflection', 'tunnelWarp', 'tunnelObjects', 'animeMirror']) {
+for (const k of ['lyrics', 'coastInteract', 'zodiacLines', 'zodiacField', 'zodiacInteract', 'animeMirror']) {
   ok(new RegExp("typeof value\\." + k + " === 'boolean'").test(s3src),
     `布尔偏好 ${k} 被 configure 按 boolean 收`);
 }
@@ -636,8 +633,7 @@ function fakeStage3D(overrides) {
     motion: 0.65, bloom: 0.8, reactivity: 1.35,
     lyrics: true, layout: 'focus',
     coastTod: 0, coastInteract: true,
-    dioramaCarrier: 'auto', dioramaReflection: true,
-    tunnelWarp: true, tunnelObjects: true,
+    zodiacLines: true, zodiacField: true, zodiacInteract: true,
     animeScene: 'anime-coast', animeMirror: false,
   }, overrides || {});
   const calls = { configure: [], save: 0 };
@@ -701,13 +697,13 @@ function check3DContext() {
   {
     const { s, fake } = openWith({ sceneSource: 'coast' });
     const before = fake.calls.save;
-    s.btn3d('镜台').fire('click');
+    s.btn3d('星座').fire('click');
     const last = fake.calls.configure[fake.calls.configure.length - 1];
-    eq(last && last.sceneSource, 'diorama', '点来源分段写 sceneSource');
+    eq(last && last.sceneSource, 'zodiac', '点来源分段写 sceneSource');
     eq(fake.calls.save, before + 1, '离散动作（切来源）当场落库');
-    // 来源切换后「来源专属」要重织：镜台的载体/反射出现在面板里
-    ok(!!s.btn3d('水面镜反射') && !!s.btn3d('只上星幕'),
-      '切到镜台后来源专属重织出该来源的控件');
+    // 来源切换后「来源专属」要重织：星座的连线/星场/交互出现在面板里
+    ok(!!s.btn3d('星座连线') && !!s.btn3d('背景星场') && !!s.btn3d('交互旋转（拖拽/滚轮）'),
+      '切到星座后来源专属重织出该来源的控件');
   }
 
   // —— 滑块：量程 / 节奏 / 不进撤销栈 ——

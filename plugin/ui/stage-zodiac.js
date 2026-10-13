@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 「隧图 · 深空」歌词舞台适配层。职责边界（见 docs/superpowers/specs/
-// 2026-10-13-tunnel-stage-design.md）：场景渲染全部在 vendor/tunnel-stage.js
-// （TunnelStagePure，不感知宿主）；本文件负责一切 hertz-studio 集成 ——
-// 挂载/卸载、播放时钟与歌词接驳（Stage.presentation/lyrics/lyricTokens/
-// lyricTranslation）、频谱与起音（Stage.spectrum + Onset）、画质降档
-// （stage:fps 只降不升）、reduced-motion、画布尺寸跟随。
+// 「星座 · 十二星图」粒子舞台适配层。职责边界：场景渲染全部在
+// vendor/zodiac-stage.js（ZodiacStagePure，不感知宿主）；本文件负责一切
+// hertz-studio 集成 —— 挂载/卸载、播放时钟接驳（Stage.presentation）、
+// 频谱与起音（Stage.spectrum + Onset）、画质降档（stage:fps 只降不升）、
+// reduced-motion、画布尺寸跟随、GL 上下文丢失恢复。
+// 与海岸舞台同构：星座不接管歌词，歌词由 stage3d 的叠加层照常演出。
 //
-// Stage3D 的调用面（与 StageDiorama 同构）：
-//   StageTunnel.available()        入口置灰判断（探测 WebGL2，带缓存）
-//   StageTunnel.setHost(el|null)   挂进宿主层 / 卸载；返回是否成功
-//   StageTunnel.setPrefs(p)        { warp, objects, lyrics, palette } 即时生效
-//   StageTunnel.degradedBecause()  最近一次挂载失败的原因，null 为可用
+// Stage3D 的调用面：
+//   StageZodiac.available()        入口置灰判断（探测 WebGL2，带缓存）
+//   StageZodiac.setHost(el|null)   挂进宿主层 / 卸载；返回是否成功
+//   StageZodiac.setPrefs(p)        { lines, field, interact, palette } 即时生效
+//   StageZodiac.degradedBecause()  最近一次挂载失败的原因，null 为可用
 (function () {
   'use strict';
 
@@ -41,7 +41,7 @@
   function emitCtx(state) {
     try {
       document.dispatchEvent(new CustomEvent('stage:scene-context',
-        { detail: { source: 'tunnel', state: state } }));
+        { detail: { source: 'zodiac', state: state } }));
     } catch (_) { /* 无 CustomEvent 的老环境静默：不影响播放 */ }
   }
 
@@ -55,7 +55,7 @@
     graceTimer = 0;
     if (!ctxLost || !mounted || !host) return;
     var ok = false;
-    try { TS().unmount(); } catch (_) { /* 死上下文上释放资源：three 会静默 */ }
+    try { ZS().unmount(); } catch (_) { /* 死上下文上释放资源：three 会静默 */ }
     detachContextWatch();
     if (canvas) { canvas.remove(); canvas = null; }
     ok = mountInto(host);
@@ -70,7 +70,7 @@
       retryTimer = setTimeout(rebuildAfterLoss, RECOVERY_DELAYS[retries]);
       retries += 1;
     } else {
-      reason = '隧图舞台的图形上下文未能恢复，请切回沉浸声场或重新打开舞台';
+      reason = '星座舞台的图形上下文未能恢复，请切回沉浸声场或重新打开舞台';
       emitCtx('failed');
     }
   }
@@ -82,20 +82,19 @@
     recoveryAt = recoveryAt.filter(function (t) { return now - t < RECOVERY_WINDOW_MS; });
     if (recoveryAt.length >= RECOVERY_MAX) {
       ctxLost = true;
-      reason = '隧图舞台的图形上下文反复丢失，已停止自动恢复，请切回沉浸声场';
+      reason = '星座舞台的图形上下文反复丢失，已停止自动恢复，请切回沉浸声场';
       emitCtx('failed');
       return;
     }
     recoveryAt.push(now);
     ctxLost = true;
     retries = 0;
-    reason = '隧图舞台的图形上下文丢失，正在自动恢复';
+    reason = '星座舞台的图形上下文丢失，正在自动恢复';
     emitCtx('lost');
     graceTimer = setTimeout(rebuildAfterLoss, RECOVERY_GRACE_MS);
   }
 
   function onContextRestored() {
-    // 浏览器救回了上下文：three 会自行重建程序/纹理，这里只需收旗。
     if (!ctxLost) return;
     ctxLost = false;
     clearRecoveryTimers();
@@ -118,83 +117,16 @@
     clearRecoveryTimers();
   }
 
-  // 歌词接驳状态：按「曲签名」检测换曲/重新定位，一次性解析字素。
-  var lyricSig = '';
-  var lyricFailed = false;
-
-  function TS() { return window.TunnelStagePure; }
+  function ZS() { return window.ZodiacStagePure; }
 
   function available() {
-    if (probeCache === null) probeCache = !!(TS() && TS().probe && TS().probe());
+    if (probeCache === null) probeCache = !!(ZS() && ZS().probe && ZS().probe());
     return probeCache;
   }
 
   function degradedBecause() { return reason; }
 
-  // —— 歌词 → 引擎载荷。行/字素/译文都在宿主侧解析，引擎只吃编制结果。 —— //
-  function buildPayload() {
-    var Stage = window.Stage;
-    var U = window.StanzaUtil;
-    if (!Stage || !Stage.lyrics || !U || !U.graphemeTimings) return null;
-    var doc = Stage.lyrics();
-    if (!doc || !doc.lines || !doc.lines.length) return null;
-    var lines = [];
-    for (var i = 0; i < doc.lines.length; i += 1) {
-      var raw = doc.lines[i];
-      if (!raw) continue;
-      var text = String(raw.text == null ? '' : raw.text).trim();
-      if (!text) continue;
-      var startMs = Number(raw.start_ms) || 0;
-      var toks = null;
-      try { toks = Stage.lyricTokens(raw); } catch (_) { toks = null; }
-      var glyphs = [];
-      var lastEnd = startMs;
-      (toks && toks.length ? toks : []).forEach(function (tok) {
-        if (!tok || !tok.text) return;
-        var parts = U.graphemeTimings({ text: tok.text, start_ms: tok.start_ms, end_ms: tok.end_ms });
-        parts.forEach(function (g) {
-          if (!g.char) return;
-          glyphs.push({ text: g.char, start: g.start_ms / 1000, end: g.end_ms / 1000 });
-          if (g.end_ms > lastEnd) lastEnd = g.end_ms;
-        });
-      });
-      if (!glyphs.length) continue;
-      var endMs = Number(raw.end_ms);
-      if (!(endMs > startMs)) endMs = Math.max(lastEnd, startMs + 300);
-      lines.push({
-        start: startMs / 1000,
-        end: endMs / 1000,
-        text: text,
-        translation: (Stage.lyricTranslation && Stage.lyricTranslation(i)) || '',
-        glyphs: glyphs,
-      });
-    }
-    if (!lines.length) return null;
-    var head = doc.lines[0];
-    var tail = doc.lines[doc.lines.length - 1];
-    var sig = 'l' + doc.lines.length + ':' + (head && head.start_ms) + ':' + (tail && tail.start_ms);
-    return { v: 1, lines: lines, signature: sig };
-  }
-
-  function syncLyrics() {
-    if (!window.Stage || !window.Stage.lyrics) return;
-    var doc = window.Stage.lyrics();
-    var sig = doc && doc.lines && doc.lines.length
-      ? 'l' + doc.lines.length + ':' + doc.lines[0].start_ms + ':' + doc.lines[doc.lines.length - 1].start_ms
-      : '';
-    if (sig === lyricSig) return;
-    lyricSig = sig;
-    var payload = sig ? buildPayload() : null;
-    if (sig && !payload) {
-      // 解析失败只静默跳过一次：引擎退化为纯世界（无词的深空），不刷错误。
-      if (!lyricFailed) lyricFailed = true;
-    } else {
-      lyricFailed = false;
-    }
-    TS().setLyrics(payload);
-  }
-
-  // 每帧：读频谱 → 起音 → 推给引擎；播放时钟与歌词同步。
+  // 每帧：读频谱 → 起音 → 推给引擎；播放时钟同步；画布尺寸跟随。
   function tick(now) {
     raf = requestAnimationFrame(tick);
     var dt = lastTick ? Math.min(now - lastTick, 100) : 0;
@@ -204,14 +136,13 @@
     var spectrum = (Stage && Stage.spectrum && Stage.spectrum()) || null;
     // 静音/暂停时喂零谱，让能量自然回落到环境基线，而不是停在旧值。
     onset.step(dt || 16, spectrum && spectrum.length ? spectrum : ZEROS, now);
-    TS().setAudio({ bands: spectrum, onset: onset.pulse > 0.45 });
+    ZS().setAudio({ bands: spectrum, onset: onset.pulse > 0.45 });
     var present = Stage && Stage.presentation ? Stage.presentation() : null;
-    TS().setTime({ time: present ? (present.position || 0) / 1000 : 0, playing: !!(present && present.playing) });
-    syncLyrics();
+    ZS().setTime({ time: present ? (present.position || 0) / 1000 : 0, playing: !!(present && present.playing) });
     var w = host.clientWidth, h = host.clientHeight;
     if (w && h && (w !== lastW || h !== lastH)) {
       lastW = w; lastH = h;
-      TS().resize(w, h);
+      ZS().resize(w, h);
     }
   }
 
@@ -219,40 +150,52 @@
   // 也只是没有音频反应，而不是每帧抛错。
   var onset = window.Onset
     ? window.Onset.create({})
-    : { step: function () {}, bins: ZEROS, energy: 0, pulse: 0, onBeat: function () {} };
+    : { step: function () {}, pulse: 0 };
+
+  // 初始画质档接 Stage.tier（0/1/2）：弱设备直接低档起步，不等 stage:fps
+  // 降级。stage:fps lowfx 仍只降不升。
+  function qualityForMount() {
+    if (downgraded) return 'low';
+    try {
+      var tier = window.Stage && window.Stage.tier ? window.Stage.tier() : 2;
+      if (tier === 0) return 'low';
+      if (tier === 1) return 'medium';
+    } catch (_) { /* tier 不可用按高档 */ }
+    return 'high';
+  }
 
   function mountInto(el) {
     var w = el.clientWidth || 640, h = el.clientHeight || 360;
     canvas = document.createElement('canvas');
-    canvas.className = 'tunnel-canvas';
+    canvas.className = 'zodiac-canvas';
     canvas.setAttribute('aria-hidden', 'true');
     el.appendChild(canvas);
     lastW = w; lastH = h;
-    var ok = TS().mount(canvas, {
+    quality = qualityForMount();
+    var ok = ZS().mount(canvas, {
       quality: quality,
       reduced: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      interactive: currentPrefs.interactive,
       palette: currentPrefs.palette,
     });
     if (!ok) {
       canvas.remove();
       canvas = null;
-      reason = '当前环境无法运行隧图舞台（需要 WebGL2）';
+      reason = '当前环境无法运行星座舞台（需要 WebGL2）';
       return false;
     }
     reason = null;
-    TS().resize(w, h);
-    TS().setPrefs({
-      warp: currentPrefs.warp, objects: currentPrefs.objects,
-      palette: currentPrefs.palette,
+    ZS().resize(w, h);
+    ZS().setPrefs({
+      lines: currentPrefs.lines, field: currentPrefs.field,
+      interactive: currentPrefs.interactive, palette: currentPrefs.palette,
     });
-    lyricSig = '';
-    syncLyrics();
     mounted = true;
     attachContextWatch();
     return true;
   }
 
-  var currentPrefs = { warp: true, objects: true, palette: null };
+  var currentPrefs = { lines: true, field: true, interactive: true, palette: null };
 
   function setHost(el) {
     if (el === host) return !el || mounted;
@@ -264,14 +207,14 @@
         mounted = false;
         ctxLost = false;
         detachContextWatch();
-        TS().unmount();
+        ZS().unmount();
       }
       if (canvas) { canvas.remove(); canvas = null; }
       reason = null;
       return true;
     }
     if (!available()) {
-      reason = '当前环境无法运行隧图舞台（需要 WebGL2）';
+      reason = '当前环境无法运行星座舞台（需要 WebGL2）';
       return false;
     }
     if (!mountInto(el)) return false;
@@ -284,8 +227,9 @@
 
   function setPrefs(p) {
     if (!p) return;
-    if (typeof p.warp === 'boolean') currentPrefs.warp = p.warp;
-    if (typeof p.objects === 'boolean') currentPrefs.objects = p.objects;
+    if (typeof p.lines === 'boolean') currentPrefs.lines = p.lines;
+    if (typeof p.field === 'boolean') currentPrefs.field = p.field;
+    if (typeof p.interact === 'boolean') currentPrefs.interactive = p.interact;
     if (p.palette) {
       currentPrefs.palette = {
         accent: p.palette.accentColor || p.palette.accent,
@@ -295,7 +239,7 @@
         muted: p.palette.tertiaryColor || p.palette.muted,
       };
     }
-    if (mounted) TS().setPrefs(currentPrefs);
+    if (mounted) ZS().setPrefs(currentPrefs);
   }
 
   // 舞台帧门测得吃不住（lowfx）就降到流畅档重建一次；之后不再回升级。
@@ -304,14 +248,14 @@
     downgraded = true;
     quality = 'low';
     if (host) {
-      TS().unmount();
+      ZS().unmount();
       detachContextWatch();
       if (canvas) { canvas.remove(); canvas = null; }
       mounted = mountInto(host);
     }
   });
 
-  window.StageTunnel = {
+  window.StageZodiac = {
     available: available,
     setHost: setHost,
     setPrefs: setPrefs,

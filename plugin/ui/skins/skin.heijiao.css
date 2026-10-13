@@ -75,13 +75,15 @@
      裁掉一条边，而盘面看起来"莫名其妙不居中"。 */
   --skin-deck-overhang: 0.1;
 
-  /* 机箱底板向下探出去的比例（同样是盘面高度的百分比）。**左右给不了**：
-     1707 下台面已经 496.8px 宽、压着卡片内容宽 495px 那条线，再加就撞
-     .stage 的 overflow:hidden 被整条裁掉 —— 能长的方向只剩上下。
-     原来这个位置是 2%（8px），唱片几乎与底板齐平，整机读起来像"一张纸垫在
-     盘子后面"而不是"盘子坐在机箱里"。9% 在 440 的盘上是 40px 的前面板。
+  /* 台面在盘面**上下各**探出去的比例（盘面高度的百分比）。做成一个令牌、
+     上下同值，是因为这两道边必须等宽：原来上 4% / 下 9%，唱片明显贴在机箱
+     上沿、下面那条前面板厚到像另一件家具（用户圈的就是这两道边）。
+     0.065 取的是 4% 与 9% 的中值 —— 机箱总高因此一格不变（1707 下 468px），
+     变的只有唱片在机箱里的位置：上下各 27px。
+     左右不能照此放大：1707 下台面已经 496.8px 宽、压着卡片内容宽 497 那条线，
+     再加就撞 .stage 的 overflow:hidden 被整条裁掉。
      曲名的让位量用同一个令牌算（见下面 .stage-title），改这一处两边一起跟。 */
-  --skin-deck-foot: 0.09;
+  --skin-deck-band: 0.065;
 
   /* ==== 排版令牌 ==== */
   --skin-h1: var(--skin-title);
@@ -585,12 +587,13 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
    参考物是一台便携唱机：唱片压在转盘垫上、转盘垫坐在机箱台面里，一根唱臂从
    台面右侧的支点搭到外圈纹路。台面不新增 DOM —— .disc-wrap 是 grid +
    place-items:center，伪元素必须 position:absolute 才不会被算成第二格。
-   台面按**盘面百分比**外扩（左右 --skin-deck-overhang、上 4%、下
-   --skin-deck-foot）而不是固定像素：唱片本身按 --skin-disc-max 与矮屏那条
+   台面按**盘面百分比**外扩（左右 --skin-deck-overhang、上下 --skin-deck-band）
+   而不是固定像素：唱片本身按 --skin-disc-max 与矮屏那条
    clamp 缩放，写死像素会在小唱片上撑出一块比机箱还宽的板子。10% 在 1707 的
-   414px 盘面上是 41px，左右共 83px，恰好留在左卡 495px 内容宽之内
+   414px 盘面上是 41px，左右共 83px，恰好留在左卡 497px 内容宽之内
    （414 + 83 = 497，再多一像素就被 .stage 的 overflow:hidden 裁掉一条边）；
-   向下的那 9% 是机箱的前面板，曲名按同一个令牌留出净空（见 .stage-title），
+   上下各 6.5% = 27px，唱片坐在机箱正中，下面那道是机箱的前面板，
+   曲名按同一个令牌留出净空（见 .stage-title），
    不会把底板垫到歌名字下变成一行脏影。
    配色一个都不写死：机箱 = 主题强调色掺进卡片底色，22 套主题各出各的那台机器；
    金属件走 currentColor 叠透明度。 */
@@ -598,7 +601,7 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   content: "";
   position: absolute;
   z-index: 0;
-  inset: -4% calc(var(--skin-deck-overhang) * -100%) calc(var(--skin-deck-foot) * -100%);
+  inset: calc(var(--skin-deck-band) * -100%) calc(var(--skin-deck-overhang) * -100%);
   border-radius: 20px;
   background:
     linear-gradient(180deg,
@@ -710,12 +713,12 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
 }
 
 [data-skin="heijiao"] .stage-title {
-  /* 给机箱前面板让位。--skin-deck-foot 是**盘面高度**的百分比，而盘面 = 卡片宽 ÷1.2
+  /* 给机箱前面板让位。--skin-deck-band 是**盘面高度**的百分比，而盘面 = 卡片宽 ÷1.2
      与 --skin-disc-max 取小，所以这里拿 --skin-disc-max 算出来的是**上界**
      （盘面只可能比它小）—— 宁可多让几像素，也不能让底板压在歌名上变成一行脏影。
      多让的量由 .hj-lyric-toggle 的 margin-bottom:auto 吸收，整卡高度不变。
      写成固定像素会在矮屏那一档（--skin-disc-max 降到 280）压出 20px 空档。 */
-  margin-top: calc(14px + var(--skin-deck-foot) * var(--skin-disc-max));
+  margin-top: calc(14px + var(--skin-deck-band) * var(--skin-disc-max));
   text-align: center;
   font-size: var(--skin-h1);
   font-weight: var(--skin-w-head);
@@ -1342,6 +1345,15 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
      所以默认顺序已经是"内容在上、封面卡在下"，与要的相反，必须 order。 */
   [data-skin="heijiao"] .stage { order: -1; grid-area: auto; }
   [data-skin="heijiao"] .column { grid-area: auto; order: 0; }
+
+  /* 堆叠态没有自由空间可分（卡片按内容长高），唱片那条 margin-top:auto 恒为 0，
+     于是台面上沿那道边会直接骑进头部那一行 —— 420/700 宽实测在全屏钮正中做
+     命中测试，拿到的是 .disc-wrap 而不是那颗钮（台面是 z-index:0 的定位层，
+     压在静态的按钮上面）。让位量照台面自己的算法给；宽屏那档不补，
+     那边唱片上方还有 25px 自由空间，钮与台面本来就不碰。 */
+  [data-skin="heijiao"] .stage-head {
+    margin-bottom: calc(var(--skin-deck-band) * var(--skin-disc-max));
+  }
 
   /* 堆叠态整页滚，滚动权从 .view 交回外壳：.view 的 flex:1 是
      "占满剩余空间"，在按内容长高的行里会把它按内容定高，多余的高度

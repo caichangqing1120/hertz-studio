@@ -3046,15 +3046,17 @@ function checkHeijiaoSkin() {
 
   section('黑胶：机箱台面的深度与曲名让位同源');
 
-  // 台面左右已被卡片宽度钉死（1707 下 497px 宽 vs 卡片内容宽 495，再多一像素
+  // 台面左右已被卡片宽度钉死（1707 下 497px 宽 vs 卡片内容宽 497，再多一像素
   // 就被 .stage 的 overflow:hidden 裁掉一条边），所以"把底座做大"只有上下可走。
-  // 而向下长必须同时把曲名推开 —— 底板压在歌名上会变成一行脏影（这是当初把
-  // 下沿从 6% 一路收到 2% 的原因）。两处共用 --skin-deck-foot 才算锁死：
-  // 写成两个数就会漂，漂了的表现要么啃到歌名，要么中间凭空多一条空档。
-  ok(/--skin-deck-foot:\s*0\.\d+/.test(hjBody), '机箱前面板的深度是一个令牌');
-  ok(/\.disc-wrap::before\s*\{[^}]*inset:[^;]*var\(--skin-deck-foot\)/.test(hjBody),
-    '台面 inset 的下沿走这个令牌');
-  ok(/\.stage-title\s*\{[^}]*margin-top:\s*calc\([^;]*var\(--skin-deck-foot\)[^;]*var\(--skin-disc-max\)/.test(hjBody),
+  // 上下还必须是**同一个值**：上 4% / 下 9% 时唱片明显贴在机箱上沿、下面那条
+  // 前面板厚到像另一件家具（用户圈出来要求"上下等宽"）。
+  // 而向下长必须同时把曲名推开 —— 底板压在歌名上会变成一行脏影。
+  // 两处共用 --skin-deck-band 才算锁死：写成两个数就会漂，漂了的表现要么啃到
+  // 歌名，要么中间凭空多一条空档。
+  ok(/--skin-deck-band:\s*0\.\d+/.test(hjBody), '机箱台面的上下边深是一个令牌');
+  ok(/\.disc-wrap::before\s*\{[^}]*inset:\s*calc\(var\(--skin-deck-band\)[^;]*\)\s+calc\(var\(--skin-deck-overhang\)[^;]*\)\s*;/.test(hjBody),
+    '台面 inset 只写两段（上下共用 --skin-deck-band → 唱片在机箱里上下等宽）');
+  ok(/\.stage-title\s*\{[^}]*margin-top:\s*calc\([^;]*var\(--skin-deck-band\)[^;]*var\(--skin-disc-max\)/.test(hjBody),
     '曲名让位 = 固定底数 + 同一比例 × 盘面上限（盘面只会比上限小 → 只会多让不会压字）');
   // 左右外扩与盘面宽度反推必须同值，否则台面被卡片裁边、盘面看着不居中。
   ok(/\.disc-wrap\s*\{[^}]*width:\s*min\([^;]*var\(--skin-deck-overhang\)[^;]*var\(--skin-disc-max\)/.test(hjBody),

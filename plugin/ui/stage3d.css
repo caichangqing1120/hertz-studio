@@ -1534,29 +1534,17 @@ body.s3d-open > .bar { display: none; }
 .s3d-coast-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
 .s3d-coast-source::before, .s3d-coast-source::after { display: none; }
 .s3d-coast-source .s3d-reading { z-index: 3; }
-/* 「镜台 · 末班车」：第四背景源。歌词长在场景里（站牌/星幕），stanza 叠层由
-   sceneOwnsLyrics 收起；遮幅条的开合度由引擎机位给出（--diorama-bar 像素）。 */
-.s3d-diorama { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #05080f; }
-.s3d-diorama[hidden] { display: none; }
-.s3d-diorama .diorama-canvas { display: block; width: 100%; height: 100%; }
-.s3d-diorama .diorama-bars::before, .s3d-diorama .diorama-bars::after {
-  content: ''; position: absolute; left: 0; right: 0; height: var(--diorama-bar, 0px);
-  background: #000; z-index: 3;
-}
-.s3d-diorama .diorama-bars::before { top: 0; }
-.s3d-diorama .diorama-bars::after { bottom: 0; }
-.s3d-diorama-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
-.s3d-diorama-source::before, .s3d-diorama-source::after { display: none; }
-.s3d-diorama-source .s3d-reading { z-index: 3; }
-
-/* 「隧图 · 深空」：第五背景源。歌词长在场景里（字形凝聚/实心擦亮），stanza
-   叠层由 sceneOwnsLyrics 收起；整幅场景压在 3D 轨画布之上。 */
-.s3d-tunnel { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #0a0d11; }
-.s3d-tunnel[hidden] { display: none; }
-.s3d-tunnel .tunnel-canvas { display: block; width: 100%; height: 100%; }
-.s3d-tunnel-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
-.s3d-tunnel-source::before, .s3d-tunnel-source::after { display: none; }
-.s3d-tunnel-source .s3d-reading { z-index: 3; }
+/* 「星座 · 十二星图」：第四背景源。纯粒子场景（背景星场 + 十二座星图 +
+   连线），不接管歌词，歌词由 .s3d-reading / stanza 叠加层照常演出；
+   整幅场景压在 3D 轨画布之上。开启交互时画布接收拖拽/滚轮。 */
+.s3d-zodiac { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #05060a; }
+.s3d-zodiac[hidden] { display: none; }
+.s3d-zodiac .zodiac-canvas { display: block; width: 100%; height: 100%; }
+.s3d-zodiac.zodiac-interact { pointer-events: auto; cursor: grab; }
+.s3d-zodiac.zodiac-interact:active { cursor: grabbing; }
+.s3d-zodiac-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-zodiac-source::before, .s3d-zodiac-source::after { display: none; }
+.s3d-zodiac-source .s3d-reading { z-index: 3; }
 
 /* 普通舞台来源（创意编排 / 动画绘景）没有三维镜头：复位视角这类
    3D 专属键不显示，来源切换与歌词/设置/全屏照常。class 由 syncLayout

@@ -58,10 +58,8 @@ ui_assets! {
     "/stage-shelf.js", JS => const STAGE_SHELF_JS: &str = include_str!("../../../plugin/ui/stage-shelf.js");
     "/vendor/coast-stage.js", JS => const COAST_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/coast-stage.js");
     "/stage-coast.js", JS => const STAGE_COAST_JS: &str = include_str!("../../../plugin/ui/stage-coast.js");
-    "/vendor/diorama-stage.js", JS => const DIORAMA_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/diorama-stage.js");
-    "/stage-diorama.js", JS => const STAGE_DIORAMA_JS: &str = include_str!("../../../plugin/ui/stage-diorama.js");
-    "/vendor/tunnel-stage.js", JS => const TUNNEL_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/tunnel-stage.js");
-    "/stage-tunnel.js", JS => const STAGE_TUNNEL_JS: &str = include_str!("../../../plugin/ui/stage-tunnel.js");
+    "/vendor/zodiac-stage.js", JS => const ZODIAC_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/zodiac-stage.js");
+    "/stage-zodiac.js", JS => const STAGE_ZODIAC_JS: &str = include_str!("../../../plugin/ui/stage-zodiac.js");
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
     "/stage-anime-svg.js", JS => const STAGE_ANIME_SVG_JS: &str = include_str!("../../../plugin/ui/stage-anime-svg.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");

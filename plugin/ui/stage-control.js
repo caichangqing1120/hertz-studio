@@ -163,13 +163,10 @@
   var SCHEMA_3D = {
     sources: [
       ['immersive', '沉浸声场'], ['coast', '海岸公路'],
-      ['diorama', '镜台'], ['tunnel', '隧图'],
+      ['zodiac', '星座'],
     ],
     layouts: [
       ['focus', '舞台聚焦'], ['sleeve', '侧边歌单架'], ['single', '单曲沉浸'],
-    ],
-    carriers: [
-      ['auto', '随曲式'], ['sign', '只立站牌'], ['constellation', '只上星幕'],
     ],
   };
 
@@ -408,33 +405,22 @@
         inter.set(on);
       });
       tunedGrid.appendChild(inter.node);
-    } else if (src === 'diorama') {
-      var carrierSeg = seg3d(SCHEMA_3D.carriers, p.dioramaCarrier || 'auto', function (v) {
-        write3D({ dioramaCarrier: v });
-        carrierSeg.set(v);
+    } else if (src === 'zodiac') {
+      var zLines = pill3d('星座连线', p.zodiacLines !== false, function (on) {
+        write3D({ zodiacLines: on });
+        zLines.set(on);
       });
-      var cCell = el3d('div', 'sc-cell');
-      var cHead = el3d('label', 'sc-label');
-      cHead.appendChild(el3d('span', null, '歌词载体'));
-      cCell.appendChild(cHead);
-      cCell.appendChild(carrierSeg.node);
-      tunedGrid.appendChild(cCell);
-      var refl = pill3d('水面镜反射', p.dioramaReflection !== false, function (on) {
-        write3D({ dioramaReflection: on });
-        refl.set(on);
+      var zField = pill3d('背景星场', p.zodiacField !== false, function (on) {
+        write3D({ zodiacField: on });
+        zField.set(on);
       });
-      tunedGrid.appendChild(refl.node);
-    } else if (src === 'tunnel') {
-      var warp = pill3d('星流与尾迹', p.tunnelWarp !== false, function (on) {
-        write3D({ tunnelWarp: on });
-        warp.set(on);
+      var zInteract = pill3d('交互旋转（拖拽/滚轮）', p.zodiacInteract !== false, function (on) {
+        write3D({ zodiacInteract: on });
+        zInteract.set(on);
       });
-      var objs = pill3d('深空天体', p.tunnelObjects !== false, function (on) {
-        write3D({ tunnelObjects: on });
-        objs.set(on);
-      });
-      tunedGrid.appendChild(warp.node);
-      tunedGrid.appendChild(objs.node);
+      tunedGrid.appendChild(zLines.node);
+      tunedGrid.appendChild(zField.node);
+      tunedGrid.appendChild(zInteract.node);
     } else if (src === 'anime-svg') {
       // 绘景作品清单与舞台设置同源：读舞台上那份 select 的选项。
       var sceneSel = document.getElementById('s3d-anime-scene');

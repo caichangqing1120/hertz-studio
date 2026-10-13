@@ -119,6 +119,15 @@ async function main() {
     page.on('console', message => {
       if (/shader.*(error|fail)|着色器.*失败|GL_INVALID|INVALID_OPERATION/i.test(message.text())) report.shaderErrors.push(message.text());
     });
+    // 设置钮收在右上角那颗触发按钮飞出的菜单里（舞台控制舱）：不先展开就点不到，
+    // 而 Playwright 只会重试并报「… intercepts pointer events」直到超时。
+    // 先 move 是为了唤醒会自动打烊的 chrome。
+    const openSettingsKey = async () => {
+      await page.mouse.move(500, 200);
+      await page.hover('#s3d-head-trigger');
+      await page.waitForFunction(() => Number(
+        getComputedStyle(document.getElementById('s3d-settings-toggle')).opacity) === 1);
+    };
     await page.goto(fixture.base, { waitUntil: 'domcontentloaded' });
     await ready(page, track.id);
     await instrument(page);
@@ -221,7 +230,7 @@ async function main() {
         await assertReset(source + ' takeover → workshop reset');
         await page.locator('#ws-close').click();
       } else {
-        await page.mouse.move(500, 200);
+        await openSettingsKey();
         await page.locator('#s3d-settings-toggle').click();
         await page.locator('#s3d-defaults').click();
         await page.waitForFunction(() => !document.getElementById('s3d-defaults').disabled);
@@ -229,6 +238,7 @@ async function main() {
         await page.locator('#s3d-settings-close').click();
       }
     }
+    await openSettingsKey();
     await page.locator('#s3d-settings-toggle').click();
     report.storageFailure = await page.evaluate(async () => {
       const setItem = Storage.prototype.setItem;
@@ -269,6 +279,7 @@ async function main() {
     await fixture.api('/v1/player/pause', 'POST', {});
     await fixture.api('/v1/player/seek', 'POST', { position_ms: 7500 });
     await page.waitForFunction(() => !Stage.presentation().playing && Math.abs(Stage.position() - 7500) < 1);
+    await openSettingsKey();
     await page.locator('#s3d-settings-toggle').click();
     await page.locator('#s3d-defaults').click();
     await page.waitForFunction(() => !document.getElementById('s3d-defaults').disabled);

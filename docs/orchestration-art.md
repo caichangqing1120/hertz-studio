@@ -92,7 +92,7 @@
 
 - **接缝契约** `check-workshop-art-loops.js`：33 条接缝（每个运动层一条）逐个比对换相前后 2ms 的像素，最大 RGB 平均差 **0.050/255**（阈值 0.35），每图六次采样（0/3/7/13/31/61s）互不相同。元素预算四条全部通过。
 - **性能**：四图同屏 + 6 倍 CPU 限速、150 帧采样，中位间隔 **12.1ms**、P95 **18.0ms**、超 50ms **0 次**。比调色前（18.4 / 36.6ms）反而更好——扁平渐变与元素瘦身省下的样式/绘制成本大于墨线带来的开销。
-- **浏览器**：`check-anime-scenes-browser.js` 全部通过，**但 `journey` 末尾一条"离开绘景后旧舞台材质回不来"失败**（`.s3d-head` 的 `background-image` 期望 `none`、实得线性渐变）。这条与画稿无关：把 `creative-anime.js` 回退到 HEAD 后重编译，**同一条断言照样失败**，根因在并行那条线的镜台（`stage-diorama.js` / `vendor/diorama-stage.js`）改动里，已由对方在自己那条线处理。单独核实过：受影响的只有 `check-anime-scenes-browser.js` 末段这一段旅程。
+- **浏览器**：`check-anime-scenes-browser.js` 全部通过，**但 `journey` 末尾一条"离开绘景后旧舞台材质回不来"失败**（`.s3d-head` 的 `background-image` 期望 `none`、实得线性渐变）。这条与画稿无关：把 `creative-anime.js` 回退到 HEAD 后重编译，**同一条断言照样失败**，根因在并行那条线的镜台舞台改动里（镜台舞台后续已整体移除），已由对方在自己那条线处理。单独核实过：受影响的只有 `check-anime-scenes-browser.js` 末段这一段旅程。
 - **SVG 舞台适配层** `check-stage-anime-svg-browser.js`：35 条通过（挂载、真实运动、镜像矩阵、GL 交接、持久化）。这条断言里还有一格是"服务端资源必须等于磁盘这一份"，用来挡住"改了源没重编译"——`plugin/ui/**` 走 `include_str!`，改完必须 `cargo build` 再跑浏览器脚本，否则验的是旧二进制。
 - **Node 契约**：`check-anime-scenes` 98/98、`check-creative` 425/425、`check-stage-anime-svg` 52/52、`check-scene-registry` 176、`check-assets` 836/836、`check-skins` 890/890。
 - **两侧同源**：舞台截图（`output/playwright/jojo-stage/`）与工坊小图同帧比对，同一份 `presentation.art`，镜像开启时整体 `scaleX(-1)`，构图一致。
