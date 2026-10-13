@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 「三维空间」相机运行时 —— 自 Mineradio（GPL-3.0，作者已同意照搬）的四个相机
-// 模块移植的纯数学层：01-scene/01-orbit-free-camera.js（orbit 状态与自由镜头）、
-// 01-scene/03-focus-cinema-camera.js（updateCamera/updateCinema）、
+// 「三维空间」相机运行时 —— 自上游参考项目的四个相机模块移植的纯数学层
+// （出处、行号与许可边界记于 NOTICE「Design lineage」与 docs/design/space3d-mode.md
+// §6，作者已同意照搬其本人代码）：01-scene/01-orbit-free-camera.js（orbit 状态与
+// 自由镜头）、01-scene/03-focus-cinema-camera.js（updateCamera/updateCinema）、
 // 01-scene/02-beat-camera-runtime.js（combo → 镜头映射段 :639-1015）、
 // 10-shell/00-gesture-control.js（转台世界旋转段 :39-90,759-780）。
 // 零 DOM、零 three，可 Node 直测（scripts/check-space-camera.js）。
