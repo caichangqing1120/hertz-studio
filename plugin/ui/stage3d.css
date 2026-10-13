@@ -288,7 +288,9 @@ body.s3d-open > .bar { display: none; }
   width: var(--s3d-btn);
   height: var(--s3d-btn);
   padding: 0;
-  border-radius: var(--r-pill);
+  /* 幽灵按钮的 11px 圆角：胶囊上一排 999px 全圆读成「算盘珠」，方一点
+     才和dock 药丸、控制舱分段同一套几何语言。 */
+  border-radius: 11px;
   border: 1px solid transparent;
   /* 这里三处一律用 background-color 而不是 background 简写：顶栏的盘体靠一条
      常驻的受光渐变（background-image）撑材质，简写会在更高优先级的状态规则里
@@ -335,33 +337,26 @@ body.s3d-open > .bar { display: none; }
   display: block;
 }
 
-/* --- 顶栏控件：受光小圆牌 ---------------------------------------------------
-   静止时五颗都带一层极淡的盘体（原来只有点下的那颗有底色，整排于是读成
-   「三个图标 + 两个按钮」），底色本身又是一层平涂，跟右侧歌单架卡片完全无关。
-   这里换成与卡片同一套三层受光：斜向受光 + 顶缘高光 + 底缘压暗 + 接触阴影；
-   悬停抬起并把阴影推深，点亮改走强调色的内发光，关闭键悬停转 --danger。
-
-   材质写成 --chip-* 变量，星落 / iOS 只换配方、不重写结构。选择器多带一层
-   .s3d-open 不是冗余：两个主题挂在 .s3d-btn 上的平涂状态是 (0,3,0)，而
-   stage3d.css 排在它们前面，同权重会被主题盖掉 —— 加一层就把顶栏交还给这里，
-   主题想改的只有颜色。每条状态规则都重述 background-image 同理：主题用
-   background 简写写自己的底色，同权重时后加载的那份会把渐变一起清成 none。 */
+/* --- 顶栏控件：玻璃胶囊上的幽灵按钮 -----------------------------------------
+   参照主流播放器的舞台控制条语言：静止时只留图标（盘体/描边/受光全透明），
+   悬停浮一层平光，点亮走强调色。材质仍写成 --chip-* 变量而不是写死——
+   星落 / iOS 主题换配方即可恢复带盘体的质感，结构不动。
+   原三层受光配方（斜向高光 + 顶缘亮 + 底缘回光）在九颗按钮挤一条胶囊时
+   读成了一排小疙瘩，是「控制按钮太丑」的主要来源。 */
 .s3d-head {
-  --chip-body: color-mix(in srgb, var(--s3d-text) 9%, transparent);
-  --chip-sheen: color-mix(in srgb, var(--s3d-text) 15%, transparent);
-  --chip-edge: color-mix(in srgb, var(--s3d-text) 12%, transparent);
-  --chip-top: color-mix(in srgb, var(--s3d-text) 24%, transparent);
-  /* 底缘给一道回光而不是压暗：整排在同一条玻璃胶囊上，底缘一暗就读成凹进去的
-     坑，只有顶缘亮 + 底缘回光 + 落影在盘外，才是浮起来的 puck。 */
-  --chip-bounce: color-mix(in srgb, var(--s3d-text) 7%, transparent);
+  --chip-body: transparent;
+  --chip-sheen: transparent;
+  --chip-edge: transparent;
+  --chip-top: transparent;
+  --chip-bounce: transparent;
   --chip-base: color-mix(in srgb, var(--s3d-bg) 38%, transparent);
-  --chip-drop: color-mix(in srgb, var(--s3d-bg) 60%, transparent);
-  --chip-hover-body: color-mix(in srgb, var(--s3d-text) 13%, transparent);
-  --chip-hover-edge: color-mix(in srgb, var(--s3d-text) 22%, transparent);
-  --chip-on-body: color-mix(in srgb, var(--s3d-accent) 16%, transparent);
-  --chip-on-edge: color-mix(in srgb, var(--s3d-accent) 40%, transparent);
-  --chip-on-glow: color-mix(in srgb, var(--s3d-accent) 32%, transparent);
-  --chip-lift: -1px;
+  --chip-drop: transparent;
+  --chip-hover-body: color-mix(in srgb, var(--s3d-text) 7%, transparent);
+  --chip-hover-edge: transparent;
+  --chip-on-body: color-mix(in srgb, var(--s3d-accent) 10%, transparent);
+  --chip-on-edge: color-mix(in srgb, var(--s3d-accent) 34%, transparent);
+  --chip-on-glow: color-mix(in srgb, var(--s3d-accent) 26%, transparent);
+  --chip-lift: 0px;
   --chip-press: scale(.955);
 }
 
@@ -524,9 +519,13 @@ body.s3d-open > .bar { display: none; }
   color: var(--s3d-text);
 }
 
+/* 场景坞当前项：与头部来源牌、控制舱分段同一套 accent 高亮语言
+   （accent 字色 + 34% 描边 + 10% 底），别写成两条同名规则——后一条会整块
+   盖掉前一条，描边就没了。（极光场景有自己的彩色配方，在下方按 data-scene 覆写。） */
 .s3d-dock-btn.active {
   color: var(--s3d-accent);
-  background: color-mix(in srgb, var(--s3d-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--s3d-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--s3d-accent) 10%, transparent);
 }
 
 .s3d-dock-btn.active:hover {
@@ -1558,6 +1557,11 @@ body.s3d-open > .bar { display: none; }
 .s3d-tunnel-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
 .s3d-tunnel-source::before, .s3d-tunnel-source::after { display: none; }
 .s3d-tunnel-source .s3d-reading { z-index: 3; }
+
+/* 普通舞台来源（创意编排 / 动画绘景）没有三维镜头：复位视角这类
+   3D 专属键不显示，来源切换与歌词/设置/全屏照常。class 由 syncLayout
+   按当前 sceneSource 切换。 */
+.s3d-flat-source #s3d-reset { display: none; }
 .s3d-creative-source .s3d-reading { z-index: 3; }
 .s3d-creative-source .s3d-sleeve { z-index: 3; }
 .s3d-creative-source #s3d-creative .creative-canvas { visibility: visible; z-index: 1; mix-blend-mode: screen; }

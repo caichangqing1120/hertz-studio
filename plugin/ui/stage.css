@@ -670,7 +670,8 @@ body.reduce-motion .stage::before { transition: none; transform: none; }
   position: fixed;
   top: 0;
   right: 0;
-  z-index: 80;
+  /* 95 > 三维舞台根层的 90：真3D 演出中也能开着控制舱实时调参。 */
+  z-index: 95;
   width: 372px;
   max-width: 92vw;
   height: 100vh;
@@ -842,13 +843,12 @@ body.reduce-motion .stage::before { transition: none; transform: none; }
 }
 .sc-cell:hover { border-color: var(--line-strong); }
 .sc-cell.is-wide { grid-column: 1 / -1; }
+/* 药丸开关整行自成一块，不再吃 cell 的内边距底色 */
 .sc-cell.is-toggle {
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
+  padding: 0;
+  border: none;
+  background: none;
 }
-.sc-cell.is-toggle .sc-label { margin: 0; flex: 1; }
 
 .sc-label {
   display: flex;
@@ -918,53 +918,84 @@ body.reduce-motion .stage::before { transition: none; transform: none; }
 }
 .sc-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* 开关 */
-.sc-switch {
-  position: relative;
-  flex: none;
-  width: 38px;
-  height: 21px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--panel);
-  cursor: pointer;
-  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
-}
-.sc-switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--muted);
-  transition: transform var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
-}
-.sc-switch[aria-checked="true"] {
-  background: var(--accent);
-  border-color: transparent;
-}
-.sc-switch[aria-checked="true"]::after {
-  transform: translateX(17px);
-  background: var(--accent-ink);
-}
-
-/* 下拉 */
-.sc-cell select,
-.sc-select {
+/* 药丸开关：整行一颗 pill，左字右点。ON = accent 字色 + 34% 边框 + 7% 底，
+   圆点带辉光 —— 状态一眼可读，不再需要凑近看滑块轨道。 */
+.sc-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
-  padding: 6px 8px;
+  min-height: 39px;
+  padding: 9px 11px;
   font: inherit;
-  font-size: 11px;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  font-size: 11.5px;
+  text-align: left;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 11px;
   cursor: pointer;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease);
 }
-.sc-cell select:focus-visible,
-.sc-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sc-pill:hover { color: var(--text); border-color: var(--line-strong); }
+.sc-pill span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-pill .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  transition: background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.sc-pill.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.sc-pill.on .dot {
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.sc-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 分段选择：一体框内的互斥段，当前段 accent 字色 + 10% 底。
+   语境切换、来源切换、封面布局、歌词字体、舞台主题共用这一套。 */
+.sc-context,
+.sc-seg {
+  display: flex;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: var(--panel);
+}
+.sc-context { margin: 0 12px 8px; flex: none; }
+.sc-seg-btn {
+  flex: 1;
+  min-height: 34px;
+  padding: 7px 4px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.sc-seg-btn + .sc-seg-btn { border-left: 1px solid var(--line); }
+.sc-seg-btn:hover { color: var(--text); background: var(--hover); }
+.sc-seg-btn.is-on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.sc-seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* 取色器：色盘 + 「自动」按钮 */
 .sc-color-row {
@@ -1052,8 +1083,17 @@ body.reduce-motion .stage::before { transition: none; transform: none; }
 }
 .sc-foot .sc-ok:hover { filter: brightness(1.08); }
 
-/* 分组说明行：两列紧凑排布下它是纯装饰，占掉一整行不划算 */
-.sc-note { display: none; }
+/* 分组说明行：来源专属的引导与「切回沉浸声场」提示要真能被读到 */
+.sc-note {
+  grid-column: 1 / -1;
+  padding: 2px 2px 0;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* 真3D 语境：内容宿主与普通旋钮共用滚动行为；组间分隔改实线低透明 */
+.sc-body-3d[hidden] { display: none; }
 
 /* 触发按钮：开启时高亮 */
 #stage-control-btn.active {
