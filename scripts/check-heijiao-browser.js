@@ -473,7 +473,147 @@ async function measure(page) {
     check(remounted.mode === 'list', '再切回黑胶时队列档位从存储恢复', remounted.mode);
 
     // ---------------------------------------------------------------------
-    section('⑨ 运行时错误');
+    section('⑨ 卡片角标：只常驻红心，其余 hover 才回来');
+
+    // 这条量的是「一屏十张卡时右上角有多少个图标」。四枚常驻时是四十个噪点，
+    // 压在封面上把封面从主角挤成配角。所以默认只留红心（收藏是卡片上唯一
+    // 高频动作），其余三枚 hover / 键盘聚焦 / 已勾选时才回来。
+    // 用 display 而不是 opacity 判：.t-actions 是一枚**有底色的胶囊**，
+    // 半透明的子项照样占位，胶囊只会留下一段空白 —— 只有 display:none
+    // 才让它真的收成一颗心（顺带断言胶囊变窄，那是"收成一颗心"的几何证据）。
+    await page.evaluate(() => {
+      const item = document.querySelector('.rail-item[data-view="library"]');
+      if (item) item.click();
+    });
+    await page.waitForTimeout(400);
+
+    const probeActs = () => page.evaluate(() => {
+      const card = document.querySelector('#lib-list .track');
+      if (!card) return null;
+      const acts = card.querySelector('.t-actions');
+      const shown = (sel) => {
+        const n = acts.querySelector(sel);
+        return !!n && getComputedStyle(n).display !== 'none';
+      };
+      const b = acts.getBoundingClientRect();
+      return {
+        fav: shown('[data-act="fav"]'),
+        select: shown('.t-select'),
+        next: shown('[data-act="play-next"]'),
+        menu: shown('[data-act="menu"]'),
+        w: Math.round(b.width)
+      };
+    });
+
+    const idle = await probeActs();
+    check(!!idle, '曲库卡片渲染出来了');
+    if (idle) {
+      check(idle.fav, '红心常驻（收藏是卡片上唯一高频动作）');
+      check(!idle.select && !idle.next && !idle.menu,
+        '勾选 / 插入下一首 / 更多 默认不显形',
+        'select=' + idle.select + ' next=' + idle.next + ' menu=' + idle.menu);
+      // 一颗 28px 的方钮 + 胶囊自己的内距；四枚全开时是 120px 上下。
+      check(idle.w <= 46, '胶囊收成一颗心的宽度', 'w=' + idle.w);
+    }
+
+    await page.hover('#lib-list .track');
+    await page.waitForTimeout(250);
+    const hovered = await probeActs();
+    if (hovered) {
+      check(hovered.fav && hovered.select && hovered.next && hovered.menu,
+        'hover 时四枚全部回来（功能一个没丢）',
+        JSON.stringify(hovered));
+      check(hovered.w > idle.w, 'hover 后胶囊展开', idle.w + ' → ' + hovered.w);
+    }
+    // 移开鼠标回到默认态：hover 是临时态，不该"一旦悬停过就永久展开"。
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(250);
+    const back = await probeActs();
+    if (back) check(!back.next && !back.menu, '移开鼠标后收回（hover 是临时态）');
+
+    // ---------------------------------------------------------------------
+    section('⑩ 日推头：副标题独占一行，工具行与日期同排');
+
+    // 副标题（「已合并 24 首：网易云 30 首、QQ 19 首 · …」）在 2/3 宽的右栏里
+    // 一长就把工具行挤下去、跟日期抢同一行，读起来是一整片字。
+    // 判据是**几何**：副标题必须落在日期下方（独占一行），工具行必须仍在
+    // 头部第一行、贴着头部右缘 —— 两条合起来才是"第一行只留日期 + 按钮"。
+    const dh = await page.evaluate(() => {
+      const b = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          x: Math.round(r.x), y: Math.round(r.y), right: Math.round(r.right),
+          bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height)
+        };
+      };
+      return {
+        head: b('.daily-head'), copy: b('.daily-copy'), title: b('#daily-date'),
+        sub: b('#daily-sub'), tools: b('.daily-tools')
+      };
+    });
+    check(!!dh.head && !!dh.title && !!dh.sub && !!dh.tools, '日推头部四个零件都在',
+      JSON.stringify({ head: !!dh.head, title: !!dh.title, sub: !!dh.sub, tools: !!dh.tools }));
+    if (dh.head && dh.title && dh.sub && dh.tools) {
+      check(dh.sub.y >= dh.title.bottom - 2,
+        '副标题落到日期下面（独占一行）',
+        'sub.y=' + dh.sub.y + ' title.bottom=' + dh.title.bottom);
+      check(dh.sub.w >= dh.copy.w * 0.9,
+        '副标题拿到整行宽度（不是被工具行挤成窄条）',
+        'sub.w=' + dh.sub.w + ' copy.w=' + dh.copy.w);
+      check(dh.tools.y - dh.head.y <= 20,
+        '工具行仍在头部第一行（没被副标题顶下去）',
+        'Δy=' + (dh.tools.y - dh.head.y));
+      check(dh.head.right - dh.tools.right <= 2,
+        '工具行贴着头部的右缘', 'Δ=' + (dh.head.right - dh.tools.right));
+      check(dh.sub.right <= dh.head.right + 2,
+        '副标题没有溢出头部', 'sub.right=' + dh.sub.right + ' head.right=' + dh.head.right);
+    }
+
+    // ---------------------------------------------------------------------
+    section('⑪ 卡片文字层级与占位符');
+
+    // 这三条的失败模式全是"页面照旧渲染、只是不好读"，Node 正则看不见：
+    //   · 曲名不加重 → 顶着 168px 封面、压着两行注解，读起来像图注；
+    //   · 音质是裸文字 → 与专辑名、时长三行同重，全靠位置猜哪个是哪个；
+    //   · 占位音符 52% → 卡片封面是一枚占满整格的巨型音符，一排看过去是色块。
+    const p2 = await page.evaluate(() => {
+      const card = document.querySelector('#lib-list .track');
+      if (!card) return null;
+      const g = (sel, prop) => {
+        const el = card.querySelector(sel);
+        return el ? getComputedStyle(el)[prop] : 'MISSING';
+      };
+      const art = card.querySelector('.t-art');
+      const after = art ? getComputedStyle(art, '::after') : null;
+      const bar = document.getElementById('bar-time');
+      return {
+        titleSize: parseFloat(g('.t-title', 'fontSize')),
+        titleWeight: parseInt(g('.t-title', 'fontWeight'), 10),
+        albumColor: g('.t-album', 'color'),
+        qualRadius: parseFloat(g('.t-quality', 'borderTopLeftRadius')),
+        durNum: g('.t-dur', 'fontVariantNumeric'),
+        maskSize: after ? (after.maskSize || after.webkitMaskSize) : null,
+        barTimeNum: bar ? getComputedStyle(bar).fontVariantNumeric : 'MISSING'
+      };
+    });
+    check(!!p2, '卡片可量');
+    if (p2) {
+      check(p2.titleSize >= 14, '曲名升到 14px（不再是图注）', p2.titleSize + 'px');
+      check(p2.titleWeight >= 600, '曲名加重，成为卡片里唯一被强调的一行', String(p2.titleWeight));
+      check(p2.albumColor !== 'MISSING' && p2.albumColor !== 'rgb(255, 255, 255)',
+        '专辑名降为次级色（不与曲名抢重）', p2.albumColor);
+      check(p2.qualRadius >= 8, '音质做成胶囊标签（不是又一行小字）', p2.qualRadius + 'px');
+      check(p2.durNum === 'tabular-nums', '时长用等宽数字（跳秒时不抖）', p2.durNum);
+      check(p2.barTimeNum === 'tabular-nums', '播放条时间用等宽数字', p2.barTimeNum);
+      // 52% 是行列表小方格的尺寸，搬到 168px 的卡片封面上就是一枚巨型音符。
+      check(/30%/.test(String(p2.maskSize)),
+        '占位音符缩到 30%（退回"标记"而不是"图案"）', String(p2.maskSize));
+    }
+
+    // ---------------------------------------------------------------------
+    section('⑫ 运行时错误');
     check(errors.length === 0, '页面无运行时错误', errors.slice(0, 3).join(' | '));
 
     console.log('\n' + (failures ? '失败 ' + failures : '通过') + ' / 共 ' + checks + ' 项');

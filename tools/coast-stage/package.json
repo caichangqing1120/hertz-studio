@@ -1,0 +1,17 @@
+{
+  "name": "coast-stage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "「纯真3D」海岸公路舞台场景引擎：three + pelican-bike 裁剪移植，打成 IIFE 供插件 UI 以普通 <script> 加载",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:dev": "node build.mjs --dev"
+  },
+  "dependencies": {
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

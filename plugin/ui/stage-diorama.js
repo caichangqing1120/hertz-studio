@@ -159,6 +159,18 @@
     ? window.Onset.create({})
     : { step: function () {}, bins: ZEROS, energy: 0, pulse: 0, onBeat: function () {} };
 
+  // 初始画质档接 Stage.tier（0/1/2）：弱设备直接低档起步，不等 stage:fps
+  // 降级。stage:fps lowfx 仍只降不升。
+  function qualityForMount() {
+    if (downgraded) return 'low';
+    try {
+      var tier = window.Stage && window.Stage.tier ? window.Stage.tier() : 2;
+      if (tier === 0) return 'low';
+      if (tier === 1) return 'medium';
+    } catch (_) { /* tier 不可用按高档 */ }
+    return 'high';
+  }
+
   function mountInto(el) {
     var w = el.clientWidth || 640, h = el.clientHeight || 360;
     canvas = document.createElement('canvas');
@@ -166,6 +178,7 @@
     canvas.setAttribute('aria-hidden', 'true');
     el.appendChild(canvas);
     lastW = w; lastH = h;
+    quality = qualityForMount();
     var ok = DS().mount(canvas, {
       quality: quality,
       reduced: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches,

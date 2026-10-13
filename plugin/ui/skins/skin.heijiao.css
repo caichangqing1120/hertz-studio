@@ -77,7 +77,10 @@
 
   /* ==== 排版令牌 ==== */
   --skin-h1: var(--skin-title);
-  --skin-h2: 13.5px;        /* 曲名 / 卡片标题：与默认同值 */
+  /* 曲名 / 卡片标题：比默认大半档。卡片里封面是 168px 见方的一大块，
+     13.5px 的曲名压在它下面读起来像图注而不是标题 —— 而卡片模式下
+     曲名是唯一能"点名"这一格的东西（索引号已收掉）。 */
+  --skin-h2: 14px;
   --skin-h3: 12px;          /* 艺人 / 专辑 / 时长 */
   --skin-h4: 11px;          /* 音质徽标 */
   --skin-h-album: 12.5px;
@@ -367,6 +370,14 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
    所以滚动容器里的直接子元素一律不可收缩，高度交给内容自己定。 */
 [data-skin="heijiao"] .view > * {
   flex: none;
+}
+
+/* 区块之间的间距要**大于**卡片之间的间距（--skin-gap = 18px）：18px 是
+   "同一组里相邻两张卡"的尺度，拿它分隔「每日推荐」与「曲库」两组，滚动时
+   读不出哪是哪 —— 整页连成一片同样密度的格子。多给的这一段让页面呈现
+   "卡挨着卡、组隔着组"的节奏，视线能按组跳。 */
+[data-skin="heijiao"] .view > * + * {
+  margin-top: 10px;
 }
 
 [data-skin="heijiao"] .col-head {
@@ -923,6 +934,15 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   margin: 0;
 }
 
+/* 无封面占位：音符按 52% 画在**行列表的小方格**里是合适的，搬进 168px 的
+   卡片封面就成了一枚占满整格的巨型音符 —— 一排卡片读过去是一片带音符的
+   色块，而不是一排专辑。缩到 30%（约 50px）后它退回"标记"的身份：
+   底色（按曲目 id 哈出的色相）负责区分每一格，音符只说明"没有封面"。 */
+[data-skin="heijiao"] .track .t-art.is-missing::after {
+  -webkit-mask-size: 30% 30%;
+  mask-size: 30% 30%;
+}
+
 /* 索引/等化条在卡片里没有意义（卡片有位置感，不需要序号），
    但**不能只写 grid-area: none 就完事** —— 它仍占一个隐式格，
    在 art 与 main 之间插一条空轨道。display:none 才真的摘掉。 */
@@ -939,24 +959,45 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   gap: 2px;
 }
 
-/* 专辑从独立列降为卡底一行，仍完整保留 —— 卡片的价值就是七列信息一个不丢。 */
+/* 专辑从独立列降为卡底一行，仍完整保留 —— 卡片的价值就是七列信息一个不丢。
+   降为次级色：它与艺人同属"注解"，两行同样重会让曲名失去唯一的强调点。 */
 [data-skin="heijiao"] .track .t-album {
   grid-area: album;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--muted);
 }
 
+/* 曲名是卡片里唯一该被强调的一行。基础样式给的是常规字重，卡片化之后
+   它上面顶着 168px 的封面、下面压着两行注解，不加重就读不动。 */
+[data-skin="heijiao"] .track .t-title {
+  font-weight: var(--skin-w-head);
+}
+
+/* 音质做成一枚小胶囊：裸的 "FLAC" 三个字在卡底与专辑名、时长挤在一起，
+   三者的视觉重量几乎相同，扫的时候全靠位置猜。胶囊把它从"又一行小字"
+   变成"一枚标签"，一眼就知道那是属性而不是内容。 */
 [data-skin="heijiao"] .track .t-quality {
   grid-area: qual;
-  text-align: left;
+  justify-self: start;
+  padding: 1px 7px;
+  border-radius: var(--skin-ctl-radius);
+  border: 1px solid var(--skin-line-soft);
+  background: var(--skin-surface-card);
+  font-size: var(--skin-h4);
+  line-height: 1.7;
+  white-space: nowrap;
 }
 
 [data-skin="heijiao"] .track .t-dur {
   grid-area: dur;
   text-align: right;
   justify-self: end;
+  /* 等宽数字：卡底那个时长每跳一秒就变一次宽度，非等宽下整行会跟着
+     左右抖一下（"1:08" 比 "1:11" 窄）。 */
+  font-variant-numeric: tabular-nums;
 }
 
 /* 操作按钮浮到封面右上角。它是绝对定位（脱离 grid 流），所以上面
@@ -977,6 +1018,38 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   /* 三枚图标挤在一起时是一小片金属，磨圆一点更压得住封面。 */
   border-radius: var(--skin-ctl-radius);
   background: var(--skin-surface);
+}
+
+/* --- 卡片里只常驻红心 -------------------------------------------------
+   四枚控件（勾选 / 插入下一首 / 更多 / 红心）常驻时，一屏十张卡就是四十个
+   图标 —— 它们压在封面右上角，而封面才是卡片该说的那句话。实测截图里
+   每张卡右上角都是一小片金属，视线先被它接走。
+   所以只留红心（收藏是卡片上唯一高频动作），其余三枚 hover / 键盘聚焦 /
+   已勾选时才回来。
+
+   ⚠ 用 display:none 而不是 opacity：.t-actions 是一枚**有底色的胶囊**，
+     半透明的子项照样占位，胶囊只会留一段说不出是什么的空白；
+     display:none 才让它真的收成一颗心。
+
+   ⚠ 复原要写成具体值而不是 revert：.t-act 靠 inline-flex 把图标塞在 28px
+     方钮正中，revert 退回的是浏览器默认的 inline-block，图标会掉到左上；
+     勾选框是 appearance:none 自绘的，同理退回 inline-block 才对。
+   触屏没有 hover，那边一律全显（见第 8 节 pointer:coarse）。 */
+[data-skin="heijiao"] .track .t-actions .t-select,
+[data-skin="heijiao"] .track .t-actions .t-act:not([data-act="fav"]) {
+  display: none;
+}
+
+[data-skin="heijiao"] .track:hover .t-actions .t-act,
+[data-skin="heijiao"] .track:focus-within .t-actions .t-act,
+[data-skin="heijiao"] .track.is-selected .t-actions .t-act {
+  display: inline-flex;
+}
+
+[data-skin="heijiao"] .track:hover .t-actions .t-select,
+[data-skin="heijiao"] .track:focus-within .t-actions .t-select,
+[data-skin="heijiao"] .track.is-selected .t-actions .t-select {
+  display: inline-block;
 }
 
 /* 正在播放：不再是一根左侧竖条（卡片没有左边），改成边框染品牌色。 */
@@ -1066,6 +1139,42 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   font-size: var(--fs-sm);
 }
 
+/* --- 每日推荐：头部重排 ------------------------------------------------
+   副标题（「已合并 24 首：网易云 30 首、QQ 19 首 · 已跳过…」）在双栏的
+   2/3 宽里一长就把工具行挤下去，与日期抢同一行 —— 截图里那一整片字就是它。
+   把副标题踢到第二行**满宽**：第一行只留眉标 + 日期、与右侧工具行同高，
+   第二行才是那句说明。信息一行不丢，可扫描性回到"一眼看到日期和按钮"。
+
+   实现是覆写基础样式的竖排（column → row + wrap），用 flex-basis:100%
+   让副标题独占一行 —— 不动业务 HTML，也不用给 .daily-copy 加第二层容器。 */
+[data-skin="heijiao"] .daily-head {
+  align-items: flex-start;
+  gap: 12px var(--skin-gap);
+}
+
+[data-skin="heijiao"] .daily-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+[data-skin="heijiao"] .daily-title { margin-right: auto; }
+
+[data-skin="heijiao"] .daily-sub {
+  flex: 1 1 100%;
+  line-height: 1.5;
+}
+
+[data-skin="heijiao"] .daily-tools {
+  flex: none;
+  /* 与日期那一行同高：工具行里最高的控件是 34px 的方钮（折叠箭头），
+     日期行约 30px，差的那点让它俩基线看起来不齐。 */
+  padding-top: 2px;
+}
+
 /* --- 每日推荐横廊：顺势也成网格 ---------------------------------------- */
 /* 原本是一行可横滑的长廊（.daily-list）。双栏下右栏更窄，横滑反而更累，
    改成与其它列表同一套网格，卡片宽度共用 --skin-card-min。 */
@@ -1115,6 +1224,13 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
   [data-skin="heijiao"] .bar {
     grid-template-columns: minmax(140px, 280px) auto minmax(240px, 1fr) auto;
   }
+}
+
+/* 播放条上的时间："2:49 / 2:56" 每一秒都在变，非等宽数字下它的宽度也跟着
+   变（1 比 8 窄），进度条右侧那一列因此每秒抖一下。tabular-nums 把数字
+   钉成同宽，跳动只发生在字符内部。 */
+[data-skin="heijiao"] .bar-time {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ==========================================================================
@@ -1265,6 +1381,11 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .topbar {
     min-height: 44px;
   }
   [data-skin="heijiao"] .rail-item { min-height: 44px; }
+  /* 触屏没有 hover，「只留红心」那条会把勾选框/插入下一首/更多永久藏起来
+     —— 而勾选框是曲库选中态的唯一载体（见 updateTrackRow / toggleSelect /
+     clearSelection 三处同步）。这里一律全显，降噪只服务于有指针的设备。 */
+  [data-skin="heijiao"] .track .t-actions .t-select { display: inline-block; }
+  [data-skin="heijiao"] .track .t-actions .t-act { display: inline-flex; }
 }
 
 /* ==========================================================================

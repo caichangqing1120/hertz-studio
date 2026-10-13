@@ -63,3 +63,6 @@ target-*/
 /docs/design/
 /docs/research/
 /docs/superpowers/
+
+# 舞台构建工具的中间产物与本地 cargo 目录（源码与 manifest 入库，产物不入库）
+tools/*/output/

@@ -115,6 +115,11 @@ async function main() {
     assert.ok(timeline.paragraphs >= 3, '段间留白应切出多段落：' + JSON.stringify(timeline));
     pass('歌词编制到达引擎：12 句 / ' + timeline.signs + ' 牌 / ' + timeline.paragraphs + ' 段落');
 
+    // ---- 场景内容对齐：站台建筑群（月台/阶梯两类）+ 流星系统在场景里 ----
+    const sceneStats = await page.evaluate(() => DioramaStagePure.stats());
+    assert.ok(sceneStats.stations >= 10, '沿线站台建筑群应成规模：stations=' + sceneStats.stations);
+    pass('场景对齐：' + sceneStats.stations + ' 座站台建筑、地平线剪影与流星系统在场景内');
+
     // ---- 站牌在唱：seek 到主歌中段，页构建、入画、可读 ----
     await page.evaluate(ms => window.__seek(ms), VERSE_START_MS + 600);
     await page.waitForFunction(() => {
