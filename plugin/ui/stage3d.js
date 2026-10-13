@@ -4326,6 +4326,27 @@
         };
       });
     },
+    // 「三维空间」第二批的只读着色器目录（§7.2）：一份着色器，一个 owner ——
+    // 场着色器的 owner 是本文件，新层拿源码在自己的上下文里编译同一份源，
+    // 不在这里长出第二个实现。字符串不可变，天然只读。
+    shaderCatalog: function () {
+      return {
+        field: { vs: FIELD_VS, fs: FIELD_FS },
+        star: { vs: STAR_VS, fs: STAR_FS },
+        prism: { vs: PRISM_VS, fs: PRISM_FS },
+        post: { vs: POST_VS, bright: BRIGHT_FS, blur: BLUR_FS, composite: COMPOSITE_FS },
+        stages: STAGES.map(function (s) {
+          return {
+            id: s.id, label: s.label, desc: s.desc,
+            kind: s.blank ? 'blank' : (s.build === buildPrism ? 'prism' : 'field'),
+            field: s.field == null ? null : s.field,
+            counts: s.counts ? s.counts.slice() : null,
+            additive: !!s.additive, depth: !!s.depth, framed: !!s.framed,
+            cam: { theta: s.cam.theta, phi: s.cam.phi, dist: s.cam.dist, look: s.cam.look.slice() }
+          };
+        })
+      };
+    },
     resetView: resetView,
     defaults: defaults,
     resetSettings: resetSettings,

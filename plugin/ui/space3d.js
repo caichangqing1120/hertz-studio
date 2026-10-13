@@ -50,6 +50,9 @@
     { id: 'coast', label: '海岸公路', desc: '贴地巡航的公路与海', preset: 'p2', spin: true, tune: 'coast' },
     { id: 'zodiac', label: '星座', desc: '十二星图的粒子星野', preset: 'p10', spin: true, tune: 'zodiac' },
     { id: 'creative', label: '创意编排', desc: '工坊场景与编排轨', preset: 'p3', spin: false, tune: null },
+    // 沉浸粒子场（第二批）：8 个场着色器经 Stage3D.shaderCatalog() 在本层自己的
+    // 上下文里编译（一份着色器，一个 owner）；基线取各场自己的机位描述符。
+    { id: 'immersive', label: '沉浸粒子场', desc: '丝滑星球 / 极光 / 隧道 / 地形…', preset: null, spin: false, tune: null },
     // 「动画绘景」入口已在 022095a 暂时下架：注册表保留挂载能力，网格不露出
     //（跟随绘景入口的恢复状态，§7.1）。
     { id: 'anime-svg', label: '动画绘景', desc: 'SVG 画稿舞台', preset: 'p4', spin: false, tune: null, hidden: true }
@@ -70,6 +73,7 @@
   var returnFocus = null, backgroundNodes = [];
   var prefs = {
     sceneSource: 'coast',          // 需求「默认加载海岸公路」；迁移见 migrateDefaults
+    field: 'silk',                 // 沉浸粒子场内的当前场（默认丝滑星球，与声场同默认）
     lyrics: true,
     visual: 'stage',               // stage = 舞台 3D 歌词轨；classic/cadenza/sonnet/tempera
     cinema: true,
@@ -82,7 +86,17 @@
   var interactUntil = 0, idleTimer = 0, dragging = false, pointerId = null, lastPt = null;
   var saveTimer = 0;
   var lyricView = null;
+  var artHost = null;
   var stanza = { ready: false, bg: null, sub: null, instances: {} };
+  // 沉浸粒子场的逐帧状态：音频全量（uBands 64 段 + 分带聚合）、指针场、
+  // 转场脉冲与开合淡入淡出 —— 语义与 stage3d 的 updateAudio/pointerField/trans 同构。
+  var spaceTime = 0;             // 场时间（秒），reduced 时冻结
+  var au = { bass: 0, mid: 0, treble: 0, energy: 0, beat: 0 };
+  var audioBands = new Float32Array(64);
+  var lastBeatAt = -100, previousBeat = 0;
+  var pointerField = { x: -9, y: -9, active: 0, clickX: 0, clickY: 0, clickAt: -100 };
+  var trans = { on: false, t: 0, dur: 0.42, scatter: 0, burst: 0 };
+  var fade = 0, fadeTarget = 0;
   var STANZA_DEFS = [
     { id: 'classic', label: '流光', host: 'sp-fl-lyric', make: function (h, seek) { return global.StanzaClassic && global.StanzaClassic.init(h, seek); } },
     { id: 'cadenza', label: '心象', host: 'sp-fl-lyric', make: function (h, seek) { return global.StanzaCadenza && global.StanzaCadenza.init(h, seek); } },
@@ -106,7 +120,7 @@
   function preferences() {
     var free = camera ? camera.freeSnapshot() : null;
     return JSON.parse(JSON.stringify({
-      sceneSource: prefs.sceneSource, lyrics: prefs.lyrics, visual: prefs.visual,
+      sceneSource: prefs.sceneSource, field: prefs.field, lyrics: prefs.lyrics, visual: prefs.visual,
       cinema: prefs.cinema, coastTod: prefs.coastTod, coastInteract: prefs.coastInteract,
       zodiacLines: prefs.zodiacLines, zodiacField: prefs.zodiacField, zodiacInteract: prefs.zodiacInteract,
       freeCam: free, space3dDefaultMigrated: 1
@@ -135,6 +149,7 @@
     if (!value || typeof value !== 'object') return;
     migrateDefaults(value);
     if (sourceById(value.sceneSource)) prefs.sceneSource = value.sceneSource;
+    if (typeof value.field === 'string') prefs.field = value.field;
     if (typeof value.lyrics === 'boolean') prefs.lyrics = value.lyrics;
     if (['stage', 'classic', 'cadenza', 'sonnet', 'tempera'].indexOf(value.visual) >= 0) prefs.visual = value.visual;
     if (typeof value.cinema === 'boolean') prefs.cinema = value.cinema;
@@ -189,6 +204,118 @@
     return { low: clamp(bass * 1.4, 0, 1), energy: clamp(Math.sqrt(rms / n) * 1.6, 0, 1) };
   }
 
+  function dampTo(cur, target, tauMs, dtMs) {
+    return cur + (target - cur) * (1 - Math.exp(-Math.max(0, dtMs) / Math.max(0.001, tauMs)));
+  }
+  // 沉浸粒子场的音频全量（uBands 64 段 + 分带聚合 + beatAge），与 stage3d
+  // updateAudio 同一套分段与平滑口径；reduced 或暂停时能量自然回落。
+  function updateAudioLive(dtMs, sp, playing) {
+    var n = sp ? sp.length : 0, i;
+    var bass = 0, mid = 0, treble = 0;
+    if (n) {
+      var e1 = Math.max(1, Math.floor(n * 0.125));
+      for (i = 0; i < e1; i += 1) bass += sp[i] || 0;
+      bass /= e1;
+      var s2 = Math.max(1, Math.floor(n * 0.25));
+      for (i = e1; i < s2; i += 1) mid += sp[i] || 0;
+      mid /= Math.max(1, s2 - e1);
+      var s3 = Math.max(1, Math.floor(n * 0.55));
+      for (i = s2; i < s3; i += 1) treble += sp[i] || 0;
+      treble /= Math.max(1, s3 - s2);
+      var hi = 0, c = 0;
+      for (i = s3; i < n; i += 1) { hi += sp[i] || 0; c += 1; }
+      treble = treble * 0.6 + (c ? hi / c : 0) * 0.4;
+    }
+    for (i = 0; i < 64; i += 1) {
+      var t = 0;
+      if (n) t = clamp(Math.pow(Math.max(0, sp[Math.min(n - 1, Math.floor(i * n / 64))] || 0), 0.7) * 1.35, 0, 1.5);
+      audioBands[i] = dampTo(audioBands[i], t, 65, dtMs);
+    }
+    au.bass = dampTo(au.bass, clamp(Math.pow(bass, 0.7) * 1.35, 0, 1.5), 70, dtMs);
+    au.mid = dampTo(au.mid, clamp(Math.pow(mid, 0.7) * 1.35, 0, 1.5), 90, dtMs);
+    au.treble = dampTo(au.treble, clamp(Math.pow(treble, 0.7) * 1.35, 0, 1.5), 60, dtMs);
+    var en = (playing && !reducedMotion() && global.Stage && Stage.energy) ? Stage.energy() : 0;
+    au.energy = dampTo(au.energy, clamp(num(en, 0) * 1.35, 0, 1), 140, dtMs);
+    au.beat = (n && onset && onset.pulse != null) ? clamp(onset.pulse, 0, 1.35) : dampTo(au.beat, 0, 200, dtMs);
+    if (au.beat > previousBeat + 0.08 && au.beat > 0.20 && spaceTime - lastBeatAt > 0.22) lastBeatAt = spaceTime;
+    previousBeat = au.beat;
+    if (!reducedMotion()) spaceTime += dtMs / 1000;
+    updateTransition(dtMs);
+    fade = dampTo(fade, fadeTarget, 220, dtMs);
+  }
+  // 转场脉冲：sin(t·π) 对称波，一次性自收敛（stage3d startTransition 同构）。
+  function startTransition() {
+    if (reducedMotion()) { trans.on = false; trans.scatter = trans.burst = 0; return; }
+    trans.on = true;
+    trans.t = 0;
+  }
+  function updateTransition(dtMs) {
+    if (!trans.on) return;
+    trans.t += dtMs / 1000;
+    var raw = trans.t / trans.dur;
+    if (raw >= 1) { trans.on = false; trans.scatter = 0; trans.burst = 0; return; }
+    var wave = Math.sin(clamp(raw, 0, 1) * Math.PI);
+    trans.scatter = wave * 0.16;
+    trans.burst = wave * 0.55;
+  }
+  // 场机位基线来自效果目录的 cam（θ/φ/dist/look），走注册表 → SpaceCamera。
+  function fieldCam(id) {
+    try {
+      var list = global.Stage3D && Stage3D.effectCatalog ? Stage3D.effectCatalog() : [];
+      for (var i = 0; i < list.length; i += 1) if (list[i].id === id) return list[i].cam;
+    } catch (_) { /* 目录不可用按默认 */ }
+    return null;
+  }
+  function setField(id) {
+    var c = fieldCam(id);
+    if (!c) return;
+    prefs.field = id;
+    if (camera) {
+      camera.setBaseline({ theta: c.theta, phi: c.phi, radius: c.dist, look: c.look });
+      camera.snap();
+    }
+    if (global.SpaceFields && SpaceFields.setStage) SpaceFields.setStage(id);
+    startTransition();
+    buildFxGrid();
+    scheduleSave();
+    markInteraction(900);
+  }
+  // 沉浸粒子场逐帧绘制：转台世界角折进机位（与 rig 场景同一折法），自由镜头
+  // 的位置/朝向换算成球坐标后同样可画。
+  function drawFields(dtMs) {
+    if (!global.SpaceFields) return;
+    var pose = camera.pose();
+    var envPose;
+    if (pose.free) {
+      var px = pose.position[0], py = pose.position[1], pz = pose.position[2];
+      var r = Math.max(0.001, Math.sqrt(px * px + py * py + pz * pz));
+      envPose = {
+        free: false,
+        theta: Math.atan2(px, pz),
+        phi: clamp(Math.asin(clamp(py / r, -1, 1)), -1.35, 1.35),
+        radius: r, fov: pose.fov, lookAt: [0, 0, 0]
+      };
+    } else {
+      var world = pose.world || { x: 0, y: 0 };
+      envPose = {
+        free: false,
+        theta: pose.theta + world.y,
+        phi: clamp(pose.phi + world.x, -1.35, 1.35),
+        radius: pose.radius, fov: pose.fov, lookAt: pose.lookAt
+      };
+    }
+    SpaceFields.draw(dtMs, {
+      pose: envPose,
+      audio: { bass: au.bass, mid: au.mid, treble: au.treble, energy: au.energy, beat: au.beat, bands: audioBands },
+      pointer: { x: pointerField.x, y: pointerField.y, active: pointerField.active,
+        clickX: pointerField.clickX, clickY: pointerField.clickY, clickAge: spaceTime - pointerField.clickAt },
+      transition: { scatter: trans.scatter, burst: trans.burst },
+      fade: fade, timeSec: spaceTime,
+      beatAge: Math.max(0, spaceTime - lastBeatAt),
+      motion: 0.65, bloom: 0.8, reduced: reducedMotion()
+    });
+  }
+
   function tick(dtMs) {
     if (!active || document.hidden) return;
     var t0 = performance.now();
@@ -197,15 +324,16 @@
     var posSec = present ? (present.position || 0) / 1000 : 0;
     var sp = (global.Stage && Stage.spectrum && Stage.spectrum()) || null;
     onset.step(dtMs, sp && sp.length ? sp : ZEROS, t0);
-    var bands = spectrumBands(sp);
+    updateAudioLive(dtMs, sp, playing);
     if (camera) {
       camera.tick(dtMs, {
         playing: playing,
         audioTime: posSec,
-        energy: bands.energy,
-        low: bands.low
+        energy: au.energy,
+        low: au.bass
       });
-      pushCameraToScene(present);
+      if (prefs.sceneSource === 'immersive') drawFields(dtMs);
+      else pushCameraToScene(present);
     }
     // 世界拖拽期间也算交互，帧门别在拖到一半停机。
     if (dragging) interactUntil = Math.max(interactUntil, t0 + 400);
@@ -394,21 +522,55 @@
         CreativeStage.setInteractionBlocker(function () { return !!(camera && camera.isFreeEngaged()); });
       }
     } else if (use('creative')) creativeOk = false;
+    // —— 沉浸粒子场（第二批）：GL 宿主与后处理链在 SpaceFields —— //
+    var fieldsOk = true;
+    if (global.SpaceFields && SpaceFields.setHost) {
+      fieldsOk = SpaceFields.setHost(use('immersive') ? ensureHost('immersive') : null);
+      if (use('immersive')) {
+        if (!fieldsOk) showFallback(SpaceFields.degradedBecause() || '粒子场暂不可用，请选择海岸公路 / 星座 / 创意编排');
+        else {
+          SpaceFields.onContext(function (state) {
+            if (state === 'lost') showFallback('粒子场的图形上下文丢失，正在自动恢复…');
+            else if (state === 'failed') showFallback('粒子场的图形渲染已停止，可切换其它来源。');
+            else hideFallback();
+          });
+          // 入场基线取当前场的机位描述符（θ/φ/dist/look）。
+          var fc = fieldCam(prefs.field);
+          if (camera && fc) {
+            camera.setBaseline({ theta: fc.theta, phi: fc.phi, radius: fc.dist, look: fc.look });
+            camera.snap();
+          }
+          SpaceFields.setStage(prefs.field);
+          hideFallback();
+        }
+      }
+    } else if (use('immersive')) fieldsOk = false;
     // —— 绘景（入口下架，能力保留）—— //
     if (global.StageAnimeSvg && StageAnimeSvg.setHost) {
       var animeOk = StageAnimeSvg.setHost(use('anime-svg') ? ensureHost('anime') : null);
       if (use('anime-svg') && !animeOk) showFallback(StageAnimeSvg.degradedBecause() || '动画绘景暂不可用');
     }
     // 宿主显隐与交互放行
-    ['coast', 'zodiac', 'creative', 'anime'].forEach(function (id) {
+    ['coast', 'zodiac', 'creative', 'immersive', 'anime'].forEach(function (id) {
       var el = $('sp-host-' + id);
       if (el) el.hidden = src !== id || !active;
     });
     if (coastOk && use('coast')) hideFallback();
     if (zodiacOk && use('zodiac')) hideFallback();
     if (creativeOk && use('creative')) hideFallback();
-    // 沉浸粒子场是第二批的活：现在选中只落一个占位说明。
-    if (src === 'immersive') showFallback('沉浸粒子场在三维空间的第二批开放（见设计文档 §7.2）；当前请选择海岸公路 / 星座 / 创意编排。');
+    if (fieldsOk && use('immersive')) hideFallback();
+    // 手绘叠加层（第三批·叠加层）：与 stage3d 的 #s3d-art-overlay 同构 ——
+    // HandDrawn 自己管理 on/style/笔触参数与帧门，这里只交宿主；关层时收回。
+    if (global.HandDrawn && HandDrawn.setStageHost) {
+      if (!artHost) {
+        artHost = document.createElement('div');
+        artHost.id = 'sp-art';
+        artHost.className = 'sp-art';
+        artHost.setAttribute('aria-hidden', 'true');
+        root.insertBefore(artHost, hosts.bar);
+      }
+      HandDrawn.setStageHost(active ? artHost : null);
+    }
   }
 
   function setSource(id) {
@@ -551,7 +713,11 @@
     t2.textContent = '沉浸粒子场';
     hosts.fxGrid.appendChild(t2);
     var catalog = [];
-    try { catalog = global.Stage3D && Stage3D.effectCatalog ? Stage3D.effectCatalog() : []; } catch (_) { catalog = []; }
+    var fieldsLive = false;
+    try {
+      fieldsLive = !!(global.SpaceFields && SpaceFields.setStage && global.Stage3D && Stage3D.shaderCatalog);
+      catalog = global.Stage3D && Stage3D.effectCatalog ? Stage3D.effectCatalog() : [];
+    } catch (_) { catalog = []; }
     if (!catalog.length) {
       var p = document.createElement('p');
       p.className = 'sp-fx-title';
@@ -559,11 +725,16 @@
       hosts.fxGrid.appendChild(p);
     }
     catalog.forEach(function (f) {
+      var active = prefs.sceneSource === 'immersive' && prefs.field === f.id;
       card(f.label, f.desc || '', {
-        active: false,
-        disabled: true,
-        badge: '待 3D 化',
-        onClick: null
+        active: active,
+        disabled: !fieldsLive,
+        badge: fieldsLive ? (active ? '当前' : null) : '待 3D 化',
+        onClick: fieldsLive ? function () {
+          setSource('immersive');
+          setField(f.id);
+          fxToggle(false);
+        } : null
       });
     });
   }
@@ -637,6 +808,9 @@
   function bindGestures() {
     root.addEventListener('pointerdown', function (e) {
       if (!active || (e.button != null && e.button !== 0) || controlTarget(e)) return;
+      pointerField.clickX = (e.clientX - root.getBoundingClientRect().left) / Math.max(1, root.clientWidth) * 2 - 1;
+      pointerField.clickY = 1 - (e.clientY - root.getBoundingClientRect().top) / Math.max(1, root.clientHeight) * 2;
+      pointerField.clickAt = spaceTime;
       if (camera && camera.isFreeActive()) {
         // 自由镜头：点击画布抢指针锁定，转向走 mousemove。
         if (root.requestPointerLock) { try { root.requestPointerLock(); } catch (_) { /* 拒绝时静默 */ } }
@@ -653,6 +827,10 @@
     root.addEventListener('pointermove', function (e) {
       if (!active) return;
       pokeChrome();
+      // 指针场（NDC）：场着色器的 uPointer/uClick 交互输入。
+      pointerField.x = (e.clientX - root.getBoundingClientRect().left) / Math.max(1, root.clientWidth) * 2 - 1;
+      pointerField.y = 1 - (e.clientY - root.getBoundingClientRect().top) / Math.max(1, root.clientHeight) * 2;
+      pointerField.active = 1;
       if (document.pointerLockElement === root && camera && camera.isFreeActive()) {
         markInteraction(900);
         camera.freeLook(e.movementX || 0, e.movementY || 0);
@@ -675,6 +853,7 @@
     }
     root.addEventListener('pointerup', endDrag);
     root.addEventListener('pointercancel', endDrag);
+    root.addEventListener('pointerleave', function () { pointerField.active = 0; pointerField.x = -9; pointerField.y = -9; });
     root.addEventListener('wheel', function (e) {
       if (!active || controlTarget(e)) return;
       e.preventDefault();
@@ -785,6 +964,7 @@
       });
     }
     active = true;
+    fadeTarget = 1;
     root.classList.add('sp-open');
     root.setAttribute('aria-hidden', 'false');
     root.focus({ preventScroll: true });
@@ -807,6 +987,7 @@
   function close(fromStage3d) {
     if (!root || !active) return;
     active = false;
+    fadeTarget = 0;
     fxShow = false; sheetOpen = false; playlistOpen = false;
     hosts.fx.classList.remove('sp-show');
     hosts.sheet.classList.remove('sp-show');
@@ -987,6 +1168,8 @@
       return {
         active: active,
         source: prefs.sceneSource,
+        field: prefs.field,
+        fields: global.SpaceFields ? SpaceFields.stats() : null,
         camera: camera ? camera.pose() : null,
         gateCostMs: Math.round(cost.avg * 10) / 10,
         freeCam: camera ? camera.isFreeEngaged() : false

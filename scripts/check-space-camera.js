@@ -78,6 +78,15 @@ section('角度环绕：350°→10° 走短弧');
   near(wrapPi(st.user[0]), rad(10), 1e-9, '目标角落在 10°');
   near(wrapPi(st.cur[0]), rad(10), 0.01, '视觉角收敛到 10°（mod 2π）');
   ok(worst <= rad(20) + 0.01, '全程走短弧（最大角距 ' + worst.toFixed(4) + ' rad ≤ 20° 弧差）');
+  // 注视点基线：场机位带 look（隧道/极光），视觉值 τ260 收敛到基线。
+  const sc3 = fresh();
+  sc3.setBaseline({ theta: 0, phi: 0, radius: 2.2, look: [0, 0, -2.2] });
+  for (let i = 0; i < 200; i++) sc3.tick(16.667, {});
+  const lk = sc3.pose().lookAt;
+  near(lk[2], -2.2, 0.01, '注视点收敛到基线 look.z');
+  sc3.setBaseline({ theta: 0, phi: 0, radius: 2.2, look: [0, 0, 0] });
+  for (let i = 0; i < 200; i++) sc3.tick(16.667, {});
+  near(sc3.pose().lookAt[2], 0, 0.01, 'look 归零收敛');
 }
 
 // —— 2. 钳制 —— //

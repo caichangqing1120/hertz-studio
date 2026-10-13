@@ -2146,7 +2146,7 @@
       <option value="coast">海岸公路</option>
       <option value="zodiac">星座</option>
       <option value="creative">创意编排</option>
-      <option value="immersive">沉浸粒子场（第二批开放）</option>
+      <option value="immersive">沉浸粒子场</option>
       <!-- 「动画绘景」入口暂时下架（022095a）：保留 option 只加 hidden，
            停在这个来源的偏好要能显示出来，也随时能切走。 -->
       <option value="anime-svg" hidden>动画绘景</option>
@@ -2201,6 +2201,9 @@
      只被调用不调用别人，排在适配器（stage-coast/zodiac/anime-svg）之后。 -->
 <script defer src="space-camera.js"></script>
 <script defer src="space3d.js"></script>
+<!-- 沉浸粒子场渲染器（第二批）：着色器全部经 Stage3D.shaderCatalog() 只读导出，
+     这里只持有 GL 上下文与后处理链；与 stage3d.js 无加载期依赖，只被调用。 -->
+<script defer src="space-fields.js"></script>
 <script defer src="vendor/qrcode.js"></script>
 <script defer src="online-login.js"></script>
 <script defer src="online.js"></script>

@@ -93,7 +93,9 @@
   var cam = {
     userT: 0, userP: 0.08, userR: 6.6,           // 目标（基线写入；自由镜头回正也会写回）
     baseT: 0, baseP: 0.08, baseR: 6.6,           // 基线（唯一 owner：Space3D 的注册表）
+    baseLook: [0, 0, 0],                         // 基线注视点（可选，场机位带 look）
     curT: 0, curP: 0.08, curR: 6.6,              // 视觉（一阶低通之后）
+    curLook: [0, 0, 0],                          // 注视点视觉值（τ260 低通）
     cineT: 0, cineP: 0, cineR: 0,                // 电影漂移 + 节拍 kick 混合
     minP: MIN_PHI, maxP: MAX_PHI, minR: MIN_RADIUS, maxR: MAX_RADIUS,
     centerLocked: false, recentering: false, recenterAt: 0,
@@ -117,12 +119,16 @@
   var FREE_MOVE_CODES = /^(KeyW|KeyA|KeyS|KeyD|KeyQ|KeyE|Space|ShiftLeft|ShiftRight|ControlLeft|ControlRight)$/;
 
   // —— orbit —— //
-  function defaults() { return { theta: 0, phi: 0.08, radius: 6.6, fov: BASE_FOV }; }
+  function defaults() { return { theta: 0, phi: 0.08, radius: 6.6, fov: BASE_FOV, look: [0, 0, 0] }; }
   function setBaseline(pose) {
     if (!pose || typeof pose !== 'object') return;
     cam.baseT = Number(pose.theta) || 0;
     cam.baseP = clamp(Number(pose.phi) || 0, cam.minP, cam.maxP);
     cam.baseR = clamp(Number(pose.radius) || 0, cam.minR, cam.maxR);
+    // 注视点（可选）：场机位带 look（如隧道看向前方深处）。目标值随基线切换，
+    // 视觉值走 τ260 的低通（stage3d 的 TAU_LOOK 同值）。
+    if (pose.look && pose.look.length === 3 && pose.look.every(isFinite)) cam.baseLook = pose.look.slice();
+    else if (pose.look !== undefined) cam.baseLook = [0, 0, 0];
     cam.userT = cam.baseT; cam.userP = cam.baseP; cam.userR = cam.baseR;
   }
   function baseline() { return { theta: cam.baseT, phi: cam.baseP, radius: cam.baseR }; }
@@ -398,6 +404,10 @@
     cam.curT += shortestAngleDelta(cam.curT, tT) * follow;
     cam.curP = damp(cam.curP, tP, tauFromFrame(focusK), dtMs);
     cam.curR = damp(cam.curR, tR, tauFromFrame(radiusK), dtMs);
+    // 注视点低通（视觉值只受基线驱动，漂移/kick 不作用于 look）。
+    cam.curLook[0] = damp(cam.curLook[0], cam.baseLook[0], 260, dtMs);
+    cam.curLook[1] = damp(cam.curLook[1], cam.baseLook[1], 260, dtMs);
+    cam.curLook[2] = damp(cam.curLook[2], cam.baseLook[2], 260, dtMs);
     // FOV 冲击（:137-142）：非对称、随 punch 衰减。
     var cameraPunch = Math.max(cam.punch * 0.55, bc.punch * 0.54 + bc.radiusKick * 0.16) * cam.shake;
     var fovTarget = (free.active || free.locked ? free.fov : BASE_FOV) - cameraPunch * (free.active || free.locked ? 1.75 : 2.35);
@@ -595,7 +605,7 @@
     return {
       free: false, active: true,
       theta: cam.curT, phi: cam.curP, radius: cam.curR, fov: cam.fov,
-      lookAt: [0, 0, 0], roll: 0, world: worldPose()
+      lookAt: cam.curLook.slice(), roll: 0, world: worldPose()
     };
   }
   // 调试/检查口：内部状态只读视图（契约脚本与 stats 用）。

@@ -27,7 +27,7 @@ const root = path.join(__dirname, '..');
 const web = path.join(root, 'plugin', 'ui');
 const base = process.env.SPACE_BASE || 'http://127.0.0.1:18783';
 const output = process.env.SPACE_OUT || path.join(root, 'output', 'playwright', 'space3d');
-const assets = ['space3d.js', 'space3d.css', 'space-camera.js'];
+const assets = ['space3d.js', 'space3d.css', 'space-camera.js', 'space-fields.js'];
 const normalize = text => text.replace(/\r\n/g, '\n').trim();
 
 async function main() {
@@ -117,9 +117,27 @@ async function main() {
       };
     });
     assert.equal(grid.coast && grid.zodiac && grid.creative, true, '三个可用来源卡在列');
-    assert.equal(grid.wait, 8, '8 个粒子场以待 3D 化在列（实得 ' + grid.wait + '）');
-    pass('效果网格：来源卡 + 8 张待 3D 化卡，不静默少项');
+    assert.equal(grid.wait, 0, '粒子场卡全部可点（第二批落地后不再有待 3D 化卡；实得 ' + grid.wait + '）');
+    pass('效果网格：来源卡 + 8 张粒子场卡全部可点，不静默少项');
     await page.click('#sp-fx-toggle');
+
+    // —— 沉浸粒子场（第二批）：切源 → 画布 → 像素非空 → 换场基线 —— //
+    await page.evaluate(() => Space3D.setSource('immersive'));
+    await page.waitForFunction(() => {
+      const host = document.getElementById('sp-host-immersive');
+      return host && !host.hidden && host.querySelector('canvas.sp-fields-canvas');
+    }, null, { timeout: 20000 });
+    pass('沉浸粒子场：GL 画布挂载（着色器同源自 shaderCatalog 编译）');
+    assert.equal(await page.evaluate(() => Space3D.stats().fields.stage), 'silk', '默认场=丝滑星球（与声场同默认）');
+    const cap = await page.evaluate(() => SpaceFields.capture());
+    assert.ok(cap && cap.top + cap.bottom > 6, '场画面非空（上/下带均值 ' +
+      (cap ? cap.top.toFixed(1) + '/' + cap.bottom.toFixed(1) : 'null') + '，纯底色约 2.6）');
+    pass('丝滑星球出画面（像素均值 ' + (cap ? ((cap.top + cap.bottom) / 2).toFixed(1) : '?') + '）');
+    await page.evaluate(() => Space3D.setField('aurora'));
+    await page.waitForFunction(() => Space3D.stats().fields.stage === 'aurora', null, { timeout: 8000 });
+    const camA = await page.evaluate(() => Space3D.stats().camera);
+    assert.ok(isFinite(camA.radius) && Math.abs(camA.radius - 8.4) < 1.5, '极光基线已应用（radius ' + camA.radius.toFixed(2) + ' ≈ 8.4）');
+    pass('场切换：极光基线随效果目录机位应用');
 
     // —— 7. 歌词双层 —— //
     assert.ok(await page.evaluate(() => !!document.querySelector('#sp-reading .sl-rail')), '歌词轨 StageLyrics 宿主在');

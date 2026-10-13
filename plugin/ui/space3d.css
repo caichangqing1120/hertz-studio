@@ -372,6 +372,10 @@
   line-height: 1.6;
 }
 
+/* —— 手绘叠加层（第三批·叠加层）：HandDrawn 自管样式，这里只定层位与权限 —— */
+.sp-art { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.sp-art[hidden] { display: none; }
+
 /* —— 歌词层 —— */
 /* #sp-reading 复用 .s3d-reading/.sl-* 的既有样式；这里只补层内定位与权限。 */
 .sp-reading { z-index: 3; }

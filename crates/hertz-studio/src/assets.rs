@@ -65,6 +65,7 @@ ui_assets! {
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
     "/space-camera.js", JS => const SPACE_CAMERA_JS: &str = include_str!("../../../plugin/ui/space-camera.js");
     "/space3d.js", JS => const SPACE3D_JS: &str = include_str!("../../../plugin/ui/space3d.js");
+    "/space-fields.js", JS => const SPACE_FIELDS_JS: &str = include_str!("../../../plugin/ui/space-fields.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");
     "/stanza/stanza-theme.js", JS => const STANZA_THEME_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-theme.js");
     "/stanza/stanza-textlayout.js", JS => const STANZA_TEXTLAYOUT_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-textlayout.js");
