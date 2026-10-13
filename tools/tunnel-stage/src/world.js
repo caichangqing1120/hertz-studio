@@ -17,7 +17,10 @@ export const TUNNEL_LENGTH = 3200;
 export const ROUTE_SHARE = 0.42;
 // 天体槽位相对星场更快（0.72 倍），逼近镜头前才完成凝结。
 export const ENTITY_SHARE = 0.72;
-const CELESTIAL_CYCLE = 1750;
+// 周期 1750 → 1200：6 槽位按 200 等距铺满整个周期，凝聚窗口（-260..0）
+// 宽于槽位间距，任意时刻至少有一个、多数时候两个天体处于成形状态，
+// 从进画第一秒起画面里就有实体，不再出现「只剩光圈」的空档。
+const CELESTIAL_CYCLE = 1200;
 
 // 点阵天体模板生成器：极简笔触 + shade 子结构通道（0..3 标识部件，
 // 供材质着色分级与尺寸分级）。
@@ -264,16 +267,16 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
             vec2 p = vUv - 0.5;
             vec2 pa = p * vec2(uAspect, 1.0);
             float r = length(pa);
-            // 暗角：边缘最多再沉 62%，视线被收向灭点
-            float vig = 1.0 - smoothstep(0.5, 1.08, r) * 0.62;
-            // 尽头主晕（松石）+ 暖核（琥珀）：小而紧地挂在歌词上方，超慢漂移；
-            // 强度刻意压到峰值约 20/255，只点出「隧道尽头有光」，不洗灰黑场。
+            // 暗角：只压最远的四角（最多 22%），视线轻微收向灭点，不伤中下部星场
+            float vig = 1.0 - smoothstep(0.78, 1.18, r) * 0.22;
+            // 尽头主晕（松石）+ 暖核（琥珀）：紧挂在歌词上方，超慢漂移；
+            // 峰值约 30/255，点出「隧道尽头有光」且足够绚丽，不洗灰中央阅读带。
             vec2 drift = vec2(sin(uTime * 0.05), cos(uTime * 0.043)) * 0.018 * uMotion;
-            vec2 cA = vec2(0.0, 0.14) + drift;
+            vec2 cA = vec2(0.0, 0.13) + drift;
             vec2 cB = cA + vec2(0.05, 0.04);
-            float breathe = 0.85 + uPulse * 0.8 * uMotion;
-            float glowA = exp(-dot(pa - cA, pa - cA) * 9.5) * 0.022 * breathe;
-            float glowB = exp(-dot(pa - cB, pa - cB) * 16.0) * 0.013 * breathe;
+            float breathe = 0.85 + uPulse * 0.9 * uMotion;
+            float glowA = exp(-dot(pa - cA, pa - cA) * 8.0) * 0.034 * breathe;
+            float glowB = exp(-dot(pa - cB, pa - cB) * 13.0) * 0.020 * breathe;
             // 中央歌词阅读带：辉光最多保留 35%，不给歌词加底噪
             float keep = mix(0.35, 1.0, smoothstep(0.0, 0.20, abs(p.y - 0.02)));
             vec3 col = uBg * vig + (uGlowA * glowA + uGlowB * glowB) * keep;
@@ -289,7 +292,7 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
   root.add(backdrop);
 
   /* ---------- 星场：双层视差 ---------- */
-  const STAR_FAR = low ? 300 : 480;
+  const STAR_FAR = low ? 420 : 640;
   const STAR_NEAR = low ? 60 : 110;
   const starCount = STAR_FAR + STAR_NEAR;
   const starBase = new Float32Array(starCount * 3);
@@ -300,7 +303,7 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
     for (let i = 0; i < starCount; i += 1) {
       const near = i >= STAR_FAR;
       const angle = rand() * Math.PI * 2;
-      const radius = near ? 18 + Math.pow(rand(), 1.1) * 120 : 40 + Math.pow(rand(), 0.8) * 320;
+      const radius = near ? 18 + Math.pow(rand(), 1.1) * 120 : 40 + Math.pow(rand(), 0.8) * 380;
       starBase[i * 3] = Math.cos(angle) * radius;
       starBase[i * 3 + 1] = Math.sin(angle) * radius * (near ? 0.62 : 0.85);
       starBase[i * 3 + 2] = -rand() * TUNNEL_LENGTH;
@@ -321,6 +324,7 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
     blending: THREE.AdditiveBlending,
     uniforms: {
       tint: { value: new THREE.Color('#8fa4b3') },
+      accent: { value: new THREE.Color('#f2a900') },
       time: { value: 0 },
       travel: { value: 0 },
       pixelRatio: { value: 1 },
@@ -333,6 +337,7 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         uniform float pixelRatio;
         varying float vAlpha;
         varying float vTwinkle;
+        varying float vWarm;
         void main() {
             vec3 p = position;
             float parallax = aSeed.z;
@@ -342,23 +347,28 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
             float depth = max(0.1, -mv.z);
             gl_PointSize = clamp(aSize * pixelRatio * 300.0 / depth, 1.0, 26.0);
             float nearFade = smoothstep(14.0, 55.0, depth);
-            float farFade = 1.0 - smoothstep(1600.0, 2500.0, depth);
-            // 每颗星独立节律的缓慢闪烁（振幅 0.12→0.18，星点有呼吸不喧闹）
+            float farFade = 1.0 - smoothstep(1600.0, 2700.0, depth);
+            // 每颗星独立节律的缓慢闪烁（振幅 0.18，星点有呼吸不喧闹）
             vTwinkle = 0.82 + 0.18 * sin(time * (0.3 + aSeed.y * 0.5) + aSeed.x * 40.0);
-            vAlpha = nearFade * farFade * (0.15 + aSeed.x * 0.36) * vTwinkle;
+            // 约三成星点走主题暖色，其余冷色：星场从此有色彩层次
+            vWarm = smoothstep(0.62, 0.86, aSeed.x);
+            vAlpha = nearFade * farFade * (0.20 + aSeed.x * 0.42) * vTwinkle;
         }
     `,
     fragmentShader: `
         uniform vec3 tint;
+        uniform vec3 accent;
         varying float vAlpha;
         varying float vTwinkle;
+        varying float vWarm;
         void main() {
             vec2 p = gl_PointCoord * 2.0 - 1.0;
             float r = dot(p, p);
             if (r > 1.0) discard;
             float core = exp(-r * 7.0);
             float halo = exp(-r * 2.4) * 0.3 * vTwinkle;
-            gl_FragColor = vec4(tint * (core * 1.4 + halo), (core + halo) * vAlpha);
+            vec3 col = mix(tint, accent, vWarm * 0.75);
+            gl_FragColor = vec4(col * (core * 1.45 + halo), (core + halo) * vAlpha);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
         }
@@ -496,9 +506,12 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         varying float vSide,vLane,vAlpha,vFlash;
         void main() {
             float crossSection=exp(-vSide*vSide*5.0)
-                +exp(-vSide*vSide*1.5)*0.18*glow;
+                +exp(-vSide*vSide*1.5)*0.22*glow;
             vec3 color=mix(tint,accent,vLane);
-            gl_FragColor=vec4(color*(1.0+vFlash*0.70),
+            // 轻微提饱和：两股尾迹的松石/琥珀更鲜，大屏不发灰
+            float luma=dot(color,vec3(0.299,0.587,0.114));
+            color=mix(vec3(luma),color,1.28);
+            gl_FragColor=vec4(color*(1.0+vFlash*0.85),
                 crossSection*vAlpha);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
@@ -560,7 +573,7 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         vHaze=1.0-smoothstep(640.0,span-60.0,depth);
         vAlpha=smoothstep(24.0,100.0,depth)
           *(1.0-smoothstep(${(DEPTH_GATES * 58).toFixed(1)},span,depth))
-          *(0.07+vNear*0.30)*(0.12+reading*0.88)*(1.0+pulse*0.12);
+          *(0.09+vNear*0.36)*(0.12+reading*0.88)*(1.0+pulse*0.12);
       }`,
     fragmentShader: `
       uniform vec3 tint,accent;
@@ -568,9 +581,11 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
       void main() {
         float arc=smoothstep(0.12,0.28,abs(sin(vAngle*2.0)));
         float edge=exp(-vSide*vSide*3.4);
-        // 近处暖色占比 42%→56%，冷远暖近对比更强
-        vec3 color=mix(tint,accent,vNear*0.56);
-        color*=mix(0.35,1.0,vHaze);
+        // 近处暖色占比 60%，冷远暖近对比更强
+        vec3 color=mix(tint,accent,vNear*0.60);
+        float luma=dot(color,vec3(0.299,0.587,0.114));
+        color=mix(vec3(luma),color,1.30);
+        color*=mix(0.40,1.0,vHaze);
         gl_FragColor=vec4(color,edge*arc*vAlpha);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -614,6 +629,7 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
     blending: THREE.AdditiveBlending,
     uniforms: {
       tint: { value: new THREE.Color('#cfd8dd') },
+      accent: { value: new THREE.Color('#f2a900') },
       travel: { value: 0 },
       stretch: { value: 0 },
       glow: { value: 1 },
@@ -623,7 +639,9 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         attribute float aEnd;
         uniform float travel, stretch;
         varying float vAlpha;
+        varying float vWarm;
         void main() {
+            vWarm=smoothstep(0.7,0.92,aSeed.z);
             vec3 p = position;
             p.z = -mod(-position.z - travel, ${TUNNEL_LENGTH.toFixed(1)});
             // 双端共享同一回绕地址：回收缝上不拉出横跨画面的长线。
@@ -637,16 +655,19 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
                 * (1.0 - smoothstep(1400.0, 2400.0, depth));
             vec2 ndc=gl_Position.xy/max(gl_Position.w,0.1);
             fade *= 0.18+0.82*smoothstep(0.25,0.8,length(ndc*vec2(1.0,1.5)));
-            vAlpha = fade * stretch * (0.12 + aSeed.x * 0.35)
+            vAlpha = fade * stretch * (0.14 + aSeed.x * 0.40)
                 * mix(1.0, 0.08, aEnd);
         }
     `,
     fragmentShader: `
         uniform vec3 tint;
+        uniform vec3 accent;
         uniform float glow;
         varying float vAlpha;
+        varying float vWarm;
         void main() {
-            gl_FragColor = vec4(tint * (1.0 + glow * 0.35), vAlpha);
+            vec3 col = mix(tint, accent, vWarm * 0.7);
+            gl_FragColor = vec4(col * (1.0 + glow * 0.45), vAlpha);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
         }
@@ -692,14 +713,15 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
     station: factories.station(38, POINTS_PER_ENTITY, 'seed-station-v3'),
     scout: factories.scout(2.0, POINTS_PER_ENTITY, 'seed-scout-v2'),
   };
-  // 分镜槽位：构图遵循「三分法 + 巨大体量对比」。
+  // 分镜槽位：沿周期 200 等距铺排，槽 0 初始就在黄金展示深度（进画即见实体）；
+  // 体量按「近大远小」分配，近处母舰/空间站给足压迫感，远处行星/侦察机做点缀。
   const slotConfigs = [
-    { type: 'flagship', initialZ: -300, x: -18, y: -17, rotSpeed: 0.018, rotPhase: 0, scale: 1.85 },
-    { type: 'planet', initialZ: -760, x: -42, y: 22, rotSpeed: 0.042, rotPhase: 1.2, scale: 0.92 },
-    { type: 'rings', initialZ: -1120, x: 42, y: 8, rotSpeed: 0.055, rotPhase: 2.4, scale: 0.92 },
-    { type: 'station', initialZ: -760, x: 34, y: -10, rotSpeed: 0.032, rotPhase: 3.1, scale: 1.55 },
-    { type: 'scout', initialZ: -1820, x: 18, y: -20, rotSpeed: 0.075, rotPhase: 4.0, scale: 0.82 },
-    { type: 'planet', initialZ: -2260, x: 48, y: 28, rotSpeed: 0.034, rotPhase: 5.3, scale: 0.78 },
+    { type: 'flagship', initialZ: -150, x: -44, y: -24, rotSpeed: 0.018, rotPhase: 0, scale: 0.85 },
+    { type: 'planet', initialZ: -320, x: 36, y: 19, rotSpeed: 0.042, rotPhase: 1.2, scale: 0.88 },
+    { type: 'rings', initialZ: -520, x: -40, y: 11, rotSpeed: 0.055, rotPhase: 2.4, scale: 0.84 },
+    { type: 'station', initialZ: -720, x: 31, y: -15, rotSpeed: 0.032, rotPhase: 3.1, scale: 1.2 },
+    { type: 'scout', initialZ: -920, x: -15, y: 19, rotSpeed: 0.075, rotPhase: 4.0, scale: 0.8 },
+    { type: 'planet', initialZ: -1120, x: 40, y: 23, rotSpeed: 0.034, rotPhase: 5.3, scale: 0.72 },
   ];
   // 环带预设倾角
   const slotTilt = [
@@ -776,16 +798,17 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
             float lambert = max(0.0, dot(localNormal, normalize(vec3(-0.55, 0.72, 0.85))));
             // 环境光压低、漫反射与边缘光抬升：亮面更亮、暗面更沉，体积感更强
             float rim = pow(1.0 - abs(localNormal.z), 2.8);
-            vLight = clamp(0.13 + lambert * 0.92 + rim * 0.34, 0.13, 1.25);
+            vLight = clamp(0.14 + lambert * 1.02 + rim * 0.38, 0.14, 1.30);
             vec4 mv = modelViewMatrix * vec4(currentPos, 1.0);
             gl_Position = projectionMatrix * mv;
             float depth = max(0.1, -mv.z);
-            gl_PointSize = clamp((aSize + cohesion * (0.8 + audioPulse * 0.22)) * pixelRatio * 340.0 / depth, 1.0, 40.0);
+            gl_PointSize = clamp((aSize * 1.12 + cohesion * (1.0 + audioPulse * 0.26)) * pixelRatio * 370.0 / depth, 1.0, 40.0);
             float nearFade = smoothstep(12.0, 50.0, depth);
-            float farFade = 1.0 - smoothstep(1900.0, 2500.0, depth);
+            // 周期缩短到 1200，最远天体也落在远裁淡入之内
+            float farFade = 1.0 - smoothstep(1500.0, 2400.0, depth);
             // 按空间散布溶解，而不是整片淡出：离开剪影的粒子仍可见。
             vAlpha = nearFade * farFade * clamp(aSeed.z, 0.0, 1.0)
-                * (0.72 + cohesion * 0.28) * (1.0 + audioPulse * 0.10);
+                * (0.78 + cohesion * 0.30) * (1.0 + audioPulse * 0.12);
             vColor = aColor;
         }
     `,
@@ -798,9 +821,13 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
             float r = dot(p, p);
             if (r > 1.0) discard;
             float core = exp(-r * 7.0);
-            float halo = exp(-r * 2.2) * 0.20;
+            float halo = exp(-r * 2.2) * 0.24;
             float edge = 1.0 - smoothstep(0.08, 1.0, r);
-            gl_FragColor = vec4(vColor * (core * 1.4 + halo) * vLight, (core + halo) * vAlpha * edge);
+            vec3 col = vColor;
+            // 天体点色提饱和：松石行星/琥珀环带/骨白舰体在大屏上更鲜艳
+            float luma = dot(col, vec3(0.299, 0.587, 0.114));
+            col = mix(vec3(luma), col, 1.22);
+            gl_FragColor = vec4(col * (core * 1.5 + halo) * vLight, (core + halo) * vAlpha * edge);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
         }
@@ -875,10 +902,18 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
     paletteColors.secondary.set(pick('secondary', '#76bfae'));
     paletteColors.ink.set(pick('ink', '#f2f0e9'));
     paletteColors.muted.set(pick('muted', '#a7afb1'));
+    // 深空世界是独立舞台：跟随当前主题，但向经典琥珀/松石深空配色锚定 40%，
+    // 防止低饱和 folia 主题把星体与光轨洗成灰调（歌词层仍完全跟随主题）。
+    const ANCHOR = 0.40;
+    paletteColors.accent.lerp(new THREE.Color('#f2a900'), ANCHOR);
+    paletteColors.secondary.lerp(new THREE.Color('#76bfae'), ANCHOR);
+    paletteColors.ink.lerp(new THREE.Color('#f2f0e9'), ANCHOR);
+    paletteColors.muted.lerp(new THREE.Color('#a7afb1'), ANCHOR);
     paletteColors.background.set(pick('background', '#0a0d11'));
     paletteColors.danger.copy(paletteColors.accent).lerp(paletteColors.ink, 0.12);
-    // 深空压暗背景，保证黑场
-    const bgColor = paletteColors.background.clone().multiplyScalar(0.55);
+    // 直接沿用主题底色（不再二次压暗）：Midnight 底本身近黑，大屏依旧是黑场；
+    // 亮色主题靠下方 0.004 线性上限兜底。边缘星带行不会被采样成全零。
+    const bgColor = paletteColors.background.clone();
     bgColor.multiplyScalar(Math.min(1, 0.004 / Math.max(0.0001, bgColor.r, bgColor.g, bgColor.b)));
     if (scene.background && scene.background.copy) scene.background.copy(bgColor);
     else scene.background = bgColor;
@@ -887,7 +922,9 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
     backMat.uniforms.uGlowA.value.copy(paletteColors.secondary);
     backMat.uniforms.uGlowB.value.copy(paletteColors.accent);
     starMat.uniforms.tint.value.copy(paletteColors.muted).lerp(paletteColors.secondary, 0.30);
+    starMat.uniforms.accent.value.copy(paletteColors.accent);
     streakMat.uniforms.tint.value.copy(paletteColors.ink).lerp(paletteColors.secondary, 0.22);
+    streakMat.uniforms.accent.value.copy(paletteColors.accent);
     railMat.uniforms.tint.value.copy(paletteColors.secondary);
     railMat.uniforms.accent.value.copy(paletteColors.accent);
     depthMat.uniforms.tint.value.copy(paletteColors.secondary);
@@ -1006,12 +1043,13 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
       let depth = (slot.initialZ + entityTravel) % CELESTIAL_CYCLE;
       if (depth > 0) depth -= CELESTIAL_CYCLE;
       const tmpl = templates[slot.type];
-      // 凝聚生命周期：远方成雾 → 逼近凝聚 → 黄金展示 → 掠过消散
+      // 凝聚生命周期：远方成雾（-260 起可见）→ 逼近凝聚 → 黄金展示 → 掠过消散。
+      // 可见窗口 260 宽于 200 的槽间距，两批天体在画面里交叠，永不断档。
       let cohesion = 0;
-      if (depth < -190) cohesion = 0;
-      else if (depth < -112) cohesion = easeOutCubic((depth + 190) / 78);
-      else if (depth < -76) cohesion = 1.0;
-      else cohesion = smooth((-depth - 8) / 68);
+      if (depth < -260) cohesion = 0;
+      else if (depth < -140) cohesion = easeOutCubic((depth + 260) / 120);
+      else if (depth < -80) cohesion = 1.0;
+      else cohesion = smooth((-depth - 10) / 70);
       // 自转只用时间：音频不摇整剪影。
       const rotA = time * slot.rotSpeed + slot.rotPhase;
       const cosY = Math.cos(rotA), sinY = Math.sin(rotA);
@@ -1042,8 +1080,11 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         objTargets[pi + 1] = fy;
         objTargets[pi + 2] = fz;
         const randSeed = (p * 0.23 + s * 0.71) % 1;
-        const stationMist = slot.type === 'station' ? 1.55 : 1.0;
-        const scatterR = (1 - cohesion) * stationMist * (24.0 + randSeed * 58.0);
+        const stationMist = slot.type === 'station' ? 1.35 : 1.0;
+        // 贴近镜头（-120..-40）逐步收束散雾：轮廓在眼前温柔解体而不是炸开糊屏；
+        // 远方成雾阶段（depth<-120）保持大散布，远远看着就是一团星云。
+        const nearTame = smooth(clamp((-depth - 40) / 80));
+        const scatterR = (1 - cohesion) * stationMist * (18.0 + randSeed * 44.0) * nearTame;
         const phase = time * (0.32 + randSeed * 0.24) + p * 0.071 + s * 1.7;
         const curl = Math.sin(phase) * 0.55 + Math.cos(phase * 0.63) * 0.35;
         objPositions[pi] = fx + (Math.sin(p * 2.1 + phase) + curl) * scatterR;
@@ -1051,8 +1092,8 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         objPositions[pi + 2] = fz + (randSeed - 0.5 + Math.sin(phase * 0.7) * 0.18) * scatterR * 1.3;
         objSeedsArr[pi] = randSeed;
         objSeedsArr[pi + 1] = cohesion;
-        // 入口压住未成形的远景尘雾；出口保持散开粒子可见。
-        objSeedsArr[pi + 2] = depth < -112 ? smooth((cohesion - 0.35) / 0.65) : 1;
+        // 入口压住未成形的远景尘雾（-260 起随凝聚渐显）；出口保持散开粒子可见。
+        objSeedsArr[pi + 2] = depth < -80 ? smooth((cohesion - 0.3) / 0.7) : 1;
       }
     }
     entityGeo.attributes.position.needsUpdate = true;

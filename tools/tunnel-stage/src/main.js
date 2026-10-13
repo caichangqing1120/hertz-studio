@@ -67,7 +67,7 @@ export function mount(canvas, opts = {}) {
   if (!renderer.getContext()) return false;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.10;
+  renderer.toneMappingExposure = 1.16;
   renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
