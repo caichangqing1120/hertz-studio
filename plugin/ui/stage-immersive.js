@@ -35,6 +35,9 @@
   function toggle() {
     // 开着时 Stage3D 自己的 F 处理器负责原生全屏切换，这里不再插手。
     if (window.Stage3D && Stage3D.isActive && Stage3D.isActive()) return;
+    // 三维空间开着时 F 归空间：它自己的捕获相接管全屏切换，全局 F 早退 ——
+    // 一次按键只有一个写者（与上面 Stage3D 的分工同一原则）。
+    if (window.Space3D && Space3D.isActive && Space3D.isActive()) return;
     enter();
   }
 

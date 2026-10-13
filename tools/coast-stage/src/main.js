@@ -160,6 +160,7 @@ function createStage(canvas, opts) {
     dist: 0,
     lastInput: -99,
     dragging: false,
+    external: false,
   };
   rig.yaw = rig.yaw0;
   rig.pitch = rig.pitch0;
@@ -205,8 +206,9 @@ function createStage(canvas, opts) {
 
   function cameraUpdate(dt) {
     focus.set(0, FOCUS_Y, S.lane);
-    // 静置 4 秒后平滑回巡航机位
-    if (S.t - rig.lastInput > 4) {
+    // 静置 4 秒后平滑回巡航机位；外部机位（三维空间 setRig）持续喂 lastInput，
+    // 这段内部阻尼就永不触发——机位所有权完全交给外部（§6.5）。
+    if (!rig.external && S.t - rig.lastInput > 4) {
       rig.yaw = damp(rig.yaw, rig.yaw0, 1.2, dt);
       rig.pitch = damp(rig.pitch, rig.pitch0, 1.2, dt);
       rig.dist = damp(rig.dist, rig.dist0, 1.2, dt);
@@ -467,6 +469,20 @@ export function setInteraction(v) {
 export function resize(w, h) {
   if (!st) return;
   st.resize(w, h);
+}
+
+// 「三维空间」的机位下发（docs/design/space3d-mode.md §6.5）：写入 rig 并把
+// lastInput 推到当前时间——「静置 4 秒回巡航」的内部阻尼因此永不触发，机位
+// 所有权完全交到调用方手里。external=true 是双保险：即便 lastInput 被旁路，
+// 内部阻尼也跳过。贴地钳制（groundAt）保留在 cameraUpdate 里，那是海岸场景
+// 的物理，不该由相机层管。
+export function setRig(pose, opts) {
+  if (!st || !pose) return;
+  if (Number.isFinite(pose.yaw)) st.rig.yaw = clamp(pose.yaw, st.rig.yaw0 - 2.6, st.rig.yaw0 + 2.6);
+  if (Number.isFinite(pose.pitch)) st.rig.pitch = clamp(pose.pitch, 0.08, 1.25);
+  if (Number.isFinite(pose.dist)) st.rig.dist = clamp(pose.dist, 2.4, 15);
+  st.rig.lastInput = st.S.t;
+  st.rig.external = !!(opts && opts.external);
 }
 
 // 供泄漏检查：GL 侧几何/纹理/程序驻留数

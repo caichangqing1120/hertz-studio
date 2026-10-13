@@ -118,6 +118,8 @@ const STEPS = [
     why: '晴空绘卷外观族：图库分区卡片与材质按族放行；点击特效按主题声明（fx → data-fx → 原型库），错接的结果是换肤后画面变平、特效互串而不报错。' },
   { script: 'check-stanza.js', stage: 'behavior',
     why: '歌词舞台（流光/心象/商籁/凝彩/星诞）：模块大、纯逻辑，最容易在改别处时被无声改坏。' },
+  { script: 'check-space-camera.js', stage: 'behavior',
+    why: '三维空间的相机运行时是纯数学：角度环绕、钳制、combo→镜头映射、60/144Hz 变帧率一致性、基线表唯一 owner，错了不报错、只是镜头「手感不对」。' },
   { script: 'check-stanza-sonnet.js', stage: 'behavior',
     why: '商籁：构图数、逐字时间轴、镜头包络都只表现为「画面变得不对」，不报错。' },
   { script: 'check-stanza-tempera.js', stage: 'behavior',

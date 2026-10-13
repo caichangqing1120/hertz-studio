@@ -3552,6 +3552,8 @@
 
   function open(stageId) {
     if (!root) return false;
+    // 互斥（§4 上下文归属）：开声场先关空间。close(true) 里不会再反过来关声场。
+    if (global.Space3D && Space3D.close) Space3D.close(true);
     if (!active) {
       if (global.StageFreecam) StageFreecam.setEnabled(false);
       returnFocus = document.activeElement;
@@ -4310,6 +4312,18 @@
       if (!catalog && active && !settingsState().scene) return [];
       return STAGES.map(function (s) {
         return { id: s.id, label: s.label, desc: s.desc };
+      });
+    },
+    // 「三维空间」派生效果网格用的只读目录（§5.2）：id/标签/机位/点数，
+    // 不含着色器 —— 一份着色器一个 owner 的边界在第二批才动到。
+    effectCatalog: function () {
+      return STAGES.map(function (s) {
+        return {
+          id: s.id, label: s.label, desc: s.desc,
+          cam: { theta: s.cam.theta, phi: s.cam.phi, dist: s.cam.dist, look: s.cam.look.slice() },
+          counts: s.counts ? s.counts.slice() : null,
+          blank: !!s.blank
+        };
       });
     },
     resetView: resetView,

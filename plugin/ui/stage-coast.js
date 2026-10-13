@@ -246,5 +246,10 @@
     setHost: setHost,
     setPrefs: setPrefs,
     degradedBecause: degradedBecause,
+    // 「三维空间」的机位下发（docs/design/space3d-mode.md §6.5）：透传引擎 setRig。
+    // 引擎产物未重建（没有这个出口）时静默 —— 相机落回引擎自己的巡航。
+    setRig: function (pose, opts) {
+      if (mounted && CS() && typeof CS().setRig === 'function') CS().setRig(pose, opts);
+    },
   };
 }());

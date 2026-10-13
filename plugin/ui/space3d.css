@@ -1,0 +1,392 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 hertz-studio contributors */
+/*
+ * 「三维空间」chrome —— 上游参考项目的形体语言（底部胶囊控制条、效果卡网格、
+ * FAB + 侧滑面板、光标自隐藏、面板开合的 visibility 延迟技巧；出处与许可边界
+ * 记于 NOTICE「Design lineage」与 docs/design/space3d-mode.md §3.3/§9），
+ * 配色全部由主题令牌派生：色相只允许 var(--accent/--accent-2/--bg/--brand/--danger)
+ * 与它们的 color-mix；中性黑用 rgba(0,0,0,·)（与 stage3d.css 同一纪律）。
+ * 不出现任何品牌色字面量。主运动曲线：cubic-bezier(.16, 1, .3, 1)。
+ */
+
+.sp {
+  /* 本层独占令牌：只在这里声明一次，层内统一消费（与 --s3d-* 同权限口径）。 */
+  --sp-accent: var(--accent);
+  --sp-accent-2: var(--accent-2, var(--accent));
+  --sp-ink: var(--accent-ink, var(--bg));
+  --sp-glass: color-mix(in srgb, var(--bg) 68%, transparent);
+  --sp-glass-strong: color-mix(in srgb, var(--bg) 86%, transparent);
+  --sp-line: color-mix(in srgb, var(--sp-accent) 24%, transparent);
+  --sp-line-soft: color-mix(in srgb, var(--sp-accent) 12%, transparent);
+  --sp-text: color-mix(in srgb, var(--bg) 8%, white);
+  --sp-muted: color-mix(in srgb, var(--sp-text) 58%, transparent);
+  --sp-bar-blur: 26px;
+  --sp-bar-shadow: 0 18px 56px rgba(0, 0, 0, 0.34), 0 2px 10px rgba(0, 0, 0, 0.22);
+  --sp-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --sp-hide: 2600ms;
+
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--bg);
+  color: var(--sp-text);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  overflow: hidden;
+  outline: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-slow, 0.45s) var(--sp-ease),
+    visibility 0s linear var(--dur-slow, 0.45s);
+}
+.sp.sp-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--dur-slow, 0.45s) var(--sp-ease), visibility 0s linear 0s;
+}
+.sp.sp-idle { cursor: none; }
+.sp.sp-idle .sp-bar, .sp.sp-idle .sp-fab, .sp.sp-idle .sp-head-btn { opacity: 0; }
+.sp-bar, .sp-fab, .sp-head-btn { transition: opacity var(--dur-base, 0.2s) var(--sp-ease), transform var(--dur-base, 0.2s) var(--sp-ease); }
+
+/* —— 场景宿主层 —— */
+.sp-bg, .sp-vignette, .sp-canvas, .sp-host {
+  position: absolute;
+  inset: 0;
+}
+.sp-bg { background: var(--bg); }
+.sp-canvas { pointer-events: none; }
+.sp-host { pointer-events: auto; }
+.sp-host[hidden] { display: none; }
+.sp-host canvas { width: 100%; height: 100%; display: block; }
+.sp-host.sp-host-still { pointer-events: none; }
+.sp-vignette {
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 42%, rgba(0, 0, 0, 0) 46%, rgba(0, 0, 0, 0.38) 100%);
+}
+
+/* —— 顶栏：品牌 + 关闭 —— */
+.sp-head {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  right: 22px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 6;
+}
+.sp-head > * { pointer-events: auto; }
+.sp-brand { display: flex; align-items: center; gap: 12px; }
+.sp-brand-mark {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--sp-accent);
+}
+.sp-brand-mark span { color: var(--sp-accent-2); }
+.sp-brand small {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  color: var(--sp-muted);
+  margin-top: 2px;
+}
+.sp-head-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-glass);
+  color: var(--sp-text);
+  backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.sp-head-btn:hover { border-color: var(--sp-accent); transform: translateY(-1px); }
+.sp-head-btn svg { width: 20px; height: 20px; }
+
+/* —— 底部胶囊控制条（上游参考项目的形体）—— */
+.sp-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-glass);
+  backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  box-shadow: var(--sp-bar-shadow);
+}
+.sp-bar .sp-tbtn {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--sp-text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--dur-fast, 0.15s) var(--sp-ease), color var(--dur-fast, 0.15s) var(--sp-ease), transform var(--dur-fast, 0.15s) var(--sp-ease);
+}
+.sp-bar .sp-tbtn:hover { background: color-mix(in srgb, var(--sp-accent) 14%, transparent); }
+.sp-bar .sp-tbtn:active { transform: scale(0.92); }
+.sp-bar .sp-tbtn svg { width: 21px; height: 21px; }
+.sp-bar .sp-tbtn[aria-pressed="true"] {
+  color: var(--sp-ink);
+  background: var(--sp-accent);
+}
+.sp-bar .sp-tbtn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.sp-bar .sp-play {
+  width: 50px;
+  height: 50px;
+  background: var(--sp-accent);
+  color: var(--sp-ink);
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--sp-accent) 40%, transparent);
+}
+.sp-bar .sp-play:hover { background: var(--sp-accent); filter: brightness(1.06); }
+.sp-bar .sp-sep {
+  width: 1px;
+  height: 24px;
+  margin: 0 6px;
+  background: var(--sp-line-soft);
+}
+
+/* —— 效果网格面板 —— */
+.sp-fx {
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(52vh, 430px);
+  overflow: auto;
+  z-index: 5;
+  border-radius: 20px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-glass-strong);
+  backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  box-shadow: var(--sp-bar-shadow);
+  padding: 14px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-base, 0.2s) var(--sp-ease), visibility 0s linear var(--dur-base, 0.2s), transform var(--dur-base, 0.2s) var(--sp-ease);
+  transform: translateY(8px);
+}
+.sp-fx.sp-show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity var(--dur-base, 0.2s) var(--sp-ease), visibility 0s linear 0s, transform var(--dur-base, 0.2s) var(--sp-ease);
+}
+.sp-fx-title {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--sp-muted);
+  margin: 6px 4px 8px;
+}
+.sp-fx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+}
+.sp-card {
+  position: relative;
+  border: 1px solid var(--sp-line-soft);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+  color: var(--sp-text);
+  padding: 12px 12px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast, 0.15s) var(--sp-ease), transform var(--dur-fast, 0.15s) var(--sp-ease);
+}
+.sp-card:hover { border-color: var(--sp-accent); transform: translateY(-2px); }
+.sp-card.is-active {
+  border-color: var(--sp-accent);
+  background: color-mix(in srgb, var(--sp-accent) 14%, transparent);
+}
+.sp-card strong { display: block; font-size: 14px; font-weight: 600; }
+.sp-card small { display: block; margin-top: 3px; font-size: 11px; color: var(--sp-muted); line-height: 1.5; }
+.sp-card[disabled] { cursor: not-allowed; opacity: 0.55; transform: none; }
+.sp-card[disabled]:hover { border-color: var(--sp-line-soft); }
+.sp-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+  color: var(--sp-muted);
+  border: 1px solid var(--sp-line-soft);
+}
+.sp-badge.is-wait { color: var(--sp-accent-2); border-color: var(--sp-line); }
+
+/* —— FAB + 侧滑设置面板 —— */
+.sp-fab {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-glass);
+  color: var(--sp-text);
+  backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  box-shadow: var(--sp-bar-shadow);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 6;
+}
+.sp-fab:hover { border-color: var(--sp-accent); }
+.sp-fab svg { width: 21px; height: 21px; }
+.sp-sheet, .sp-playlist {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: min(340px, 88vw);
+  z-index: 7;
+  background: var(--sp-glass-strong);
+  backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--sp-bar-blur)) saturate(1.25);
+  padding: 20px 18px 28px;
+  overflow: auto;
+  visibility: hidden;
+  transition: transform var(--dur-slow, 0.45s) var(--sp-ease), visibility 0s linear var(--dur-slow, 0.45s);
+}
+.sp-sheet { right: 0; transform: translateX(106%); border-left: 1px solid var(--sp-line); }
+.sp-playlist { left: 0; transform: translateX(-106%); border-right: 1px solid var(--sp-line); }
+.sp-sheet.sp-show, .sp-playlist.sp-show {
+  visibility: visible;
+  transform: translateX(0);
+  transition: transform var(--dur-slow, 0.45s) var(--sp-ease), visibility 0s linear 0s;
+}
+.sp-sheet h2, .sp-playlist h2 {
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  color: var(--sp-muted);
+  margin: 4px 0 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sp-sheet label { display: block; font-size: 12px; color: var(--sp-muted); margin: 14px 0 6px; }
+.sp-sheet select, .sp-sheet input[type="range"] { width: 100%; }
+.sp-sheet .sp-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--sp-text); margin: 10px 0; }
+.sp-sheet .sp-note { font-size: 11px; color: var(--sp-muted); line-height: 1.6; margin: 6px 0 0; }
+.sp-btn-line {
+  width: 100%;
+  margin-top: 16px;
+  padding: 9px 0;
+  border-radius: 10px;
+  border: 1px solid var(--sp-line);
+  background: transparent;
+  color: var(--sp-text);
+  cursor: pointer;
+  font-size: 13px;
+}
+.sp-btn-line:hover { border-color: var(--sp-accent); color: var(--sp-accent); }
+
+/* —— 左滑队列 —— */
+.sp-queue-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--sp-text);
+  font-size: 13px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-queue-item:hover { background: color-mix(in srgb, var(--sp-accent) 12%, transparent); }
+.sp-queue-item.is-active { color: var(--sp-accent); }
+.sp-queue-item small { display: block; color: var(--sp-muted); font-size: 11px; margin-top: 2px; }
+
+/* —— 自由镜头提示条 —— */
+.sp-hint {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  transform: translate(-50%, -8px);
+  z-index: 6;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-glass);
+  backdrop-filter: blur(var(--sp-bar-blur));
+  -webkit-backdrop-filter: blur(var(--sp-bar-blur));
+  font-size: 12px;
+  color: var(--sp-text);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--dur-base, 0.2s) var(--sp-ease), transform var(--dur-base, 0.2s) var(--sp-ease), visibility 0s linear var(--dur-base, 0.2s);
+}
+.sp-hint.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition: opacity var(--dur-base, 0.2s) var(--sp-ease), transform var(--dur-base, 0.2s) var(--sp-ease), visibility 0s linear 0s;
+}
+.sp-hint kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--sp-line-soft);
+  margin: 0 1px;
+}
+
+/* —— 降级横幅 —— */
+.sp-fallback {
+  position: absolute;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  max-width: min(520px, 86vw);
+  padding: 12px 18px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  color: var(--sp-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* —— 歌词层 —— */
+/* #sp-reading 复用 .s3d-reading/.sl-* 的既有样式；这里只补层内定位与权限。 */
+.sp-reading { z-index: 3; }
+.sp-stanza { z-index: 4; pointer-events: none; }
+.sp-stanza .fl-lyric, .sp-stanza .fl-sonnet-layer { pointer-events: none; }
+
+/* —— 窄屏 —— */
+@media (max-width: 640px) {
+  .sp-bar { bottom: 12px; padding: 6px 8px; }
+  .sp-fab { right: 12px; bottom: 74px; }
+  .sp-brand small { letter-spacing: 0.28em; }
+}
+
+/* —— 减少动效 —— */
+@media (prefers-reduced-motion: reduce) {
+  .sp, .sp-fx, .sp-sheet, .sp-playlist, .sp-hint { transition-duration: 1ms; }
+  .sp-card:hover, .sp-head-btn:hover { transform: none; }
+}
