@@ -3296,6 +3296,9 @@
     syncDioramaStage();
     syncTunnelStage();
     syncAnimeSvgStage();
+    // 普通舞台来源（无三维镜头）藏掉复位视角这类 3D 专属键。
+    if (root) root.classList.toggle('s3d-flat-source',
+      sceneSource === 'creative' || sceneSource === 'anime-svg');
     // 切回 3D 轨后不再调 driveStanza，导演退出必须在配置边界清理，不能等下一帧。
     if (stanza.visual !== 'starborn' && stanza.directorLive) {
       stanza.directorLive = false;
@@ -3633,6 +3636,11 @@
       backgroundNodes = [];
       Array.prototype.forEach.call(document.body.children, function (node) {
         if (node === root || /^(SCRIPT|STYLE|SVG)$/.test(node.tagName)) return;
+        // 舞台控制舱不静音：它 z 在本舞台之上，开着时要能在三维演出中实时调参。
+        // inert 元素照常绘制但整体退出命中测试——静音了它，z-index 提到多高都
+        // 点不进去（实测 canvas 拦下所有指针事件）。开合期间的 inert 由控制舱
+        // 自己管理：关着保持 inert，Tab 不会落进屏外抽屉。
+        if (node.id === 'stage-ctl') return;
         backgroundNodes.push({ node: node, inert: node.inert }); node.inert = true;
       });
     }
@@ -4414,6 +4422,9 @@
     configure: configure,
     preferences: preferences,
     save: savePreferences,
+    // 「海岸时刻」0..1 的时刻名。控制舱的滑块要显示「黄昏/午夜」而不是百分比，
+    // 阈值只在舞台侧定义一处，外部照抄一份必然漂移。
+    coastTodLabel: coastTodLabel,
     // 当前歌词视觉是否由 stanza 渲染器接管。创意工坊靠它决定"能不能调"：
     // 商籁/凝彩激活时舞台参数已经不作用于画面（stanza 自带一套视觉），
     // 此时让用户继续拖参数就是骗人 —— 必须只保留选择、关掉编辑。

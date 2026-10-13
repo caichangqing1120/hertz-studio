@@ -152,6 +152,321 @@
     }
   ];
 
+  // -------------------------------------------------------------------------
+  // 真3D 语境：Stage3D 偏好的即席调参面
+  //
+  // 与上面的 SCHEMA 是两条完全独立的管线：这里的控件不进 values/els/撤销栈，
+  // 也不落 localStorage —— 状态属主是 Stage3D 的偏好表（preferences() 读、
+  // configure()+save() 写，写完即时生效并由宿主落库）。语境分段只决定面板
+  // 显示哪套内容；打开时自动跟随当前舞台状态，也可手动互切。
+  // -------------------------------------------------------------------------
+  var SCHEMA_3D = {
+    sources: [
+      ['immersive', '沉浸声场'], ['coast', '海岸公路'],
+      ['diorama', '镜台'], ['tunnel', '隧图'],
+    ],
+    layouts: [
+      ['focus', '舞台聚焦'], ['sleeve', '侧边歌单架'], ['single', '单曲沉浸'],
+    ],
+    carriers: [
+      ['auto', '随曲式'], ['sign', '只立站牌'], ['constellation', '只上星幕'],
+    ],
+  };
+
+  var context = 'flat';   // 'flat' = 普通舞台旋钮 | '3d' = 真3D 偏好
+  var pinned3D = false;   // 手动切到真3D 后，本次打开期间不再被自动检测拉回
+
+  function stage3D() { return window.Stage3D || null; }
+
+  function detectContext() {
+    var S3 = stage3D();
+    if (!S3 || !S3.isActive || !S3.isActive()) return 'flat';
+    var p = S3.preferences ? S3.preferences() : null;
+    var src = (p && p.sceneSource) || 'immersive';
+    return (src === 'creative' || src === 'anime-svg') ? 'flat' : '3d';
+  }
+
+  function prefs3D() {
+    var S3 = stage3D();
+    return (S3 && S3.preferences) ? S3.preferences() : {};
+  }
+
+  // persist=false 用于拖动中：configure 让画面当场跟着走，但每次 input 都落库
+  // 等于每帧一趟 IPC。落库交给 change（松手 / 键盘确认），与舞台自带的
+  // s3d-coast-tod 同一个节奏（input 就地生效、change 才 save）。
+  function write3D(patch, persist) {
+    var S3 = stage3D();
+    if (!S3 || !S3.configure) return;
+    S3.configure(patch);
+    if (persist !== false && S3.save) S3.save();
+  }
+
+  function save3D() {
+    var S3 = stage3D();
+    if (S3 && S3.save) S3.save();
+  }
+
+  function setContext(next, pinned) {
+    context = next === '3d' ? '3d' : 'flat';
+    if (pinned) pinned3D = true;
+    paintContext();
+    if (context === '3d') render3D();
+  }
+
+  function paintContext() {
+    var panel = $('stage-ctl');
+    if (!panel) return;
+    var flat = context === 'flat';
+    panel.classList.toggle('is-3d', !flat);
+    var bFlat = $('sc-context-flat'), b3d = $('sc-context-3d');
+    if (bFlat) {
+      bFlat.classList.toggle('is-on', flat);
+      bFlat.setAttribute('aria-selected', String(flat));
+    }
+    if (b3d) {
+      b3d.classList.toggle('is-on', !flat);
+      b3d.setAttribute('aria-selected', String(!flat));
+    }
+    var body = $('sc-body'), body3d = $('sc-3d-body');
+    if (body) body.hidden = !flat;
+    if (body3d) body3d.hidden = flat;
+    var searchRow = document.querySelector('.sc-search-row');
+    if (searchRow) searchRow.hidden = !flat;
+    var results = $('sc-results');
+    if (results && !flat) { results.hidden = true; clearSearch(); }
+    var sub = panel.querySelector('.sc-sub');
+    if (sub) sub.textContent = flat
+      ? '调节舞台渲染、镜头与全局滤镜参数'
+      : '实时调节三维舞台的来源、镜头与当前来源专属参数';
+  }
+
+  function el3d(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  // 分段组：options 为 [[value,label]]；返回带 set() 的控件句柄（就地更新态）。
+  function seg3d(options, current, onPick) {
+    var wrap = el3d('div', 'sc-seg');
+    options.forEach(function (pair) {
+      var b = el3d('button', 'sc-seg-btn', pair[1]);
+      b.type = 'button';
+      b.dataset.value = pair[0];
+      b.classList.toggle('is-on', pair[0] === String(current));
+      b.addEventListener('click', function () {
+        if (b.classList.contains('is-on')) return;
+        onPick(pair[0]);
+      });
+      wrap.appendChild(b);
+    });
+    return {
+      node: wrap,
+      set: function (v) {
+        Array.prototype.forEach.call(wrap.children, function (b) {
+          b.classList.toggle('is-on', b.dataset.value === String(v));
+        });
+      },
+    };
+  }
+
+  // 药丸开关：整行 pill，左字右点（真3D 语境独立构建，不走普通舞台的 els 表）。
+  function pill3d(label, current, onFlip) {
+    var b = el3d('button', 'sc-pill' + (current ? ' on' : ''));
+    b.type = 'button';
+    b.setAttribute('role', 'switch');
+    b.setAttribute('aria-checked', String(!!current));
+    b.appendChild(el3d('span', null, label));
+    b.appendChild(el3d('i', 'dot'));
+    b.addEventListener('click', function () { onFlip(!b.classList.contains('on')); });
+    return {
+      node: b,
+      set: function (v) {
+        b.classList.toggle('on', !!v);
+        b.setAttribute('aria-checked', String(!!v));
+      },
+    };
+  }
+
+  // 滑块行：把偏好值 [0, max] 线性映射到滑块 [0, 100]。
+  //
+  // max 必须是 Stage3D.configure 里那道 clamp 的上界（motion 1 / bloom 1.5 /
+  // reactivity 2 / coastTod 1），不能反过来拿一个「缩放系数」去猜：reactivity
+  // 默认 1.35 > 1，按系数放大必然顶到轨道上限，显示成满格、且一拖就把 1.35
+  // 悄悄写成 ≤1.0（打开面板碰一下滑块等于改参数，是最难归因的那类故障）。
+  // fmt 可选：用于「海岸时刻」这种百分比没有意义的量（显示「黄昏/午夜」）。
+  function slider3d(label, pref, max, fmt) {
+    var cell = el3d('div', 'sc-cell is-wide');
+    var id = 'sc-3d-' + pref;
+    var head = el3d('label', 'sc-label');
+    head.setAttribute('for', id);
+    var name = el3d('span', null, label);
+    var val = el3d('span', 'sc-value');
+    head.append(name, val);
+    cell.appendChild(head);
+    var input = document.createElement('input');
+    input.type = 'range';
+    input.id = id;
+    input.min = '0';
+    input.max = '100';
+    input.step = '1'; // 与普通舞台滑块同一粒度：0..100 里 1 格 = 上界的 1%
+    var toSlider = function (v) {
+      var pct = (Number(v) || 0) / max * 100;
+      return Math.round(Math.max(0, Math.min(100, pct)));
+    };
+    var toPref = function (v) { return Number(v) / 100 * max; };
+    var paint = function (v) {
+      var shown = fmt ? fmt(toPref(v)) : v + '%';
+      val.textContent = shown;
+      input.style.setProperty('--fill', v + '%');
+    };
+    var cur = toSlider(prefs3D()[pref]);
+    input.value = String(cur);
+    paint(cur);
+    input.addEventListener('input', function () {
+      var v = Number(input.value);
+      paint(v);
+      var patch = {};
+      patch[pref] = toPref(v);
+      write3D(patch, false); // 拖动中只生效，不落库
+    });
+    input.addEventListener('change', save3D);
+    cell.appendChild(input);
+    return {
+      node: cell,
+      set: function (pv) {
+        var v = toSlider(pv);
+        input.value = String(v);
+        paint(v);
+      },
+    };
+  }
+
+  // 时刻标签与舞台自带设置同源，不在这里重写一遍阈值（两处各写一份必然漂移）。
+  function todLabel(v) {
+    var S3 = stage3D();
+    if (S3 && S3.coastTodLabel) return S3.coastTodLabel(v);
+    return Math.round(v * 100) + '%';
+  }
+
+  // 依据当前 Stage3D 偏好重织真3D 面板。来源切换/外部变更都走这里整块重织，
+  // 控件是廉价 DOM，比逐个对账可靠。
+  function render3D() {
+    var host = $('sc-3d-body');
+    if (!host) return;
+    host.textContent = '';
+    var p = prefs3D();
+    var src = p.sceneSource || 'immersive';
+
+    // —— 舞台来源 ——
+    var secSrc = el3d('section', 'sc-group');
+    secSrc.appendChild(el3d('h2', 'sc-group-title', '舞台来源'));
+    var srcSeg = seg3d(SCHEMA_3D.sources, src, function (v) {
+      write3D({ sceneSource: v });
+      render3D(); // 来源切换后重织「来源专属」
+    });
+    secSrc.appendChild(srcSeg.node);
+    secSrc.appendChild(el3d('div', 'sc-note',
+      '普通舞台来源（创意编排 / 动画绘景）用舞台设置或「普通舞台」语境调整。'));
+    host.appendChild(secSrc);
+
+    // —— 镜头与画面 ——
+    var secRig = el3d('section', 'sc-group');
+    secRig.appendChild(el3d('h2', 'sc-group-title', '镜头与画面'));
+    var rigGrid = el3d('div', 'sc-grid');
+    rigGrid.appendChild(slider3d('镜头动态', 'motion', 1).node);
+    rigGrid.appendChild(slider3d('律动强度', 'reactivity', 2).node);
+    rigGrid.appendChild(slider3d('场景辉光', 'bloom', 1.5).node);
+    var lyricPill = pill3d('显示歌词', p.lyrics !== false, function (on) {
+      write3D({ lyrics: on });
+      lyricPill.set(on);
+    });
+    rigGrid.appendChild(lyricPill.node);
+    secRig.appendChild(rigGrid);
+    var layoutSeg = seg3d(SCHEMA_3D.layouts, p.layout || 'focus', function (v) {
+      write3D({ layout: v });
+      layoutSeg.set(v);
+    });
+    var layoutCell = el3d('div', 'sc-cell');
+    var layoutHead = el3d('label', 'sc-label');
+    layoutHead.appendChild(el3d('span', null, '封面布局'));
+    layoutCell.appendChild(layoutHead);
+    layoutCell.appendChild(layoutSeg.node);
+    secRig.appendChild(layoutCell);
+    host.appendChild(secRig);
+
+    // —— 来源专属 ——
+    var secTuned = el3d('section', 'sc-group');
+    secTuned.appendChild(el3d('h2', 'sc-group-title', '来源专属'));
+    var tunedGrid = el3d('div', 'sc-grid');
+    function tunedNote(text) { tunedGrid.appendChild(el3d('div', 'sc-note', text)); }
+    if (src === 'coast') {
+      tunedGrid.appendChild(slider3d('海岸时刻', 'coastTod', 1, todLabel).node);
+      var inter = pill3d('舞台交互（拖拽转视角）', p.coastInteract !== false, function (on) {
+        write3D({ coastInteract: on });
+        inter.set(on);
+      });
+      tunedGrid.appendChild(inter.node);
+    } else if (src === 'diorama') {
+      var carrierSeg = seg3d(SCHEMA_3D.carriers, p.dioramaCarrier || 'auto', function (v) {
+        write3D({ dioramaCarrier: v });
+        carrierSeg.set(v);
+      });
+      var cCell = el3d('div', 'sc-cell');
+      var cHead = el3d('label', 'sc-label');
+      cHead.appendChild(el3d('span', null, '歌词载体'));
+      cCell.appendChild(cHead);
+      cCell.appendChild(carrierSeg.node);
+      tunedGrid.appendChild(cCell);
+      var refl = pill3d('水面镜反射', p.dioramaReflection !== false, function (on) {
+        write3D({ dioramaReflection: on });
+        refl.set(on);
+      });
+      tunedGrid.appendChild(refl.node);
+    } else if (src === 'tunnel') {
+      var warp = pill3d('星流与尾迹', p.tunnelWarp !== false, function (on) {
+        write3D({ tunnelWarp: on });
+        warp.set(on);
+      });
+      var objs = pill3d('深空天体', p.tunnelObjects !== false, function (on) {
+        write3D({ tunnelObjects: on });
+        objs.set(on);
+      });
+      tunedGrid.appendChild(warp.node);
+      tunedGrid.appendChild(objs.node);
+    } else if (src === 'anime-svg') {
+      // 绘景作品清单与舞台设置同源：读舞台上那份 select 的选项。
+      var sceneSel = document.getElementById('s3d-anime-scene');
+      var opts = (sceneSel && sceneSel.options) ? Array.prototype.map.call(sceneSel.options, function (o) {
+        return [o.value, o.textContent];
+      }).filter(function (pair) { return pair[0]; }) : [];
+      if (opts.length) {
+        var sceneSeg = seg3d(opts, p.animeScene, function (v) {
+          write3D({ animeScene: v });
+          sceneSeg.set(v);
+        });
+        var sCell = el3d('div', 'sc-cell');
+        var sHead = el3d('label', 'sc-label');
+        sHead.appendChild(el3d('span', null, '绘景作品'));
+        sCell.appendChild(sHead);
+        sCell.appendChild(sceneSeg.node);
+        tunedGrid.appendChild(sCell);
+      }
+      var mirror = pill3d('镜像对称（左右一致）', p.animeMirror === true, function (on) {
+        write3D({ animeMirror: on });
+        mirror.set(on);
+      });
+      tunedGrid.appendChild(mirror.node);
+    } else if (src === 'creative') {
+      tunedNote('创意编排的画稿、镜头与音乐响应在创意工坊中调整。');
+    } else {
+      tunedNote('沉浸声场的场景样式在三维舞台底部的场景坞中选择。');
+    }
+    secTuned.appendChild(tunedGrid);
+    host.appendChild(secTuned);
+  }
+
   var values = {};
   var els = {};
   var open = false;
@@ -482,6 +797,35 @@
     cell.className = 'sc-cell' + (it.wide ? ' is-wide' : '') + (it.type === 'toggle' ? ' is-toggle' : '');
     var id = 'sc-' + groupId + '-' + it.key;
 
+    if (it.type === 'toggle') {
+      // 药丸开关：整行一颗 pill（左字右点），取代旧「label 行 + 小开关」两件套。
+      var pill = document.createElement('button');
+      pill.type = 'button';
+      pill.id = id;
+      pill.className = 'sc-pill';
+      pill.setAttribute('role', 'switch');
+      var pillName = document.createElement('span');
+      pillName.textContent = it.label;
+      var pillDot = document.createElement('i');
+      pillDot.className = 'dot';
+      pill.append(pillName, pillDot);
+      var setSw = function (on) {
+        pill.classList.toggle('on', !!on);
+        pill.setAttribute('aria-checked', String(!!on));
+      };
+      setSw(values[it.key]);
+      pill.addEventListener('click', function () {
+        // 一次点击 = 一条历史：开与关不存在"拖动中"，直接成对提交。
+        beginEdit(it.key);
+        values[it.key] = !values[it.key];
+        setSw(values[it.key]);
+        endEdit();
+      });
+      cell.appendChild(pill);
+      els[it.key] = { set: function (v) { setSw(v); }, node: pill, cell: cell };
+      return cell;
+    }
+
     var head = document.createElement('label');
     head.className = 'sc-label';
     head.setAttribute('for', id);
@@ -491,29 +835,6 @@
     val.className = 'sc-value';
     head.append(name, val);
     cell.appendChild(head);
-
-    if (it.type === 'toggle') {
-      var sw = document.createElement('button');
-      sw.type = 'button';
-      sw.id = id;
-      sw.className = 'sc-switch';
-      sw.setAttribute('role', 'switch');
-      var setSw = function (on) {
-        sw.classList.toggle('on', !!on);
-        sw.setAttribute('aria-checked', String(!!on));
-      };
-      setSw(values[it.key]);
-      sw.addEventListener('click', function () {
-        // 一次点击 = 一条历史：开与关不存在"拖动中"，直接成对提交。
-        beginEdit(it.key);
-        values[it.key] = !values[it.key];
-        setSw(values[it.key]);
-        endEdit();
-      });
-      cell.appendChild(sw);
-      els[it.key] = { set: function (v) { setSw(v); }, node: sw, cell: cell };
-      return cell;
-    }
 
     var input = document.createElement('input');
     input.type = 'range';
@@ -565,34 +886,42 @@
   }
 
   function buildSelect(groupId, it) {
+    // 下拉 → 分段药丸（本表面前的选项都 ≤5 个）：与真3D 语境同一套语言，
+    // 当前项 accent 高亮；push() 的取值语义不变。
     var cell = document.createElement('div');
     cell.className = 'sc-cell';
     var id = 'sc-' + groupId + '-' + it.key;
     var head = document.createElement('label');
     head.className = 'sc-label';
-    head.setAttribute('for', id);
     head.textContent = it.label;
     cell.appendChild(head);
 
-    var wrap = document.createElement('div');
-    wrap.className = 'sc-select-wrap';
-    var sel = document.createElement('select');
-    sel.id = id;
+    var seg = document.createElement('div');
+    seg.className = 'sc-seg';
+    seg.id = id;
+    var paintSeg = function (v) {
+      Array.prototype.forEach.call(seg.children, function (b) {
+        b.classList.toggle('is-on', b.dataset.value === String(v));
+      });
+    };
     it.options.forEach(function (pair) {
-      var o = document.createElement('option');
-      o.value = pair[0];
-      o.textContent = pair[1];
-      sel.appendChild(o);
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sc-seg-btn';
+      b.dataset.value = pair[0];
+      b.textContent = pair[1];
+      b.addEventListener('click', function () {
+        if (b.classList.contains('is-on')) return;
+        beginEdit(it.key);
+        values[it.key] = pair[0];
+        paintSeg(values[it.key]);
+        endEdit();
+      });
+      seg.appendChild(b);
     });
-    sel.value = String(values[it.key]);
-    sel.addEventListener('change', function () {
-      beginEdit(it.key);
-      values[it.key] = sel.value;
-      endEdit();
-    });
-    wrap.appendChild(sel);
-    cell.appendChild(wrap);
-    els[it.key] = { set: function (v) { sel.value = String(v); }, node: sel, cell: cell };
+    paintSeg(values[it.key]);
+    cell.appendChild(seg);
+    els[it.key] = { set: function (v) { paintSeg(v); }, node: seg, cell: cell };
     return cell;
   }
 
@@ -706,6 +1035,9 @@
     if (!want) clearSearch();
     // 面板默认 hidden，只有真正要展开时才上屏——否则它会一直挂在合成层里。
     panel.hidden = false;
+    // 开着才可交互：三维舞台打开时不再替我们静音（见 stage3d open()），关着的
+    // 抽屉自己保持 inert，Tab 不会落进屏外，点也不会点到看不见的控件。
+    panel.inert = !want;
     void panel.offsetWidth; // 强制回流：hidden → is-open 同帧合并会吃掉过渡
     panel.classList.toggle('is-open', want);
     panel.setAttribute('aria-hidden', String(!want));
@@ -714,6 +1046,17 @@
     if (btn) {
       btn.classList.toggle('active', want);
       btn.setAttribute('aria-expanded', String(want));
+    }
+    if (want) {
+      // 语境跟随当前舞台状态：三维舞台开着且来源是 3D 场景 → 真3D 语境，
+      // 否则普通舞台。手动切换（pinned3D）在本次打开期间优先于自动检测。
+      if (!pinned3D) {
+        context = detectContext();
+        paintContext();
+        if (context === '3d') render3D();
+      }
+    } else {
+      pinned3D = false;
     }
   }
 
@@ -753,6 +1096,19 @@
       sch.addEventListener('input', onSearchInput);
       sch.addEventListener('keydown', onSearchKeys);
     }
+    // 语境分段：手动切换后本次打开期间不再自动跟随。
+    var ctxFlat = $('sc-context-flat');
+    if (ctxFlat) ctxFlat.addEventListener('click', function () { setContext('flat', true); });
+    var ctx3d = $('sc-context-3d');
+    if (ctx3d) ctx3d.addEventListener('click', function () { setContext('3d', true); });
+    // 三维舞台的偏好被别处改了（头部按钮 / 自带设置面板），开着舱就重织真3D 面。
+    // 正在 3D 面板里拖控件时跳过——重织会掐断拖动。
+    document.addEventListener('stage:control', function () {
+      if (!open || context !== '3d') return;
+      var body3d = $('sc-3d-body');
+      if (body3d && body3d.contains(document.activeElement)) return;
+      render3D();
+    });
     paintUndo();
 
     document.addEventListener('keydown', function (e) {
@@ -782,6 +1138,8 @@
     close: function () { setOpen(false); },
     toggle: function () { setOpen(); },
     isOpen: function () { return open; },
+    // 当前语境（'flat' 普通舞台 | '3d' 真3D 舞台），契约与自动化用。
+    context: function () { return context; },
     // 读当前参数表（调试与自动化测试用）
     values: function () { return JSON.parse(JSON.stringify(values)); },
     // 外部命令通道（皮肤 / 预设 / 自动化）。刻意不进撤销栈：跨模块下发的值

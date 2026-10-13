@@ -1819,7 +1819,7 @@
 <!-- 舞台控制舱：从右侧滑出的调参面板。
      所有滑块都只是往 <html> 写 CSS 变量，实际渲染由 stage.css 里的
      var(--fx-*) 消费——面板本身不懂任何渲染逻辑，加一个旋钮成本极低。 -->
-<div class="stage-ctl" id="stage-ctl" aria-hidden="true" role="dialog" aria-label="舞台控制">
+<div class="stage-ctl" id="stage-ctl" inert aria-hidden="true" role="dialog" aria-label="舞台控制">
   <div class="sc-head">
     <span class="sc-badge">S</span>
     <div class="sc-head-text">
@@ -1838,9 +1838,20 @@
   </div>
   <div class="sc-results" id="sc-results" role="listbox" aria-label="搜索结果" hidden></div>
 
+  <!-- 语境分段：普通舞台（CSS 变量旋钮）/ 真3D 舞台（Stage3D 偏好即时生效）。
+       打开时自动跟随当前舞台状态，也可手动互切；两套内容互斥显示。 -->
+  <div class="sc-context" id="sc-context" role="tablist" aria-label="舞台语境">
+    <button type="button" class="sc-seg-btn is-on" id="sc-context-flat" role="tab" aria-selected="true">普通舞台</button>
+    <button type="button" class="sc-seg-btn" id="sc-context-3d" role="tab" aria-selected="false">真3D 舞台</button>
+  </div>
+
   <div class="sc-body" id="sc-body">
     <!-- 分组与滑块由 stage.js 依据 SCHEMA 生成，避免 20 组 markup 手写错漏 -->
   </div>
+
+  <!-- 真3D 语境的内容宿主：来源分段 / 镜头与画面 / 当前来源专属，
+       全部由 stage-control.js 依据 Stage3D.preferences() 生成并写回。 -->
+  <div class="sc-body sc-body-3d" id="sc-3d-body" hidden></div>
 
   <div class="sc-foot">
     <button class="sc-undo" id="sc-undo" type="button" disabled title="撤销上一次调参（Ctrl+Z）">
