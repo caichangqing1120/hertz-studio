@@ -37,11 +37,27 @@ const { clickPoster } = require('./qf-wall-helpers.js');
   // 401 是既有正常行为：online-login.js 的 loadAccounts() 对每个源并发探测
   // 账号态，「未登录/失败一律按未登录」，catch 里已吞掉、不弹错。
   // 浏览器仍会把 network 401 记成 console error —— 那不是 JS 报错。
-  // 只收真正的脚本异常（pageerror）与非 401 的 console error。
+  // 另两类「优雅失手」的探测同理：一言端点（/v1/home/quote）代理上游抓句，
+  // 隔离实例里上游偶发超时回 504；舞台对没有 beatmap 的曲目探 /v1/stage/
+  // beatmap 回 404 后走默认视觉。两者都由前端 catch 住、不影响功能。
+  // 豁免按「该端点确实失手的次数」记账，多余的错误照样红。
   const isExpected401 = (t) => /status of 401/.test(t);
+  let quote5xx = 0;
+  let beatmap404 = 0;
+  const badUrls = [];
+  page.on('response', (r) => {
+    if (r.status() >= 500 && /\/v1\/home\/quote/.test(r.url())) quote5xx += 1;
+    if (r.status() === 404 && /\/v1\/stage\/beatmap/.test(r.url())) beatmap404 += 1;
+    // 401 同上豁免；其余 4xx/5xx 记下 URL，控制台报错没有 URL，排查全靠这份。
+    if (r.status() >= 400 && r.status() !== 401) badUrls.push(`${r.status()} ${r.url()}`);
+  });
   page.on('pageerror', (e) => errors.push(String(e)));
+  const softErrors = []; // 5xx/404：是否豁免等断言时按记账数结算
   page.on('console', (m) => {
-    if (m.type() === 'error' && !isExpected401(m.text())) errors.push(m.text());
+    if (m.type() !== 'error') return;
+    if (isExpected401(m.text())) return;
+    if (/status of (5\d\d|404)/.test(m.text())) { softErrors.push(m.text()); return; }
+    errors.push(m.text());
   });
 
   const url = `${BASE}/?token=${TOKEN}`;
@@ -51,7 +67,13 @@ const { clickPoster } = require('./qf-wall-helpers.js');
   section('启动：默认皮肤与无报错');
   const bootSkin = await page.getAttribute('html', 'data-skin');
   ok(bootSkin === 'classic' || bootSkin === null, `启动落在默认皮肤（${bootSkin}）`);
-  ok(errors.length === 0, '启动无 JS 报错', errors.slice(0, 2).join(' | '));
+  // 结算软错误：5xx/404 只有在被记账端点（一言 5xx / beatmap 404）认领时才豁免
+  const settleSoft = () => {
+    const forgivable = quote5xx + beatmap404;
+    return softErrors.length <= forgivable ? [] : softErrors.slice(forgivable);
+  };
+  const bootErrs = errors.concat(settleSoft());
+  ok(bootErrs.length === 0, '启动无 JS 报错', bootErrs.slice(0, 2).join(' | '));
 
   section('切到清风');
   await page.evaluate(() => window.Skins.apply('qingfeng'));
@@ -68,8 +90,8 @@ const { clickPoster } = require('./qf-wall-helpers.js');
 
   section('首页骨架');
   const nav = await page.$$eval('.qf-nav-item', (ns) => ns.map((n) => n.textContent.trim()));
-  ok(JSON.stringify(nav) === JSON.stringify(['歌单', '电台', '每日推荐', '收藏', '本地']),
-    '主菜单依次为 歌单/电台/每日推荐/收藏/本地', nav.join(','));
+  ok(JSON.stringify(nav) === JSON.stringify(['歌单', '电台', '播客', '每日推荐', '收藏', '本地']),
+    '主菜单依次为 歌单/电台/播客/每日推荐/收藏/本地', nav.join(','));
   ok(await page.$('.qf-nav-icon') !== null, '队列拼接入口图标在菜单里');
   // 图标入口默认收起文字
   const iconLabelW = await page.$eval('.qf-nav-icon span', (n) => n.getBoundingClientRect().width);
@@ -85,7 +107,9 @@ const { clickPoster } = require('./qf-wall-helpers.js');
     return { cx: r.left + r.width / 2, bottom: window.innerHeight - r.bottom, w: r.width, vw: window.innerWidth };
   });
   ok(Math.abs(bar.cx - bar.vw / 2) < 40, '播放胶囊水平居中', `cx=${bar.cx.toFixed(0)} vw/2=${(bar.vw / 2).toFixed(0)}`);
-  ok(bar.w <= bar.vw * 0.62, '播放胶囊宽度受限（不是全宽条）', `w=${bar.w.toFixed(0)}`);
+  // 上限 0.7vw 是配合胶囊的设计宽 min(960px, 100vw-2*pad)（09de7b7 起 960）：
+  // 1440 视口下实量 960px，占比 0.667 —— 仍远小于全宽，只是旧阈值 0.62 没跟上。
+  ok(bar.w <= bar.vw * 0.7, '播放胶囊宽度受限（不是全宽条）', `w=${bar.w.toFixed(0)}`);
 
   // 胶囊内五块（曲名/控制/进度/模式/音量）不许互相压扁。
   // flex 收缩是无声的：560px 宽时进度条塌成 27px、音量滑块挤成一条线，
@@ -521,6 +545,11 @@ ok(drill.hasBack, '歌单点开后进了第二层（左上角出现返回键）'
       navScrolls: nav ? getComputedStyle(nav).overflowY : null,
       navHasMinH0: nav ? getComputedStyle(nav).minHeight : null,
       groupsVisible: pane ? pane.querySelectorAll('.set-group:not([hidden])').length : 0,
+      // 浮层头已写分类名与说明：视图自带的「设置」col-head 浮层内必须藏掉
+      colHead: (() => {
+        const el = pane ? pane.querySelector('#view-settings > .col-head') : null;
+        return el ? getComputedStyle(el).display : '(missing)';
+      })(),
     };
   });
   ok(sheet.found && sheet.open, '设置浮层已打开');
@@ -531,8 +560,27 @@ ok(drill.hasBack, '歌单点开后进了第二层（左上角出现返回键）'
   ok(sheet.fitsViewport, '浮层没有超出视口');
   ok(sheet.navScrolls === 'auto', '左栏自己裁切（不把浮层顶高）', `overflow-y=${sheet.navScrolls}`);
   ok(sheet.navHasMinH0 === '0px', '左栏 min-height:0', sheet.navHasMinH0);
+  ok(sheet.colHead === 'none', '浮层内不再显示重复的「设置」标题（col-head 已藏）', `display=${sheet.colHead}`);
   // 打开时也只该露出当前分类那一组。同样不能用 > 0 —— 「多了」正是这次的缺陷。
   ok(sheet.groupsVisible === 1, '右栏只有当前分类那一组可见', `${sheet.groupsVisible} 组`);
+
+  // 右上角关闭键不得压住右栏滚动条：body 顶部留了 58px 的带子，
+  // 叉叉（top 18 + 高 32 = 50）必须整体落在右栏上缘之上。
+  const closeGeom = await page.evaluate(() => {
+    const close = document.querySelector('.qf-modal-close').getBoundingClientRect();
+    const pane = document.querySelector('.qf-set-pane').getBoundingClientRect();
+    return { clear: close.bottom <= pane.top + 1, gap: Math.round(pane.top - close.bottom) };
+  });
+  ok(closeGeom.clear, '关闭键与右栏滚动条不重叠', `净距 ${closeGeom.gap}px`);
+
+  // 悬停叉叉旋转 90°：读计算样式的终值，identity/none 都算没转。
+  await page.hover('.qf-modal-close');
+  await page.waitForTimeout(300);
+  const rot = await page.evaluate(() => {
+    const t = getComputedStyle(document.querySelector('.qf-modal-close svg')).transform;
+    return { raw: t, turned: t !== 'none' && !/matrix\(1, 0, 0, 1, 0, 0\)/.test(t) };
+  });
+  ok(rot.turned, '悬停时叉叉旋转（transform=' + rot.raw + '）');
 
   // 分类切换
   if (sheet.navLinks > 1) {
@@ -561,6 +609,31 @@ ok(drill.hasBack, '歌单点开后进了第二层（左上角出现返回键）'
   }
   await page.screenshot({ path: path.join(OUT, '05-settings.png') });
 
+  // 真实滚轮：右栏内容上的滚轮必须归 .qf-set-pane。#view-settings 带着业务
+  // 样式（overflow:auto + overscroll-behavior:contain）原样进浮层时，无溢出
+  // 也以滚动容器身份占住滚轮链 —— 右栏内容上滚轮完全失灵、只能拖滚动条
+  // （2026-10-11 修：视图交出滚动权）。挑长分组保证确有溢出可滚。
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll('.qf-set-subitem, .qf-set-link')]
+      .find((b) => b.textContent.trim() === '主题与壁纸');
+    if (btn) btn.click();
+    document.querySelector('.qf-set-pane').scrollTop = 0;
+  });
+  await page.waitForTimeout(200);
+  const qfWheelBox = await page.evaluate(() => {
+    const p = document.querySelector('.qf-set-pane').getBoundingClientRect();
+    return { x: p.x + p.width / 2, y: p.y + p.height / 2 };
+  });
+  await page.mouse.move(qfWheelBox.x, qfWheelBox.y);
+  await page.mouse.wheel(0, 300);
+  await page.waitForTimeout(120);
+  const qfWheel = await page.evaluate(() => {
+    const pane = document.querySelector('.qf-set-pane');
+    return { top: pane.scrollTop, overflow: pane.scrollHeight - pane.clientHeight };
+  });
+  ok(qfWheel.overflow > 0 && qfWheel.top > 0,
+    '右栏内容上的滚轮能滚 .qf-set-pane', `scrollTop=${qfWheel.top} / 溢出=${qfWheel.overflow}`);
+
   // Esc 关闭
   await page.keyboard.press('Escape');
   await page.waitForTimeout(600);
@@ -586,6 +659,10 @@ ok(drill.hasBack, '歌单点开后进了第二层（左上角出现返回键）'
     anchors: document.querySelectorAll('.qf-anchor').length,
     settingsInColumn: document.getElementById('column')
       .contains(document.getElementById('view-settings')),
+    // classic 现在挂共享设置浮层（skins/skin-settings-sheet.js）：设置视图
+    // 卸载清风后住进那层的右栏，不再回中栏 —— 两个去处都算「回到原位」。
+    settingsInSheetPane: !!(document.querySelector('.skset-pane')
+      && document.querySelector('.skset-pane').contains(document.getElementById('view-settings'))),
     settingsHidden: document.getElementById('view-settings').hidden,
     // 全部设置分组都要恢复可见（漏一个 = 换回别的皮肤后「设置里少了几项」）
     groupsHidden: Array.from(document.querySelectorAll('#view-settings .set-group'))
@@ -597,10 +674,17 @@ ok(drill.hasBack, '歌单点开后进了第二层（左上角出现返回键）'
   ok(restored.nav === 0 && restored.modal === 0 && restored.lattice === 0
     && restored.account === 0 && restored.settingsBtn === 0, '自建节点全部拆除');
   ok(restored.anchors === 0, '锚点全部清理（没有残留空 span）');
-  ok(restored.settingsInColumn, '设置视图已搬回中栏原位');
+  ok(restored.settingsInColumn || restored.settingsInSheetPane,
+    '设置视图已搬回原属容器（classic = 共享设置浮层右栏）');
   ok(restored.groupsHidden === 0, '全部设置分组恢复可见',
     `${restored.groupsHidden} 组仍是 hidden`);
   ok(restored.accountInTopbar, '登录按钮已搬回顶栏原位');
+  // brand 也是被清风搬进自建组的业务节点：卸载后必须回到顶栏原位。
+  // 漏了这条的话，卸载拆组会连带删掉 brand，下次挂清风左上角设置按钮就没了。
+  ok(await page.evaluate(() => {
+    const brand = document.querySelector('.brand');
+    return !!brand && !!brand.closest('.topbar');
+  }), '品牌 logo 已搬回顶栏原位');
   // rail 恢复可见
   ok(await page.$eval('.rail', (n) => getComputedStyle(n).display !== 'none'),
     '左侧 rail 恢复可见');
@@ -619,9 +703,25 @@ ok(drill.hasBack, '歌单点开后进了第二层（左上角出现返回键）'
       `${id}: 只有自己那一份 CSS 生效`, st.enabled.join(','));
   }
 
+  // 二次挂载清风：上一轮矩阵刚好走过 清风→其他→清风，正是「brand 被上次
+  // 卸载连带删掉」的事故路径。设置按钮与 brand 都必须在。
+  section('二次挂载清风（brand 存活回归）');
+  await page.evaluate(() => window.Skins.apply('qingfeng'));
+  await page.waitForTimeout(500);
+  const remount = await page.evaluate(() => {
+    const brand = document.querySelector('.brand');
+    return {
+      settingsBtn: !!document.querySelector('.qf-settings-btn'),
+      brandInGroup: !!brand && !!(brand.closest('.qf-brand-group')),
+    };
+  });
+  ok(remount.settingsBtn, '二次挂载后左上角设置按钮存在');
+  ok(remount.brandInGroup, '二次挂载后 brand 住回品牌组（没有在上次卸载时被连带删掉）');
+
   section('运行期无报错');
-  const realErrors = errors.filter((e) => !/favicon|ERR_ABORTED/i.test(e));
-  ok(realErrors.length === 0, '全流程无 JS 报错', realErrors.slice(0, 3).join(' | '));
+  const realErrors = errors.concat(settleSoft()).filter((e) => !/favicon|ERR_ABORTED/i.test(e));
+  ok(realErrors.length === 0, '全流程无 JS 报错',
+    realErrors.slice(0, 3).join(' | ') + (badUrls.length ? '   [4xx/5xx: ' + badUrls.slice(0, 5).join(' , ') + ']' : ''));
 
   await browser.close();
   console.log('\n' + '─'.repeat(60));

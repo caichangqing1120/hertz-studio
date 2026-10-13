@@ -40,6 +40,26 @@ html.qr-modal-open .app{visibility:hidden}
 .qr-cookie-fallback button:hover{border-color:var(--accent)}
 .qr-cookie-fallback button:disabled{opacity:.5;cursor:default}
 
+/* cookie 取证说明：官网地址 + 六个站通用的 DevTools 取法。数据来自
+   /v1/online/sources 的 login 字段（每个源只有站点与字段名不同）。弹窗只有
+   320px 宽，字号与行高都收紧，别把它撑成说明书。 */
+.qr-login-guide{margin:0 0 8px;padding:8px 10px;border-radius:8px;text-align:left;
+  background:var(--panel-2);border:1px solid rgba(255,255,255,.1)}
+.qr-guide-site{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.qr-guide-url{flex:1;min-width:0;overflow-wrap:anywhere;user-select:all;
+  -webkit-user-select:all;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:11.5px}
+/* 选择器要压过上面那条 `.qr-cookie-fallback button`（它给保存按钮定的
+   margin-top:6px），所以这里带上面板名，不是随手多写一层。 */
+.qr-cookie-fallback .qr-guide-copy{margin:0;flex:none;padding:3px 9px;
+  font-size:11px;border-radius:6px}
+.qr-guide-steps{margin:0;padding-left:18px}
+.qr-guide-steps li{margin:3px 0;line-height:1.5}
+.qr-guide-steps kbd{padding:0 4px;border-radius:4px;font-size:11px;
+  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);font:inherit}
+.qr-guide-steps code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px}
+.qr-guide-keys{margin:6px 0 0;line-height:1.5}
+
 /* QQ 扫码/微信扫码 切换条。高度与 .qr-source 对齐：两行 chip 在同一个弹窗里，
    一行 34px 一行 29px 会一眼看出来（QQ 选中时这两行是上下紧挨着的）。 */
 .qr-channels{display:flex;gap:6px;justify-content:center;margin:10px 0 2px}
@@ -181,7 +201,8 @@ html.qr-modal-open .app{visibility:hidden}
 .online-kind{display:flex;gap:6px;flex:none}
 .online-kind[hidden]{display:none}
 
-/* 歌单结果卡片：封面 + 名称 + 曲目数/播放量。无点击进详情、无播放按钮。 */
+/* 歌单/歌手/专辑搜索结果卡：封面 + 名称 + 元信息一行。是否可点由数据决定
+   （有详情端点的音源由 online.js 打 is-openable，纯展示卡保持静止）。 */
 .playlist-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
   gap:14px;padding:4px 0}
 .playlist-card{display:flex;align-items:center;gap:12px;padding:10px;
@@ -195,6 +216,16 @@ html.qr-modal-open .app{visibility:hidden}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .playlist-card-sub{font-size:11px;color:var(--muted);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 可点卡片的悬浮反馈，与歌单墙 .pl-card-art / 每日推荐卡 .dv-art 同一套语言：
+   抬 2px + 外投影 + 描边提亮（topsearch 预览卡 .ts-card 带同款类名，一并生效）。
+   transform/box-shadow 都不参与布局，悬停不会让网格与相邻卡片重排；
+   时长统一 --dur-fast（0.16s）+ --ease，非可点卡不加 transition、悬停零反馈。 */
+.playlist-card.is-openable{cursor:pointer;
+  transition:transform var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease)}
+.playlist-card.is-openable:hover{transform:translateY(-2px);border-color:var(--accent);
+  box-shadow:var(--surface-hi),var(--surface-lift)}
+.playlist-card.is-openable:focus-visible{outline:var(--focus-ring);outline-offset:var(--focus-offset)}
 
 @media(max-width:600px){
   #view-online>.col-head{flex-direction:column;align-items:stretch;gap:10px}
@@ -270,15 +301,20 @@ html.qr-modal-open .app{visibility:hidden}
 /* 歌单网格 */
 .op-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
   gap:16px;margin:8px 0 16px}
-.op-card{cursor:pointer;border-radius:12px;transition:transform .12s ease}
+.op-card{cursor:pointer;border-radius:12px;transition:transform var(--dur-fast) var(--ease)}
 .op-card:hover{transform:translateY(-2px)}
 .op-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 封面承担投影面：卡片整体抬 2px 时封面带起同款外投影，与 .pl-card-art、
+   .dv-art 的悬停语言一致。禁用曲目（.is-disabled）已由 transform:none 压住
+   抬升，投影也一并豁免。 */
 .op-cover{width:100%;aspect-ratio:1;border-radius:12px;margin-bottom:8px;
   background-size:cover;background-position:center;
   background-color:var(--glass-bg-strong);
   background-image:linear-gradient(135deg,
     color-mix(in srgb,var(--accent-2) 22%,transparent),
-    color-mix(in srgb,var(--accent) 12%,transparent))}
+    color-mix(in srgb,var(--accent) 12%,transparent));
+  transition:box-shadow var(--dur-fast) var(--ease)}
+.op-card:not(.is-disabled):hover .op-cover{box-shadow:var(--surface-hi),var(--surface-lift)}
 .op-cover.is-missing{display:flex;align-items:center;justify-content:center}
 .op-cover.is-missing::after{content:'♪';font-size:34px;opacity:.45;color:var(--accent)}
 .op-pl-name{font-size:13px;font-weight:600;color:var(--text);

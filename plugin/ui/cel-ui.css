@@ -190,35 +190,13 @@ html[data-look="cel"] .bar :is(#progress, #volume)::-moz-range-thumb {
 
 html[data-look="cel"] body::after { opacity: .045; }
 
-/* ---- 4. 点击反馈：赛璐璐是「方片迸开」，不是玻璃那套旋转星屑---------- */
-/* 两族的点击反馈必须不同，否则"换族"只换了静态材质，手感还是一套 ——
-   而手感是族的一部分。这里覆盖 anime-interactions.css 的粒子：
-     玻璃族 = 4px 圆角小方片 + 45°→110° 旋转 + 5px 辉光（金/青双色星屑）
-     赛璐璐 = 直角碎片 + **不旋转** + 无辉光 + 沿轴直线迸开
-   形状语言必须跟材质一致：平涂色块配硬边碎片，转动的柔光星屑属于玻璃。 */
-html[data-look="cel"] .anime-interactions-particle {
-  width: 5px;
-  height: 5px;
-  border-radius: 0;
-  background: var(--highlight);
-  /* 不用辉光：赛璐璐的边界靠实色与描边，不靠发光。 */
-  box-shadow: none;
-  /* 旋转归零、位移走完整行程：方片沿点击点向外直线迸开，像平涂动画里的
-     "碎裂"那一帧。端点不带 -5px 的上移——星屑要"炸开"，赛璐璐要"迸开"。
-     scale 收得更狠（0.6 → 0），碎得更干脆。 */
-  animation: cel-button-chip 240ms cubic-bezier(0.19, 1, 0.22, 1) both;
-}
-@keyframes cel-button-chip {
-  0% { transform: translate3d(0, 0, 0) scale(.6); opacity: 0; }
-  18% { opacity: .9; }
-  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(0); opacity: 0; }
-}
-/* 双色保留：主色用当前选中位（暖调），次色用品牌位（冷调）——与玻璃族同构，
-   免得赛璐璐的碎片全是一个颜色、读成"单色烟花"。 */
-html[data-look="cel"] .anime-interactions-particle:nth-child(3n) {
-  background: var(--brand);
-  box-shadow: none;
-}
+/* ---- 4. 点击反馈：归主题，不归族 --------------------------------------
+   曾经这里把赛璐璐族的粒子覆盖成「直角方片迸开」（cel-button-chip），
+   与玻璃族的旋转星屑区分手感。现在特效**按主题声明**：themes.js 的 fx
+   字段落 <html data-fx>，形状与关键帧全在 anime-interactions.css 的
+   原型库里（逢魔时=comet 彗尾、汤屋=ember 余烬，各自不同）。
+   本文件不再碰 .anime-interactions-particle —— 这里的族级覆盖会以
+   相同特异性压过按主题的原型，让两套 cel 主题退回同一种手感。 */
 
 /* 禁用动效与降级路径：这一族靠硬投影位移表达状态，冻结时必须连位移一起收，
    否则按钮会停在"按下去还没弹回来"的中间态。 */

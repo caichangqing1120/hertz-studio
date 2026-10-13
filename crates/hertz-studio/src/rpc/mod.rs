@@ -394,6 +394,7 @@ impl Rpc {
             (Op::Get, ["v1", "online", "detail"]) => online::detail(state, query).await,
             (Op::Get, ["v1", "online", "lyric"]) => online::lyric(state, query).await,
             (Op::Get, ["v1", "online", "cover"]) => online::cover_proxy(state, query).await,
+            (Op::Get, ["v1", "home", "quote"]) => online::home_quote(state, query).await,
             (Op::Post, ["v1", "ui", "notice"]) => {
                 let req: crate::routes::UiNoticeRequest = body_as(body)?;
                 crate::routes::broadcast_ui_notice(state, &req.action).await?;

@@ -272,7 +272,8 @@
     terrain: '<path d="M3 18l4.5-8 3.5 5.5 3-4 7 6.5"/><path d="M3 21h18"/>',
     orb: '<circle cx="12" cy="12" r="6.5"/><path d="M5.8 9.2C8 7.4 16 7.4 18.2 9.2"/>' +
       '<path d="M6.4 15.4C8.4 17.2 15.6 17.2 17.6 15.4"/>',
-    prism: '<path d="M12 3.5v17"/><path d="M12 3.5l7.5 13H4.5z"/><path d="M12 10.5l3.6 6h-7.2z"/>'
+    prism: '<path d="M12 3.5v17"/><path d="M12 3.5l7.5 13H4.5z"/><path d="M12 10.5l3.6 6h-7.2z"/>',
+    off: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>'
   };
 
   var STAGES = [
@@ -306,14 +307,20 @@
       counts: [3000, 6000, 10000], additive: true, depth: false
     },
     {
+      id: 'silk', build: buildField, framed: true, label: '封面星球', desc: '封面沿球面舒展，在明暗之间随音乐呼吸',
+      // 机位与点预算配套：dist 8.4 让球径约占视高 65%；点数只有别场的一半，
+      // 配合 0.66 的点径系数留出网格间隙，封面读作点阵粒子而不是实心贴图。
+      cam: { theta: 0.0, phi: 0.0, dist: 8.4, look: [0, 0, 0] },
+      counts: [6000, 13500, 22500], additive: false, depth: true, field: 0
+    },
+    {
       id: 'resonance', build: buildField, framed: true, label: '共振星环', desc: '让每一次心跳，都有回响',
       cam: { theta: 0.06, phi: 0.10, dist: 10.5, look: [0, 0, 0] },
       counts: [14000, 30000, 48000], additive: true, depth: false, field: 4
     },
     {
-      id: 'silk', build: buildField, framed: true, label: '封面星球', desc: '封面沿球面舒展，在明暗之间随音乐呼吸',
-      cam: { theta: 0.0, phi: 0.0, dist: 10.2, look: [0, 0, 0] },
-      counts: [14000, 32000, 54000], additive: false, depth: true, field: 0
+      id: 'off', build: buildBlank, blank: true, label: '关闭背景', desc: '隐去三维声场，只留歌词与界面',
+      cam: { theta: 0.0, phi: 0.0, dist: 8.4, look: [0, 0, 0] }
     }
   ];
 
@@ -575,7 +582,9 @@
     '    vColor = color*(0.18+0.92*diffuse)*limb',
     '           +vec3(1.0,0.95,0.86)*specular+vec3(0.40,0.62,0.82)*rim*0.10;',
     '    float diameter = coverSpacing*uProj[1][1]*uViewportHeight*0.5/max(0.1,-mv.z);',
-    '    gl_PointSize = clamp(diameter*1.22,1.25,7.0*uPointScale);',
+    // 点径只占网格间距的 66%：颗粒之间露出间隙，封面呈点阵粒子感；
+    // 1.22 的旧系数会让相邻点搭接成实心球面，把这一层粒子的语言盖掉。
+    '    gl_PointSize = clamp(diameter*0.66,1.25,7.0*uPointScale);',
     '  }',
     '  gl_Position = uProj*mv;',
     '}'
@@ -782,6 +791,17 @@
   var wrapEl = null;
   var sceneSource = 'immersive';
   var creativeHost = null, artHost = null;
+  // 「纯真3D」海岸公路（sceneSource 'coast'）的两项专属设置，
+  // 与 sceneSource 存同一张偏好表。
+  var coastTod = 0, coastInteract = true;
+  var coastHost = null;
+  // 「星座 · 十二星图」（sceneSource 'zodiac'）的专属偏好。星座不接管歌词，
+  // 歌词由 stanza/s3d-reading 叠加层照常演出；无 GL 降级时叠层兜底。
+  var zodiacLines = true, zodiacField = true, zodiacInteract = true;
+  var zodiacHost = null;
+  // 「动画绘景」（sceneSource 'anime-svg'）的专属偏好：作品与镜像对称。
+  var animeHost = null;
+  var animeScene = 'anime-coast', animeMirror = false;
   var canvas = null;
   var gl = null;
   var glFailed = false;
@@ -822,6 +842,8 @@
   var uiBound = false;
   var resizeObserver = null, resizeTimers = [];
 
+  // 默认场景=「封面星球」。索引 5 是默认槽：重排 STAGES 时把默认选项留在这格，
+  // 老用户的快捷键 1–5 不受影响。
   var stageIndex = 5;
   var builtStages = {};     // id -> { draw, dispose, count }
   var post = null;          // 后处理资源
@@ -898,7 +920,9 @@
   var lyricView = null, layout = 'focus', lyricSize = 1, lyricGlow = .45;
   // 舞台主题：只管沉浸舞台操作层的观感（见 stage-themes/）。与皮肤正交——
   // 皮肤换整个应用的布局，舞台主题换舞台 chrome，两者可任意组合。
-  var stageTheme = 'classic';
+  // 默认星落：classic 那一档已经从「设置风格」里删掉了（它是没有主题层的裸样式，
+  // 面板头部压不住滚过的行），存过 classic 的偏好走下面的白名单校验自然回落。
+  var stageTheme = 'starfall';
 
   function reducedMotion() {
     return !!(global.Stage && Stage.presentation && Stage.presentation().reduced) ||
@@ -1163,6 +1187,12 @@
         gl.deleteBuffer(s.seed); gl.deleteBuffer(s.lane);
       }
     };
+  }
+
+  // 「关闭背景」没有几何：render() 按 def.blank 直接短路，这个工厂平时调不到，
+  // 放着是为了让场景目录始终满足「每个描述符都带合法工厂」的注册契约。
+  function buildBlank() {
+    return { count: 0, draw: function () {}, dispose: function () {} };
   }
 
   // -------------------------------------------------------------------------
@@ -1439,6 +1469,25 @@
     el.hidden = false;
   }
 
+  // 海岸/星座两个独立 three.js 舞台的 GL 上下文由各自适配层自持；
+  // 丢失/恢复/放弃经 stage:scene-context 事件透传到同一条降级横幅（语义与
+  // 主 GL 画布的 onContextLost 一致），避免画布静默变白而用户毫不知情。
+  var SCENE_CTX_NAME = { coast: '海岸公路', zodiac: '星座' };
+  document.addEventListener('stage:scene-context', function (e) {
+    var d = e.detail || {};
+    if (!SCENE_CTX_NAME[d.source]) return;
+    var fallback = $('s3d-fallback');
+    if (d.state === 'lost') {
+      showFallback(SCENE_CTX_NAME[d.source] + '舞台的图形上下文丢失，正在自动恢复…', d.source);
+    } else if (d.state === 'recovered') {
+      if (fallback && fallback.dataset.source === d.source) fallback.hidden = true;
+    } else if (d.state === 'failed') {
+      showFallback(SCENE_CTX_NAME[d.source] + '舞台的图形渲染已停止，可切回沉浸声场或重新打开舞台。', d.source);
+    }
+    // 重跑布局自检：宿主显隐/横幅清理在上下文恢复期一并归位。
+    syncLayout();
+  });
+
   // -------------------------------------------------------------------------
   // 尺寸与 DPR
   // -------------------------------------------------------------------------
@@ -1672,14 +1721,27 @@
   function render(dtMs) {
     // 3D 场景始终渲染：stanza 歌词只是透明叠加层（standalone 无 GL 回退时才没有 GL）。
     if (!gl || contextLost) return;
-    if (sceneSource === 'creative') {
-      if (global.CreativeStage && CreativeStage.syncPosition) CreativeStage.syncPosition();
+    // 创意编排与动画绘景都不画 GL：前者把舞台交给 CreativeStage，后者交给
+    // StageAnimeSvg 的 SVG 层。两条路都要继续推进歌词（paintWords）。
+    if (sceneSource === 'creative' || sceneSource === 'anime-svg') {
+      if (sceneSource === 'creative' && global.CreativeStage && CreativeStage.syncPosition) CreativeStage.syncPosition();
       if (sizeDirty) resize();
       updateAudio(dtMs); updateCamera(dtMs); paintWords();
       return;
     }
     if (sceneCovered()) return;
     if (sizeDirty) resize();
+    // 「关闭背景」：每帧只把画布清成一色底，几何与后处理整条 GL 链路都跳过——
+    // 选它的动机就是省 GPU；歌词与 stanza 是 DOM 层，照常推进。
+    if (STAGES[stageIndex].blank) {
+      updateAudio(dtMs);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, bw, bh);
+      gl.clearColor(0.004, 0.005, 0.009, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      paintWords();
+      return;
+    }
     if (!post || !post.scene || !post.a || !post.b) return;
     updateAudio(dtMs);
     updateCamera(dtMs);
@@ -2120,7 +2182,10 @@
 
   function preferences() {
     return { scene: STAGES[stageIndex].id, sceneSource: sceneSource, motion: motion, bloom: bloom, reactivity: reactivity, lyrics: showLyrics, cruise: cam.cruise, layout: layout, lyricSize: lyricSize, lyricGlow: lyricGlow,
+      coastTod: coastTod, coastInteract: coastInteract,
+      zodiacLines: zodiacLines, zodiacField: zodiacField, zodiacInteract: zodiacInteract,
       shelfMode: shelfMode,
+      animeScene: animeScene, animeMirror: animeMirror,
       stageTheme: stageTheme,
       stanzaVisual: stanza.visual,
       stanzaBg: stanza.bgMode, stanzaBgOpacity: stanza.bgOpacity, stanzaVignette: stanza.vignette,
@@ -2170,7 +2235,21 @@
     if (!value || typeof value !== 'object') return;
     restoring = true;
     try {
-      if (value.sceneSource === 'creative' || value.sceneSource === 'immersive') sceneSource = value.sceneSource;
+      // 旧版本把星座舞台存成 'tunnel'：恢复时一次性迁到 'zodiac'，
+      // 老用户升级后仍然落在星座舞台而不是一个失效取值。
+      if (value.sceneSource === 'tunnel') value.sceneSource = 'zodiac';
+      if (value.sceneSource === 'creative' || value.sceneSource === 'immersive'
+          || value.sceneSource === 'coast' || value.sceneSource === 'zodiac'
+          || value.sceneSource === 'anime-svg') sceneSource = value.sceneSource;
+      if (typeof value.coastTod === 'number') coastTod = clamp(value.coastTod, 0, 1);
+      if (typeof value.coastInteract === 'boolean') coastInteract = value.coastInteract;
+      if (typeof value.zodiacLines === 'boolean') zodiacLines = value.zodiacLines;
+      if (typeof value.zodiacField === 'boolean') zodiacField = value.zodiacField;
+      if (typeof value.zodiacInteract === 'boolean') zodiacInteract = value.zodiacInteract;
+      // 绘景作品按注册表校验：存下来的 id 若已被注册表删掉，恢复时保持默认而不是
+      // 把一个死 id 推给适配层（那会弹降级横幅）。
+      if (typeof value.animeScene === 'string' && animeSceneIds().indexOf(value.animeScene) >= 0) animeScene = value.animeScene;
+      if (typeof value.animeMirror === 'boolean') animeMirror = value.animeMirror;
       if (typeof value.motion === 'number') motion = clamp(num(value.motion, 0.65), 0, 1);
       if (typeof value.bloom === 'number') bloom = clamp(num(value.bloom, 0.8), 0, 1.5);
       if (typeof value.reactivity === 'number') reactivity = clamp(num(value.reactivity, 1.35), 0, 2);
@@ -2194,7 +2273,7 @@
         if (stanza.director.setTransitionLock) stanza.director.setTransitionLock(stanza.autoLock);
         if (stanza.director.setAvoidRepeat) stanza.director.setAvoidRepeat(stanza.autoAvoidRepeat);
       }
-      if (value.stageTheme === 'starfall' || value.stageTheme === 'ios' || value.stageTheme === 'classic') stageTheme = value.stageTheme;
+      if (value.stageTheme === 'starfall' || value.stageTheme === 'ios') stageTheme = value.stageTheme;
       if (typeof value.lyricSize === 'number') lyricSize = clamp(value.lyricSize, 0.7, 1.5);
       if (typeof value.lyricGlow === 'number') lyricGlow = clamp(value.lyricGlow, 0, 1);
       if (value.shelfMode === 'off' || value.shelfMode === 'stage' || value.shelfMode === 'side') {
@@ -2482,12 +2561,19 @@
   function planeApi() { return planeFor(effectiveVisual()).api; }
 
   function sceneCovered() {
-    return sceneSource === 'creative' || stanzaActive() && stanza.bgMode !== 'stage';
+    // 动画绘景与创意编排/海岸/星座一样整块盖住舞台：GL 画布让位，
+    // 拖拽/滚轮/切舞台全部收起。
+    return sceneSource === 'creative' || sceneSource === 'coast'
+      || sceneSource === 'zodiac' || sceneSource === 'anime-svg'
+      || stanzaActive() && stanza.bgMode !== 'stage';
   }
 
   function sceneOwnsLyrics() {
-    return sceneSource === 'creative' && global.CreativeStage && CreativeStage.stageActive()
-      && CreativeStage.ownsLyrics();
+    // 海岸/星座都是纯场景：歌词走 stage3d 自己的叠加层；只有创意编排会把歌词
+    // 长在场景里。无 GL 降级时创意不接管，stanza 叠层兜底。
+    if (sceneSource === 'creative' && global.CreativeStage && CreativeStage.stageActive()
+      && CreativeStage.ownsLyrics()) return true;
+    return false;
   }
 
   // Stage3D owns presentation; CreativeStage owns the preset and its render clock.
@@ -2519,6 +2605,155 @@
     }
     if (global.Backgrounds && Backgrounds.setStageHost) Backgrounds.setStageHost(active && useCreative ? creativeHost : null);
     if (global.HandDrawn && HandDrawn.setStageHost) HandDrawn.setStageHost(active ? artHost : null);
+  }
+
+  // 「纯真3D」海岸公路：与 creative 同构的宿主层。适配层 StageCoast 负责
+  // 挂载与卸载，这里只管宿主显隐、入口状态与降级横幅。
+  function syncCoastStage() {
+    if (!root) return;
+    if (!coastHost) {
+      coastHost = document.createElement('div');
+      coastHost.id = 's3d-coast';
+      coastHost.className = 's3d-coast';
+      root.insertBefore(coastHost, root.firstChild);
+    }
+    var useCoast = sceneSource === 'coast';
+    coastHost.hidden = !useCoast;
+    root.classList.toggle('s3d-coast-source', useCoast);
+    coastHost.classList.toggle('coast-interact', useCoast && coastInteract);
+    var tuning = $('s3d-coast-tuning');
+    if (tuning) {
+      tuning.hidden = !useCoast;
+      if (useCoast) {
+        var todInput = $('s3d-coast-tod');
+        if (todInput) todInput.value = coastTod;
+        text('s3d-coast-tod-value', coastTodLabel(coastTod));
+        var interactInput = $('s3d-coast-interact');
+        if (interactInput) interactInput.checked = coastInteract;
+      }
+    }
+    if (!global.StageCoast || !StageCoast.setHost) {
+      if (active && useCoast) showFallback('海岸舞台模块未加载，请选择沉浸声场', 'coast');
+      return;
+    }
+    var ok = active && useCoast ? StageCoast.setHost(coastHost) : StageCoast.setHost(null);
+    if (active && useCoast && !ok) {
+      showFallback(StageCoast.degradedBecause() || '海岸舞台暂不可用，请选择沉浸声场', 'coast');
+      return;
+    }
+    if (active && useCoast) StageCoast.setPrefs({ tod: coastTod, interact: coastInteract });
+    // 成功挂载（含上下文丢失后的自动重建）或离开海岸时，收掉残留的 coast 横幅；
+    // 失败分支已提前 return。恢复进行中（degradedBecause 非空）时保留横幅。
+    var coastFallback = $('s3d-fallback');
+    if (coastFallback && coastFallback.dataset.source === 'coast'
+      && (!useCoast || (active && !StageCoast.degradedBecause()))) {
+      coastFallback.hidden = true;
+    }
+  }
+
+  // 「星座 · 十二星图」：与 coast 同构的宿主层。适配层 StageZodiac 负责挂载
+  // 与卸载，这里只管宿主显隐、入口状态、偏好下发与降级横幅。星座不接管歌词，
+  // 歌词由 stage3d 的叠加层照常演出。
+  function syncZodiacStage() {
+    if (!root) return;
+    if (!zodiacHost) {
+      zodiacHost = document.createElement('div');
+      zodiacHost.id = 's3d-zodiac';
+      zodiacHost.className = 's3d-zodiac';
+      root.insertBefore(zodiacHost, root.firstChild);
+    }
+    var useZodiac = sceneSource === 'zodiac';
+    zodiacHost.hidden = !useZodiac;
+    root.classList.toggle('s3d-zodiac-source', useZodiac);
+    zodiacHost.classList.toggle('zodiac-interact', useZodiac && zodiacInteract);
+    var tuning = $('s3d-zodiac-tuning');
+    if (tuning) {
+      tuning.hidden = !useZodiac;
+      if (useZodiac) {
+        var linesInput = $('s3d-zodiac-lines');
+        if (linesInput) linesInput.checked = zodiacLines;
+        var fieldInput = $('s3d-zodiac-field');
+        if (fieldInput) fieldInput.checked = zodiacField;
+        var interactInput = $('s3d-zodiac-interact');
+        if (interactInput) interactInput.checked = zodiacInteract;
+      }
+    }
+    if (!global.StageZodiac || !StageZodiac.setHost) {
+      if (active && useZodiac) showFallback('星座舞台模块未加载，请选择沉浸声场', 'zodiac');
+      return;
+    }
+    var ok = active && useZodiac ? StageZodiac.setHost(zodiacHost) : StageZodiac.setHost(null);
+    if (active && useZodiac && !ok) {
+      showFallback(StageZodiac.degradedBecause() || '星座舞台暂不可用，请选择沉浸声场', 'zodiac');
+      return;
+    }
+    if (active && useZodiac) {
+      var theme = baseLyricTheme();
+      StageZodiac.setPrefs({
+        lines: zodiacLines, field: zodiacField, interact: zodiacInteract,
+        palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
+          backgroundColor: theme.backgroundColor, primaryColor: theme.primaryColor,
+          tertiaryColor: theme.tertiaryColor } : null,
+      });
+    }
+    // 成功挂载（含上下文丢失后的自动重建）或离开星座时，收掉残留的 zodiac 横幅；
+    // 恢复进行中（degradedBecause 非空）保留横幅。
+    var zodiacFallback = $('s3d-fallback');
+    if (zodiacFallback && zodiacFallback.dataset.source === 'zodiac'
+      && (!useZodiac || (active && !StageZodiac.degradedBecause()))) {
+      zodiacFallback.hidden = true;
+    }
+  }
+
+  // 绘景作品清单直接遍历注册表：工坊卡片与舞台设置从此不可能列出不同的作品。
+  function animeSceneList() {
+    if (!global.CreativeGL || !CreativeGL.scenes) return [];
+    return CreativeGL.scenes().filter(function (s) {
+      return s.presentation && s.presentation.family === 'anime' && s.presentation.art;
+    }).map(function (s) { return { id: s.id, label: s.label }; });
+  }
+  function animeSceneIds() { return animeSceneList().map(function (s) { return s.id; }); }
+
+  // 「动画绘景」SVG 舞台：与 creative 同构的宿主层。适配层 StageAnimeSvg 负责
+  // 挂载与卸载（画稿来自注册表），这里只管宿主显隐、入口状态、偏好下发与降级横幅。
+  function syncAnimeSvgStage() {
+    if (!root) return;
+    if (!animeHost) {
+      animeHost = document.createElement('div');
+      animeHost.id = 's3d-anime';
+      animeHost.className = 's3d-anime';
+      animeHost.setAttribute('aria-hidden', 'true');
+      root.insertBefore(animeHost, root.firstChild);
+    }
+    var useAnime = sceneSource === 'anime-svg';
+    animeHost.hidden = !useAnime;
+    root.classList.toggle('s3d-anime-svg-source', useAnime);
+    var tuning = $('s3d-anime-tuning');
+    if (tuning) {
+      tuning.hidden = !useAnime;
+      if (useAnime) {
+        var sceneInput = $('s3d-anime-scene');
+        if (sceneInput) sceneInput.value = animeScene;
+        var mirrorInput = $('s3d-anime-mirror');
+        if (mirrorInput) mirrorInput.checked = animeMirror;
+      }
+    }
+    var sourceSelect = $('s3d-scene-source');
+    if (sourceSelect) sourceSelect.value = sceneSource;
+    if (!global.StageAnimeSvg || !StageAnimeSvg.setHost) {
+      if (active && useAnime) showFallback('动画绘景模块未加载，请选择沉浸声场', 'anime-svg');
+      return;
+    }
+    var ok = active && useAnime ? StageAnimeSvg.setHost(animeHost) : StageAnimeSvg.setHost(null);
+    if (active && useAnime && !ok) {
+      showFallback(StageAnimeSvg.degradedBecause() || '动画绘景暂不可用，请选择沉浸声场', 'anime-svg');
+      return;
+    }
+    if (active && useAnime) StageAnimeSvg.setPrefs({ scene: animeScene, mirror: animeMirror });
+    else if (!useAnime && StageAnimeSvg.degradedBecause()) {
+      var fallback = $('s3d-fallback');
+      if (fallback && fallback.dataset.source === 'anime-svg') fallback.hidden = true;
+    }
   }
 
   function settingsState() {
@@ -2562,7 +2797,7 @@
     var dock = $('s3d-dock');
     if (dock) dock.hidden = !state.scene;
     var keys = root.querySelector('.s3d-keys');
-    if (keys) keys.textContent = state.scene ? '拖动旋转 · 双击复位 · 1–7 切舞台 · F 全屏 · L 歌词 · Q 队列 · Esc 返回' : 'F 全屏 · L 歌词 · Q 队列 · Esc 返回';
+    if (keys) keys.textContent = state.scene ? '拖动旋转 · 双击复位 · 1–8 切舞台 · F 全屏 · L 歌词 · Q 队列 · Esc 返回' : 'F 全屏 · L 歌词 · Q 队列 · Esc 返回';
     var coverToggle = $('s3d-cover-toggle');
     if (coverToggle) { coverToggle.disabled = state.stanza; coverToggle.title = state.stanza ? '当前歌词视觉使用独立排版' : '封面与歌词 (B)'; }
     notifyVisualChange();
@@ -2581,8 +2816,8 @@
   function syncStageBackdrop() {
     var backdrop = $('s3d-fl-backdrop'), picture = $('s3d-fl-wallpaper');
     var panel = $('s3d-fl-wallpapers'), gallery = $('s3d-fl-wallpaper-grid');
-    var useImage = sceneSource !== 'creative' && stanza.bgMode === 'anime';
-    if (backdrop) backdrop.hidden = sceneSource === 'creative' || !stanzaActive() || (stanza.bgMode !== 'anime' && stanza.bgMode !== 'atmosphere');
+    var useImage = sceneSource !== 'creative' && sceneSource !== 'anime-svg' && stanza.bgMode === 'anime';
+    if (backdrop) backdrop.hidden = sceneSource === 'creative' || sceneSource === 'anime-svg' || !stanzaActive() || (stanza.bgMode !== 'anime' && stanza.bgMode !== 'atmosphere');
     if (panel) panel.hidden = !useImage;
     if (root) root.classList.toggle('s3d-scene-covered', sceneCovered());
     if (root) root.classList.toggle('s3d-no-vignette', stanzaActive() && !stanza.vignette);
@@ -2873,7 +3108,9 @@
     root.style.setProperty('--stanza-fontscale', String(fs));
     stanza.sub.setFontScale(fs);
     callRenderers('setFontScale', fs);
-    stanza.bg.setMode(sceneSource === 'creative' || stanza.bgMode === 'anime' || stanza.bgMode === 'atmosphere' ? 'stage' : stanza.bgMode);
+    // coast/星座的画布压在歌词层之下（与 creative 同 z 区间），歌词层的
+    // 不透明 .fl-bg 必须让位，否则整幅场景被盖住。动画绘景同理。
+    stanza.bg.setMode(sceneSource === 'creative' || sceneSource === 'coast' || sceneSource === 'zodiac' || sceneSource === 'anime-svg' || stanza.bgMode === 'anime' || stanza.bgMode === 'atmosphere' ? 'stage' : stanza.bgMode);
     syncStageBackdrop();
     stanza.bg.setOpacity(stanza.bgOpacity);
     stanza.bg.setVignette(stanza.vignette);
@@ -2978,6 +3215,12 @@
 
   function syncLayout() {
     syncCreativeStage();
+    syncCoastStage();
+    syncZodiacStage();
+    syncAnimeSvgStage();
+    // 普通舞台来源（无三维镜头）藏掉复位视角这类 3D 专属键。
+    if (root) root.classList.toggle('s3d-flat-source',
+      sceneSource === 'creative' || sceneSource === 'anime-svg');
     // 切回 3D 轨后不再调 driveStanza，导演退出必须在配置边界清理，不能等下一帧。
     if (stanza.visual !== 'starborn' && stanza.directorLive) {
       stanza.directorLive = false;
@@ -3315,6 +3558,11 @@
       backgroundNodes = [];
       Array.prototype.forEach.call(document.body.children, function (node) {
         if (node === root || /^(SCRIPT|STYLE|SVG)$/.test(node.tagName)) return;
+        // 舞台控制舱不静音：它 z 在本舞台之上，开着时要能在三维演出中实时调参。
+        // inert 元素照常绘制但整体退出命中测试——静音了它，z-index 提到多高都
+        // 点不进去（实测 canvas 拦下所有指针事件）。开合期间的 inert 由控制舱
+        // 自己管理：关着保持 inert，Tab 不会落进屏外抽屉。
+        if (node.id === 'stage-ctl') return;
         backgroundNodes.push({ node: node, inert: node.inert }); node.inert = true;
       });
     }
@@ -3365,6 +3613,8 @@
     fadeTarget = 0;
     active = false;
     syncCreativeStage();
+    syncCoastStage();
+    syncZodiacStage();
     if (stanza.ready) applyLayerVisibility(null, false);
     root.classList.remove('s3d-open');
     root.setAttribute('aria-hidden', 'true');
@@ -3441,6 +3691,8 @@
     }
     if (k === 'Escape') {
       if (!$('s3d-settings').hidden) { setSettings(false); $('s3d-settings-toggle').focus(); e.stopImmediatePropagation(); return; }
+      var cluster = $('s3d-head-cluster');
+      if (cluster && cluster.classList.contains('is-open')) { cluster._collapse(); e.stopImmediatePropagation(); return; }
       if (queueOpen) { setQueuePanel(false); $('s3d-queue').focus(); e.stopImmediatePropagation(); return; }
       if (fsEl()) { exitFs(); e.stopImmediatePropagation(); return; }
       close();
@@ -3728,15 +3980,48 @@
     sel._bound = true;
     sel.value = stageTheme;
     sel.addEventListener('change', function () {
-      stageTheme = sel.value === 'starfall' ? 'starfall' : (sel.value === 'ios' ? 'ios' : 'classic');
+      stageTheme = sel.value === 'ios' ? 'ios' : 'starfall';
       syncLayout();
       savePreferences();
     });
   }
 
+  // ----- 右上角按钮组：收拢为一颗触发按钮，悬停/聚焦飞出（CSS 驱动） -----
+  // 触屏没有 hover：首击展开、再击点具体按钮；Esc 或焦点移出即收拢。
+  function bindHeadCluster() {
+    var cluster = $('s3d-head-cluster');
+    var trigger = $('s3d-head-trigger');
+    if (!cluster || !trigger || cluster._bound) return;
+    cluster._bound = true;
+    function collapse() {
+      cluster.classList.remove('is-open');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+    trigger.addEventListener('click', function () {
+      var open = cluster.classList.toggle('is-open');
+      trigger.setAttribute('aria-expanded', String(open));
+    });
+    cluster.addEventListener('focusout', function (e) {
+      if (!cluster.contains(e.relatedTarget)) collapse();
+    });
+    cluster.addEventListener('pointerleave', function () {
+      if (cluster.classList.contains('is-open') && !cluster.contains(document.activeElement)) collapse();
+    });
+    cluster._collapse = collapse;
+  }
+
+  function coastTodLabel(v) {
+    if (v < 0.22) return '黄昏';
+    if (v < 0.42) return '入夜';
+    if (v < 0.6) return '午夜';
+    if (v < 0.8) return '凌晨';
+    return '黎明';
+  }
+
   function bindUi() {
     bindLyricVisual();
     bindStageTheme();
+    bindHeadCluster();
     $('s3d-lyrics-toggle').addEventListener('click', toggleLyrics);
     $('s3d-settings-toggle').addEventListener('click', function () { setSettings($('s3d-settings').hidden); });
     $('s3d-settings-close').addEventListener('click', function () { setSettings(false); $('s3d-settings-toggle').focus(); });
@@ -3791,6 +4076,60 @@
     $('s3d-workshop').addEventListener('click', function () { setSettings(false); if (global.Workshop) Workshop.open(); });
     $('s3d-scene-source').addEventListener('change', function (event) {
       configure({ sceneSource: event.target.value }); savePreferences();
+    });
+    var coastTodInput = $('s3d-coast-tod');
+    if (coastTodInput) {
+      coastTodInput.addEventListener('input', function () {
+        coastTod = Number(this.value);
+        text('s3d-coast-tod-value', coastTodLabel(coastTod));
+        if (global.StageCoast) StageCoast.setPrefs({ tod: coastTod });
+      });
+      coastTodInput.addEventListener('change', savePreferences);
+    }
+    var coastInteractInput = $('s3d-coast-interact');
+    if (coastInteractInput) coastInteractInput.addEventListener('change', function () {
+      coastInteract = this.checked;
+      if (global.StageCoast) StageCoast.setPrefs({ interact: coastInteract });
+      savePreferences();
+    });
+    [['s3d-zodiac-lines', 'zodiacLines'], ['s3d-zodiac-field', 'zodiacField'],
+      ['s3d-zodiac-interact', 'zodiacInteract']].forEach(function (pair) {
+      var input = $(pair[0]);
+      if (input) input.addEventListener('change', function () {
+        var patch = {};
+        patch[pair[1]] = input.checked;
+        configure(patch);
+        savePreferences();
+      });
+    });
+    // 绘景作品下拉遍历注册表生成：与工坊卡片同一份清单，不会列出不同的作品。
+    var animeSceneSelect = $('s3d-anime-scene');
+    if (animeSceneSelect) {
+      animeSceneList().forEach(function (s) {
+        var opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.label;
+        animeSceneSelect.appendChild(opt);
+      });
+      if (!animeSceneSelect.options.length) {
+        var empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '绘景模块未加载';
+        animeSceneSelect.appendChild(empty);
+        animeSceneSelect.disabled = true;
+      }
+      animeSceneSelect.addEventListener('change', function () {
+        if (!this.value) return;
+        animeScene = this.value;
+        if (global.StageAnimeSvg && sceneSource === 'anime-svg') StageAnimeSvg.setPrefs({ scene: animeScene });
+        savePreferences();
+      });
+    }
+    var animeMirrorInput = $('s3d-anime-mirror');
+    if (animeMirrorInput) animeMirrorInput.addEventListener('change', function () {
+      animeMirror = this.checked;
+      if (global.StageAnimeSvg && sceneSource === 'anime-svg') StageAnimeSvg.setPrefs({ mirror: animeMirror });
+      savePreferences();
     });
     document.addEventListener('creative:degrade', function (event) {
       if (active && sceneSource === 'creative') showFallback(event.detail.reason + '；可在舞台设置中切回沉浸声场', 'creative');
@@ -3979,6 +4318,9 @@
     configure: configure,
     preferences: preferences,
     save: savePreferences,
+    // 「海岸时刻」0..1 的时刻名。控制舱的滑块要显示「黄昏/午夜」而不是百分比，
+    // 阈值只在舞台侧定义一处，外部照抄一份必然漂移。
+    coastTodLabel: coastTodLabel,
     // 当前歌词视觉是否由 stanza 渲染器接管。创意工坊靠它决定"能不能调"：
     // 商籁/凝彩激活时舞台参数已经不作用于画面（stanza 自带一套视觉），
     // 此时让用户继续拖参数就是骗人 —— 必须只保留选择、关掉编辑。

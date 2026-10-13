@@ -15,6 +15,11 @@ const box = {
   localStorage: { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value) },
   performance: { now: () => 0 },
   document: { getElementById: () => null, addEventListener() {} },
+  // 底纹理那张画稿是异步解码的，artBase 用 data: URI + <img> 解码（宿主 CSP 的
+  // connect-src 是 none，fetch 一律失败）。这里给一个"永远停在解码中"的 Image：
+  // bind() 于是走它自己写的那条降级路 —— uArtOk 保持 0，着色器整幅回落全程序化底。
+  // 本脚本查的是登记/参数/分享/恢复往返，纹理工件不在这里验。
+  Image: class { constructor() { this.onload = null; this.onerror = null; } },
   Stage: { gate() {}, kick() {}, position: () => 0 }
 };
 box.window = box;
@@ -51,7 +56,7 @@ async function main() {
     function frameAt(rotation, yaw) {
       let frame;
       const c = Math.cos(rotation), s = Math.sin(rotation);
-      GL.sceneById(scene.id).setup({ uniform3f() {}, uniform4f(_, ...value) { frame = value; } }, { uFrame: 'frame' }, {
+      GL.sceneById(scene.id).setup({ uniform1f() {}, uniform1i() {}, uniform3f() {}, uniform4f(_, ...value) { frame = value; } }, { uFrame: 'frame' }, {
         p: GL.sceneById(scene.id).defaults,
         cam: { yaw, pitch: 0, dist: 20, fov: 55, tx: 0, ty: 0, tz: 0 },
         modelMatrix: [c,0,-s,0,0,1,0,0,s,0,c,0,0,0,0,1]

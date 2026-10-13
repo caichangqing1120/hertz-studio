@@ -131,7 +131,9 @@ const REQUIRE_BEFORE = [
   ['creative-stage.js', 'app.js'],              // app.js 调 CreativeStage.init()
   ['stage.js', 'app.js'],
   ['palette.js', 'app.js'],                      // 命令由 app.js 注册进面板
-  ['vendor/qrcode.js', 'online-login.js']      // 扫码弹窗读 window.qrcode
+  ['vendor/qrcode.js', 'online-login.js'],      // 扫码弹窗读 window.qrcode
+  ['skins/skins.js', 'skins/skin-settings-sheet.js'],           // 设置浮层在 Skins 上登记生命周期
+  ['skins/skin-shared.js', 'skins/skin-settings-sheet.js']      // 搬运/登记工具先于浮层
 ];
 
 REQUIRE_BEFORE.forEach((pair) => {

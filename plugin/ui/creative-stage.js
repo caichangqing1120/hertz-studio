@@ -423,7 +423,7 @@
   // ---------------------------------------------------------------------------
 
   function onBeat() {
-    var shake = readPath(runtime, 'cam.shake') / 100;
+    var shake = fixedComposition() ? 0 : readPath(runtime, 'cam.shake') / 100;
     cam.shakeYaw += (Math.random() - 0.5) * 0.055 * shake;
     cam.shakePitch += (Math.random() - 0.5) * 0.040 * shake;
     // 编排轨里 every=N 的 cue 由节拍计数触发，不必再自己维护一个 BPM 估计。
@@ -464,7 +464,7 @@
     if (window.Stage && Stage.kick) Stage.kick();
   }
 
-  function stepAnimations(t) {
+  function stepAnimations(t, fixed) {
     for (var i = animations.length - 1; i >= 0; i -= 1) {
       var a = animations[i];
       var clock = a.songClock && window.Stage && Stage.position ? Stage.position() : t;
@@ -472,6 +472,7 @@
       var e = ease(a.ease, k);
       for (var j = 0; j < a.keys.length; j += 1) {
         var key = a.keys[j];
+        if (fixed && (a.mood || a.entry) && framingPath(key)) continue;
         var v = a.from[key] + (a.to[key] - a.from[key]) * e;
         writePath(runtime, key, clampPath(key, v));
       }
@@ -494,9 +495,10 @@
     'energy': function () { return feat.energy; }
   };
 
-  function stepBindings() {
+  function stepBindings(fixed) {
     for (var i = 0; i < preset.bindings.length; i += 1) {
       var b = preset.bindings[i];
+      if (fixed && framingPath(b.target)) continue;
       var src = BIND_SOURCES[b.source];
       if (!src) continue;
       var v = readPath(runtime, b.target) + src() * (b.gain === undefined ? 1 : b.gain);
@@ -557,6 +559,19 @@
   // 全局解析：一帧的参数是"基础值 → 绑定 → 动画"三步叠出来的。
   // -------------------------------------------------------------------------
 
+  // The editor and illustrated landscapes keep their composition still while
+  // scene time continues. This is a runtime policy, never a preset rewrite.
+  // Deliberate camera sliders and authored cues still pass through unchanged.
+  function fixedComposition() {
+    var presentation = sceneDefinition(preset.scene).presentation;
+    return !!(presentation && presentation.family === 'anime')
+      || !!(window.Workshop && Workshop.isEditingAdvanced && Workshop.isEditingAdvanced());
+  }
+
+  function framingPath(path) {
+    return path.indexOf('cam.') === 0 || path === 'stage.scale' || path === 'stage.rotY';
+  }
+
   function resolve(t) {
     runtime = { cam: {}, look: {}, stage: {}, sc: {} };
     ['cam', 'look', 'stage'].forEach(function (k) {
@@ -565,12 +580,13 @@
     runtime.sc = deep(preset.sc);
 
     // 低频跟随：整体抬高机位注视点。放在绑定之前，所以绑定可以再叠加。
-    var kick = reducedMotion() ? 0 : readPath(runtime, 'cam.kick') / 100;
+    var fixed = fixedComposition();
+    var kick = reducedMotion() || fixed ? 0 : readPath(runtime, 'cam.kick') / 100;
     runtime.cam.height += agg[0] * kick * 0.45;
 
-    if (!reducedMotion()) stepBindings();
+    if (!reducedMotion()) stepBindings(fixed);
     stepTimeline();
-    stepAnimations(t);
+    stepAnimations(t, fixed);
   }
 
   // Evaluate song-time cues from the current position, including paused seeks.
@@ -676,8 +692,8 @@
 
   // 每帧的交互连续量：拖拽惯性、滚轮缩放的平滑趋近、指针视差。
   // 全部放在渲染帧里推进，与事件循环解耦 —— 事件是离散的，画面是连续的。
-  function stepInteraction(dtMs) {
-    if (reducedMotion()) {
+  function stepInteraction(dtMs, fixed) {
+    if (reducedMotion() || fixed) {
       interact.vx = interact.vy = interact.parYaw = interact.parPitch = 0;
       interact.hadInertia = false;
       if (interact.zoomTarget !== null) {
@@ -995,6 +1011,7 @@
   function renderOne(v, dtMs) {
     var definition = sceneDefinition(preset.scene);
     var family = definition && definition.presentation && definition.presentation.family || '';
+    var fixed = fixedComposition();
     if (v.el.dataset.sceneFamily !== family) v.el.dataset.sceneFamily = family;
     var t = now();
     var playing = document.body.classList.contains('is-playing');
@@ -1030,12 +1047,12 @@
     }
 
     // --- 相机：基线 → camLayers（cinema/peek/freecam）→ 漂移 → shake ---
-    stepInteraction(dtMs);
-    var driftBase = reduced ? 0 : readPath(runtime, 'cam.drift') / 100;
+    stepInteraction(dtMs, fixed);
+    var driftBase = reduced || fixed ? 0 : readPath(runtime, 'cam.drift') / 100;
     if (v === stageView) driftPhase = sceneTime / 1000 * 0.12 * driftBase;
     else driftPhase += dtMs / 1000 * 0.12 * driftBase;
-    cam.shakeYaw *= reduced ? 0 : Math.exp(-dtMs / 130);
-    cam.shakePitch *= reduced ? 0 : Math.exp(-dtMs / 130);
+    cam.shakeYaw *= reduced || fixed ? 0 : Math.exp(-dtMs / 130);
+    cam.shakePitch *= reduced || fixed ? 0 : Math.exp(-dtMs / 130);
     var ctx = {
       t: t,
       dtMs: dtMs,
@@ -1062,7 +1079,7 @@
       // 自由相机全开标志（目前只作观测，不参与合成分支）。
       freecam: false
     };
-    for (var li = 0; !reduced && li < camLayers.length; li += 1) {
+    for (var li = 0; !reduced && !fixed && li < camLayers.length; li += 1) {
       try { camLayers[li].fn(ctx); } catch (e) { /* 单层抛错不能拖垮帧循环 */ }
     }
 
@@ -1073,7 +1090,7 @@
       + Math.sin(driftPhase * 0.73 + 1.1) * 0.10 * drift + cam.shakePitch + interact.parPitch, -1.35, 1.35);
     // agg kick 是基线音频响应，对所有层生效；near plane 0.1，dist 不得贴到 0.3 以下。
     var dist = Math.max(0.3, ctx.dist
-      * (1 - (reduced ? 0 : agg[0]) * 0.06 * (readPath(runtime, 'cam.kick') / 100)));
+      * (1 - (reduced || fixed ? 0 : agg[0]) * 0.06 * (readPath(runtime, 'cam.kick') / 100)));
 
     var rot = readPath(runtime, 'stage.rotY') * Math.PI / 180 + Math.sin(driftPhase * 0.5) * 0.08 * drift;
     var sc = readPath(runtime, 'stage.scale');
@@ -1643,9 +1660,9 @@
       }
       runtime = {};
       resolve(now());
-      if (camTo) {
+      if (camTo && !fixedComposition()) {
         animations.push({ keys: Object.keys(camTo), from: camFrom, to: camTo,
-          start: now(), len: 900, ease: 'inout' });
+          start: now(), len: 900, ease: 'inout', entry: true });
       }
       saveLocalSoon();
       emit('preset', preset);

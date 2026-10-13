@@ -21,9 +21,14 @@
   'use strict';
 
   // 默认外观可以更新，已经保存的主题（包括稍后注册的主题）继续按原选择恢复。
+  // 唯一的例外是旧默认值本身：它会被一次性换到新默认，见 migrateDefault()。
   var STORE_KEY = 'vmusic.theme.v2';
   var ATTR = 'data-theme';
-  var DEFAULT_ID = 'celestial';
+  var DEFAULT_ID = 'mineral';
+  // 默认档从「晴空绘卷」换成「矿石黑」。旧默认值要走一次性迁移，
+  // 理由见 migrateDefault()。
+  var PREVIOUS_DEFAULT_ID = 'celestial';
+  var DEFAULT_MIGRATED_KEY = 'vmusic.theme.mineral-default';
   // 外观族：颜色归主题，材质/圆角/间距/动效归外观。
   //
   // 为什么需要它：装饰层（anime-ui.css / anime-stage.css / anime-interactions.*）
@@ -38,6 +43,15 @@
   // 两族共享同一份结构装饰（间距、圆角、缓动、噪点），只在材质层分叉。
   var LOOK_ATTR = 'data-look';
   var DEFAULT_LOOK = 'plain';
+  // 点击特效归主题自己声明（fx 字段，如 'stardust' / 'ember'），落到
+  // <html data-fx> 上由 anime-interactions.* 选原型。特效的形状与动效跟着
+  // 主题的气质走，颜色仍走令牌（--accent / --brand / --highlight），所以
+  // 自定义配色不声明 fx 也有得看。
+  var FX_ATTR = 'data-fx';
+  // 没声明 fx 的主题按外观族兜底：族原有的手感保留（glass=星屑、cel=碎片），
+  // 其余走中性光点。声明了 fx 的一律以声明为准。
+  var DEFAULT_FX = 'spark';
+  var LOOK_FX = { glass: 'stardust', cel: 'shard' };
 
   // -------------------------------------------------------------------------
   // 内置主题
@@ -48,8 +62,9 @@
   var CATALOG = [
     {
       id: 'mineral',
-      name: '矿石黑',
+      name: '矿石黑（默认）',
       note: '矿石黑 · 近黑底 + 纯白强调 + 薄荷青辉光',
+      fx: 'shard',
       // 对比度（自 --bg 反推，WCAG AA）：text ≈ 15.6 / muted ≈ 7.4
       tokens: {
         '--bg': '#0A0A0A',
@@ -72,8 +87,9 @@
     },
     {
       id: 'celestial',
-      name: '晴空绘卷（默认）',
+      name: '晴空绘卷',
       note: '动画天空 · 靛蓝玻璃、暖金细边与赛璐璐云影',
+      fx: 'stardust',
       look: 'glass',
       tokens: {
         '--bg': '#0d1530',
@@ -124,6 +140,7 @@
       id: 'kiminona',
       name: '逢魔时',
       note: '新海诚 · 高饱和黄昏天空压在深蓝紫上，暖橙与天青对撞',
+      fx: 'comet',
       look: 'cel',
       // 对比度（自 --bg #1B1B3A 反推，WCAG AA）：
       //   text ≈ 15.1  muted ≈ 8.2  brand ≈ 8.7  highlight ≈ 11.5
@@ -182,6 +199,7 @@
       id: 'spirited',
       name: '汤屋',
       note: '汤屋 · 琥珀灯火与苔绿，暖金高光压在深棕底上',
+      fx: 'ember',
       look: 'cel',
       // 配色取自吉卜力《千与千寻》汤屋的夜灯：暖褐底 + 琥珀灯 + 苔绿 + 暖白。
       // 对比度（自 --bg #1E1410 反推，WCAG AA；面板 #2F221A / 卡片 #3A2A20）：
@@ -253,6 +271,7 @@
       id: 'starrail',
       name: '深空',
       note: '深空蓝紫渐变底 + 青金描边高光，毛玻璃与内发光',
+      fx: 'nova',
       look: 'glass',
       // 对比度（自 --bg #14122E 反推，WCAG AA）：
       //   text ≈ 16.3  muted ≈ 7.5  brand ≈ 10.0  highlight ≈ 11.5
@@ -306,6 +325,7 @@
       id: 'liyue',
       name: '夜市',
       note: '夜市 · 璃月青与金，深青玻璃上的暖白灯火',
+      fx: 'firework',
       look: 'glass',
       // 配色取自原神官网璃月主视觉：青玉 + 金棕 + 暖白（实测取到
       // #69e0ff 青、#ce965f / #815a34 金棕、#ffd49f 暖白、rgb(252,249,254) 暖白底）。
@@ -374,6 +394,7 @@
       id: 'starblue',
       name: '星蓝深空',
       note: '深空蓝黑底 + 科技蓝强调色',
+      fx: 'warp',
       // 对比度（自 --bg 反推，WCAG AA）：
       //   text/bg ≈ 14.2  muted/bg ≈ 7.2  accent-ink/accent ≈ 5.7
       tokens: {
@@ -395,6 +416,7 @@
       id: 'emerald',
       name: '翡翠夜',
       note: '墨绿底 + 翡翠强调色',
+      fx: 'glint',
       tokens: {
         '--bg': '#0d0f12',
         '--panel': 'rgba(24, 27, 32, 0.66)',
@@ -414,6 +436,7 @@
       id: 'midnight-neon',
       name: '午夜霓虹',
       note: '午夜霓虹 · 深夜窗上反光的赛博粉',
+      fx: 'neon',
       tokens: {
         '--bg': '#101116',
         '--panel': 'rgba(26, 27, 34, 0.72)',
@@ -433,6 +456,7 @@
       id: 'mono',
       name: '黑白简约',
       note: '黑白简约 · 克制的墨灰底 + 一点冷蓝强调',
+      fx: 'ripple',
       tokens: {
         '--bg': '#1c1c1e',
         '--panel': 'rgba(40, 40, 44, 0.72)',
@@ -452,6 +476,7 @@
       id: 'aero',
       name: '极简 Aero',
       note: '极简 Aero · 冷灰蓝的玻璃质感',
+      fx: 'halo',
       tokens: {
         '--bg': '#252a30',
         '--panel': 'rgba(48, 54, 61, 0.72)',
@@ -471,6 +496,7 @@
       id: 'codeide',
       name: 'Code IDE',
       note: '代码编辑器 · 低饱和的暖琥珀',
+      fx: 'pixel',
       tokens: {
         '--bg': '#1a1d23',
         '--panel': 'rgba(37, 40, 48, 0.72)',
@@ -490,6 +516,7 @@
       id: 'sakura',
       name: '夜樱猫语',
       note: '夜樱猫语 · 靛紫底上的樱粉',
+      fx: 'petal',
       tokens: {
         '--bg': '#1a1a2e',
         '--panel': 'rgba(43, 43, 69, 0.72)',
@@ -509,6 +536,7 @@
       id: 'crimson',
       name: '绯红天穹',
       note: '绯红天穹 · 高能的猩红强调',
+      fx: 'burst',
       tokens: {
         '--bg': '#0d0f12',
         '--panel': 'rgba(26, 28, 32, 0.72)',
@@ -528,6 +556,7 @@
       id: 'paper-ink',
       name: '纸墨与机芯',
       note: '纸墨与机芯 · 米白纸感 + 黄铜齿轮',
+      fx: 'ink',
       tokens: {
         '--bg': '#171a1d',
         '--panel': 'rgba(32, 37, 42, 0.72)',
@@ -547,6 +576,7 @@
       id: 'forest',
       name: '静谧森岭',
       note: '静谧森岭 · 苔绿与蕨叶',
+      fx: 'firefly',
       tokens: {
         '--bg': '#1a201b',
         '--panel': 'rgba(42, 54, 47, 0.72)',
@@ -566,6 +596,7 @@
       id: 'porcelain',
       name: '瓷与锦',
       note: '瓷与锦 · 青花瓷的靛蓝与金线',
+      fx: 'glaze',
       tokens: {
         '--bg': '#0a1921',
         '--panel': 'rgba(13, 42, 56, 0.72)',
@@ -585,6 +616,7 @@
       id: 'snow-dawn',
       name: '雪境晨昏',
       note: '雪境晨昏 · 冷蓝夜幕与初升暖光',
+      fx: 'snow',
       tokens: {
         '--bg': '#1a2333',
         '--panel': 'rgba(37, 47, 64, 0.72)',
@@ -604,6 +636,7 @@
       id: 'acid',
       name: '酸性玄武',
       note: '酸性玄武 · 荧光黄绿的实验感',
+      fx: 'glitch',
       tokens: {
         '--bg': '#0d1013',
         '--panel': 'rgba(21, 25, 31, 0.72)',
@@ -623,6 +656,7 @@
       id: 'liunian',
       name: '流年',
       note: '流年 · 旧纸暖褐底 + 沉金色的岁月流光',
+      fx: 'sand',
       // 对比度（自 --bg 反推，WCAG AA）：
       //   text/bg ≈ 14.8  muted/bg ≈ 6.6  accent-ink/accent ≈ 7.8
       // 流年专属的 --liunian-vignette 是老照片暗角，仅 skin.liunian.css 消费。
@@ -651,6 +685,7 @@
       id: 'ios-light',
       name: 'iOS 浅色',
       note: 'iOS 浅色 · macOS 中性灰白层级、统一系统蓝与轻量分组表面',
+      fx: 'pill',
       // 对比度（自 --bg #F2F2F7 与 --panel #FFFFFF 反推，WCAG AA）：
       //   text ≈ 15.3 / 17.0   muted ≈ 4.5 / 5.1   accent ≈ 5.2 / 5.8
       //   白字压 accent ≈ 5.8（不是 #007AFF 的 4.0——见下）
@@ -736,6 +771,7 @@
       id: 'chaoxi-night',
       name: '潮汐·夜',
       note: '留白·夜 · 近黑纸面 + 暖铜色唱片辉光（皮肤「潮汐」的配套深色）',
+      fx: 'bubble',
       // 对比度（自 --bg #0E0E10 反推，WCAG AA）：
       //   text ≈ 16.5   muted ≈ 6.4   brand ≈ 8.6
       // 强调色刻意取 #E8E6E1 而不是纯白：纯白在近黑底上会起光晕，细字尤其明显。
@@ -772,6 +808,7 @@
       id: 'chaoxi-day',
       name: '潮汐·昼',
       note: '留白·昼 · 暖白纸面 + 压深铜色（皮肤「潮汐」的配套浅色）',
+      fx: 'tide',
       // 对比度（自 --bg #F7F6F4 反推，WCAG AA）：
       //   text ≈ 16.6   muted ≈ 4.7   brand-ink ≈ 4.6
       //
@@ -922,6 +959,10 @@
     // （内置里那些纯换色的）时，若只在有 look 时才 setAttribute，上一套的
     // data-look 会留在 <html> 上，那套主题于是平白多出一层玻璃装饰。
     el.setAttribute(LOOK_ATTR, theme.look || DEFAULT_LOOK);
+    // 点击特效与 data-look 同一条纪律：**必须每次都写**，否则从有特效的
+    // 主题切到没有特效声明的主题时，上一套的 data-fx 会留在 <html> 上，
+    // 那套主题于是放着别家的粒子。
+    el.setAttribute(FX_ATTR, theme.fx || LOOK_FX[theme.look || DEFAULT_LOOK] || DEFAULT_FX);
     current = theme;
     if (!(opts && opts.silent)) writeStored(theme.id);
     // 主题色会被舞台取色覆盖到 --music-highlight 上，换主题要让它重新取一次
@@ -943,13 +984,14 @@
       Object.keys(t.tokens).forEach(function (k) { tokens[k] = t.tokens[k]; });
       return {
         id: t.id, name: t.name, note: t.note, tokens: tokens,
-        look: t.look || DEFAULT_LOOK
+        look: t.look || DEFAULT_LOOK,
+        fx: t.fx || LOOK_FX[t.look || DEFAULT_LOOK] || DEFAULT_FX
       };
     });
   }
 
   function init() {
-    var saved = readStored();
+    var saved = migrateDefault(readStored());
     if (byId.has(saved)) {
       apply(saved, { silent: true });
       return current;
@@ -959,6 +1001,22 @@
     pendingId = saved || null;
     apply(DEFAULT_ID, { silent: true });
     return current;
+  }
+
+  // 默认档从「晴空绘卷」换成「矿石黑」，需要动一次已存的旧值。
+  //
+  // 与歌单排布那次同一形状的问题：旧默认在菜单里就叫「晴空绘卷（默认）」，
+  // 点它和「没选过」在存储里长得一样。这里只动那个分不出来的值——存的是
+  // 其它主题（含后来登记的二次元批次与自定义配色）一律原样恢复；标记落定后
+  // 用户再主动选晴空绘卷，也不会被改回去。
+  function migrateDefault(saved) {
+    if (saved !== PREVIOUS_DEFAULT_ID) return saved;
+    try {
+      if (localStorage.getItem(DEFAULT_MIGRATED_KEY)) return saved;
+      localStorage.setItem(DEFAULT_MIGRATED_KEY, '1');
+      localStorage.setItem(STORE_KEY, DEFAULT_ID);
+    } catch (e) { /* 隐私模式：写不进标记，这次就当没迁移过 */ }
+    return DEFAULT_ID;
   }
 
   window.Theme = {
@@ -982,9 +1040,13 @@
       // 不继承已有条目：register 用于"就地改写"同一 id 时，改的正是配色，
       // 外观族得由调用方显式声明；沿用旧值会把上一套的外观悄悄留给新配色。
       entry.look = theme.look || DEFAULT_LOOK;
+      // fx 与 look 同一条规矩：主题自己的属性，不进 tokens，也不继承旧条目——
+      // register 用于"就地改写"同一 id 时，调用方不声明就不该沿用上一套特效。
+      entry.fx = theme.fx || LOOK_FX[entry.look] || DEFAULT_FX;
       var at = byId.get(entry.id);
       if (at) {
-        at.tokens = merged; at.name = entry.name; at.note = entry.note; at.look = entry.look;
+        at.tokens = merged; at.name = entry.name; at.note = entry.note;
+        at.look = entry.look; at.fx = entry.fx;
       } else {
         CATALOG.push(entry);
         byId.set(entry.id, entry);

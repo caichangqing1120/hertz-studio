@@ -56,7 +56,12 @@ ui_assets! {
     "/stage-focus.js", JS => const STAGE_FOCUS_JS: &str = include_str!("../../../plugin/ui/stage-focus.js");
     "/stage-lyrics.js", JS => const STAGE_LYRICS_JS: &str = include_str!("../../../plugin/ui/stage-lyrics.js");
     "/stage-shelf.js", JS => const STAGE_SHELF_JS: &str = include_str!("../../../plugin/ui/stage-shelf.js");
+    "/vendor/coast-stage.js", JS => const COAST_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/coast-stage.js");
+    "/stage-coast.js", JS => const STAGE_COAST_JS: &str = include_str!("../../../plugin/ui/stage-coast.js");
+    "/vendor/zodiac-stage.js", JS => const ZODIAC_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/zodiac-stage.js");
+    "/stage-zodiac.js", JS => const STAGE_ZODIAC_JS: &str = include_str!("../../../plugin/ui/stage-zodiac.js");
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
+    "/stage-anime-svg.js", JS => const STAGE_ANIME_SVG_JS: &str = include_str!("../../../plugin/ui/stage-anime-svg.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");
     "/stanza/stanza-theme.js", JS => const STANZA_THEME_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-theme.js");
@@ -90,6 +95,7 @@ ui_assets! {
     "/creative.css", CSS => const CREATIVE_CSS: &str = include_str!("../../../plugin/ui/creative.css");
     "/creative-anime.css", CSS => const CREATIVE_ANIME_CSS: &str = include_str!("../../../plugin/ui/creative-anime.css");
     "/stage3d.css", CSS => const STAGE3D_CSS: &str = include_str!("../../../plugin/ui/stage3d.css");
+    "/stage-anime-svg.css", CSS => const STAGE_ANIME_SVG_CSS: &str = include_str!("../../../plugin/ui/stage-anime-svg.css");
     "/stanza/stanza.css", CSS => const STANZA_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza.css");
     "/stanza/stanza-starborn.css", CSS => const STANZA_STARBORN_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza-starborn.css");
     "/online.css", CSS => const ONLINE_CSS: &str = include_str!("../../../plugin/ui/online.css");
@@ -109,10 +115,13 @@ ui_assets! {
     "/skins/skin.ios.css", CSS => const SKIN_IOS_CSS: &str = include_str!("../../../plugin/ui/skins/skin.ios.css");
     "/skins/skin.qingfeng.css", CSS => const SKIN_QINGFENG_CSS: &str = include_str!("../../../plugin/ui/skins/skin.qingfeng.css");
     "/skins/skin.chaoxi.css", CSS => const SKIN_CHAOXI_CSS: &str = include_str!("../../../plugin/ui/skins/skin.chaoxi.css");
+    "/skins/skin.heijiao.css", CSS => const SKIN_HEIJIAO_CSS: &str = include_str!("../../../plugin/ui/skins/skin.heijiao.css");
     "/skins/skin-shared.js", JS => const SKIN_SHARED_JS: &str = include_str!("../../../plugin/ui/skins/skin-shared.js");
+    "/skins/skin-settings-sheet.js", JS => const SKIN_SETTINGS_SHEET_JS: &str = include_str!("../../../plugin/ui/skins/skin-settings-sheet.js");
     "/skins/skin.liunian.js", JS => const SKIN_LIUNIAN_JS: &str = include_str!("../../../plugin/ui/skins/skin.liunian.js");
     "/skins/skin.qingfeng.js", JS => const SKIN_QINGFENG_JS: &str = include_str!("../../../plugin/ui/skins/skin.qingfeng.js");
     "/skins/skin.chaoxi.js", JS => const SKIN_CHAOXI_JS: &str = include_str!("../../../plugin/ui/skins/skin.chaoxi.js");
+    "/skins/skin.heijiao.js", JS => const SKIN_HEIJIAO_JS: &str = include_str!("../../../plugin/ui/skins/skin.heijiao.js");
     "/stage-themes/starfall.css", CSS => const STAGE_THEME_STARFALL_CSS: &str = include_str!("../../../plugin/ui/stage-themes/starfall.css");
     "/stage-themes/ios.css", CSS => const STAGE_THEME_IOS_CSS: &str = include_str!("../../../plugin/ui/stage-themes/ios.css");
 }

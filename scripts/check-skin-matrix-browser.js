@@ -30,7 +30,10 @@ const THEMES = ['mineral', 'celestial', 'kiminona', 'spirited', 'starrail', 'liy
   'starblue', 'emerald', 'midnight-neon', 'mono', 'aero', 'codeide', 'sakura',
   'crimson', 'paper-ink', 'forest', 'porcelain', 'snow-dawn', 'acid', 'liunian',
   'ios-light', 'chaoxi-night', 'chaoxi-day'];
-const SKINS = ['classic', 'sheen', 'workbench', 'liunian', 'ios', 'qingfeng', 'chaoxi'];
+// workbench 不在矩阵里：它是隐藏皮肤（设置页/顶栏都不给入口），开页会被主动
+// 回落到 classic —— 这里靠写 localStorage + reload 起皮肤，写上它只会报
+// 「皮肤切不过去」。组合矩阵只跑界面上真能选到的那几套。
+const SKINS = ['classic', 'sheen', 'liunian', 'ios', 'qingfeng', 'chaoxi', 'heijiao'];
 
 const issues = [];
 let combos = 0;
@@ -116,7 +119,10 @@ let combos = 0;
           return {
             topbar: box('.topbar'), rail: box('.rail'), column: box('.column'),
             app: box('.app'), bar: box('.bar'), track: box('.track'),
-            vw: document.documentElement.clientWidth
+            stage: box('.stage'), disc: box('.stage .disc-wrap'),
+            vw: document.documentElement.clientWidth,
+            appCols: getComputedStyle(document.querySelector('.app') || document.body)
+              .gridTemplateColumns
           };
         });
 
@@ -141,6 +147,40 @@ let combos = 0;
             issues.push({ tag, why: '顶栏是浮起卡片（圆角 ' + m.topbar.radius + '），应为扁平通栏' });
           if (m.column && m.column.radius <= 0)
             issues.push({ tag, why: '内容卡不是圆角卡（潮汐的设计）' });
+        }
+        // ④ 黑胶专属：通栏同潮汐，另加「双卡片比例」与「左卡不塌」
+        if (skin === 'heijiao') {
+          if (m.rail && m.rail.visible && m.rail.alpha < 0.9)
+            issues.push({ tag, why: '导航条没实底 alpha=' + m.rail.alpha });
+          if (m.topbar && m.topbar.radius > 0)
+            issues.push({ tag, why: '顶栏是浮起卡片（圆角 ' + m.topbar.radius + '），应为扁平通栏' });
+          // 左卡是常驻的：style.css 里 body[data-stage-idle="1"] .stage 有
+          // display:none，而它是 (0,2,1) —— 皮肤必须用更高特异性拉回来。
+          // 漏掉的表现是"空闲几秒后左卡凭空消失、栅格塌成一列"，且不报错。
+          if (!m.stage || !m.stage.visible)
+            issues.push({ tag, why: '左卡不见了（data-stage-idle 把它 display:none 了）' });
+          // 唱片不能在左卡里被压成一条缝。300px 是设计下限：
+          // 低于它就说明卡片被压扁了（与潮汐栽过的 .lib-list 12px 同一类）。
+          if (m.disc && m.disc.visible && m.disc.h < 120)
+            issues.push({ tag, why: '唱片被压扁 h=' + m.disc.h });
+          // 宽屏下必须是两轨（1/3 + 2/3）。
+          //
+          // ⚠ 判据不能读 gridTemplateColumns 的**字符串**再 split：
+          // 计算值可能带函数（minmax/min-content…），按空格拆出来的段数
+          // 与轨道数没有对应关系 —— 拆出来是 3 段不代表有 3 条轨道。
+          // 量真实几何才对：左卡与右面板**左右并排**（左卡右边界不越过
+          // 右面板左边界），这是用户能直接看出来的形态。
+          // 塌成单列时左卡在右面板上方，两个边界会重叠，这条立刻抓到。
+          if (m.vw > 1100 && m.stage && m.column && m.stage.visible && m.column.visible) {
+            if (m.stage.right > m.column.left + 2)
+              issues.push({ tag, why: '宽屏不是左右并排（左卡 right=' + m.stage.right +
+                ' 右面板 left=' + m.column.left + '）' });
+            // 左卡约占中部 1/3。放宽到 [0.2, 0.5]：这是比例，不是像素，
+            // 量到的绝对值会随视口变。
+            const ratio = m.stage.w / (m.stage.w + m.column.w);
+            if (ratio < 0.2 || ratio > 0.5)
+              issues.push({ tag, why: '左卡比例失衡 ' + (ratio * 100).toFixed(0) + '%（设计是 1/3）' });
+          }
         }
       }
     }

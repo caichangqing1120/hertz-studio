@@ -1,49 +1,560 @@
 /* SPDX-License-Identifier: MIT
  * Copyright (c) 2026 hertz-studio contributors
- * 晴空绘卷的短暂星屑；按钮内光、浮动和焦点由主题样式统一处理。 */
+ *
+ * 点击反馈的原型库。themes.js 每套主题声明 fx 字段落到 <html data-fx>，
+ * 这里按原型给**形状与关键帧**；运动学参数（粒子数 / 距离 / 方向锥 /
+ * 错峰 / 时长）在 anime-interactions.js 的 EFFECTS 注册表里 —— 两边的
+ * 名单必须一致，check-anime-ui.js 会对表。颜色一律走令牌（--accent /
+ * --brand / --highlight 派生），不写死任何一套主题的色值。
+ *
+ * 每个原型三件事：粒子（或 burst 节点）的长相、一套 fx-<原型> 关键帧、
+ * 以及需要错峰时的 animation-delay。运动变量由引擎逐粒注入：
+ *   --anime-spark-x / -y   行程向量（既有）
+ *   --anime-spark-m        行程模长（径向原型用）
+ *   --anime-spark-a        行程方向角 +90°（让"竖条"对准飞行方向）
+ *   --anime-spark-r        随机姿态角 ±60°（花瓣/瓷片/碎片用）
+ *   --anime-spark-d        错峰延迟
+ */
 
-html:is([data-look="glass"], [data-look="cel"]) .anime-interactions-layer {
+/* ---- 基座：层、burst、粒子定位与语义色（与原型无关） ---------------- */
+html[data-fx]:not([data-fx="plain"]) .anime-interactions-layer {
   contain: strict;
   pointer-events: none;
+  /* 三档语义色：主色 / 次色 / 高光位，全部由主题令牌派生，粒子继承。 */
+  --fx-a: var(--accent, #e8ecef);
+  --fx-b: var(--brand, var(--accent-2, #8a9099));
+  --fx-hi: var(--highlight, var(--accent, #f4d28a));
 }
 
-html:is([data-look="glass"], [data-look="cel"]) .anime-interactions-burst {
+html[data-fx]:not([data-fx="plain"]) .anime-interactions-burst {
   position: absolute;
   width: 0;
   height: 0;
   pointer-events: none;
 }
 
-html:is([data-look="glass"], [data-look="cel"]) .anime-interactions-particle {
+html[data-fx]:not([data-fx="plain"]) .anime-interactions-particle {
   position: absolute;
-  top: -2px;
-  left: -2px;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* 舞台区放大档：#stage3d 上声明 data-fx-zone="stage"，引擎把区名记到 burst 节点。
+   整屏暗底上的 44px 圆牌，配 2×9px 的碎片等于没放（实测单击后逐帧数亮像素，
+   现状与不放的差在噪声里）。只在这里给一个倍率，形状与配色仍归各主题的原型。
+   scale 是独立变换属性，与关键帧里的 transform 相乘而不覆盖它，位移和旋转照旧。 */
+html[data-fx]:not([data-fx="plain"]) .anime-interactions-burst.fx-stage { scale: 1.75; }
+
+/* ---- 矿石黑 · shard：晶体碎片 --------------------------------------
+   近黑底上的白刃：细长斜条带薄荷辉光，快进快出，像矿石崩出的晶屑。 */
+html[data-fx="shard"] .anime-interactions-particle {
+  width: 2px;
+  height: 9px;
+  margin: -4.5px 0 0 -1px;
+  border-radius: 0;
+  background: var(--fx-a);
+  box-shadow: 0 0 4px rgb(var(--brand-rgb, 0, 245, 212) / 40%);
+  animation: fx-shard 240ms ease-out both;
+}
+html[data-fx="shard"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 4px rgb(var(--highlight-rgb, 244, 210, 138) / 40%);
+}
+@keyframes fx-shard {
+  0% { transform: translate3d(0, 0, 0) rotate(calc(45deg + var(--anime-spark-r))) scale(.6); opacity: 0; }
+  20% { opacity: .9; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) rotate(calc(80deg + var(--anime-spark-r))) scale(.3); opacity: 0; }
+}
+
+/* ---- 晴空绘卷 · stardust：金青双色旋转星屑（本族基准） --------------- */
+html[data-fx="stardust"] .anime-interactions-particle {
   width: 4px;
   height: 4px;
+  margin: -2px 0 0 -2px;
   border-radius: 1px;
-  background: var(--anime-particle-gold, #d8b35f);
-  box-shadow: 0 0 5px rgb(235 201 126 / 35%);
-  pointer-events: none;
-  animation: anime-button-spark 280ms ease-in-out both;
+  background: var(--fx-hi);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--fx-hi) 35%, transparent);
+  animation: fx-stardust 280ms ease-in-out both;
 }
-
-html:is([data-look="glass"], [data-look="cel"]) .anime-interactions-particle:nth-child(3n) {
-  background: var(--anime-particle-cyan, #71c9d4);
-  box-shadow: 0 0 5px rgb(var(--brand-rgb) / 35%);
+html[data-fx="stardust"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--fx-b) 35%, transparent);
 }
-
-@keyframes anime-button-spark {
+@keyframes fx-stardust {
   0% { transform: translate3d(0, 0, 0) rotate(45deg) scale(.5); opacity: 0; }
   22% { opacity: .88; }
   100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) rotate(110deg) scale(.15); opacity: 0; }
 }
 
-html:is([data-look="glass"], [data-look="cel"])[data-rm~="ui"] .anime-interactions-layer,
-html:is([data-look="glass"], [data-look="cel"]) body.reduce-motion .anime-interactions-layer,
-html:is([data-look="glass"], [data-look="cel"]) body[data-rm~="ui"] .anime-interactions-layer {
+/* ---- 逢魔时 · comet：黄昏彗尾 ---------------------------------------
+   暖橙胶囊沿行程对齐、越飞越舒展，向上掠过后消散 —— 新海诚的流星那一下。 */
+html[data-fx="comet"] .anime-interactions-particle {
+  width: 3px;
+  height: 12px;
+  margin: -6px 0 0 -1.5px;
+  border-radius: 2px;
+  background: var(--fx-a);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fx-b) 45%, transparent);
+  animation: fx-comet 380ms ease-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="comet"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fx-a) 45%, transparent);
+}
+@keyframes fx-comet {
+  0% { transform: rotate(var(--anime-spark-a)) translate3d(0, 0, 0) scaleY(.4); opacity: 0; }
+  20% { opacity: .95; }
+  100% { transform: rotate(var(--anime-spark-a)) translate3d(0, calc(-1 * var(--anime-spark-m)), 0) scaleY(1); opacity: 0; }
+}
+
+/* ---- 汤屋 · ember：灯火余烬 ------------------------------------------
+   暖金圆点上飘、先加速后减速地"浮"上去，错峰出发 —— 锅炉房的火星。 */
+html[data-fx="ember"] .anime-interactions-particle {
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--fx-hi);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fx-hi) 55%, transparent);
+  animation: fx-ember 560ms ease-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="ember"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fx-b) 45%, transparent);
+}
+@keyframes fx-ember {
+  0% { transform: translate3d(0, 0, 0) scale(.5); opacity: 0; }
+  20% { opacity: .95; }
+  60% { transform: translate3d(calc(var(--anime-spark-x) * .7), calc(var(--anime-spark-y) * .55), 0) scale(1); opacity: .7; }
+  100% { transform: translate3d(var(--anime-spark-x), calc(var(--anime-spark-y) * .8), 0) scale(.4); opacity: 0; }
+}
+
+/* ---- 深空 · nova：星光绽放 -------------------------------------------
+   原地亮起再散开的一朵小花，错峰 —— 星穹列车跃迁时的光斑。 */
+html[data-fx="nova"] .anime-interactions-particle {
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--fx-hi);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--fx-hi) 60%, transparent);
+  animation: fx-nova 440ms ease-in-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="nova"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--fx-b) 60%, transparent);
+}
+@keyframes fx-nova {
+  0% { transform: translate3d(0, 0, 0) scale(.2); opacity: 0; }
+  35% { transform: translate3d(calc(var(--anime-spark-x) * .5), calc(var(--anime-spark-y) * .5), 0) scale(1.2); opacity: .95; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(.5); opacity: 0; }
+}
+
+/* ---- 夜市 · firework：烟花四溅 ---------------------------------------
+   粒子最多的一档：四散、先扬后坠、错峰炸开 —— 璃月海灯节的零星烟花。 */
+html[data-fx="firework"] .anime-interactions-particle {
+  width: 2.5px;
+  height: 2.5px;
+  margin: -1.25px 0 0 -1.25px;
+  border-radius: 50%;
+  background: var(--fx-hi);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--fx-hi) 50%, transparent);
+  animation: fx-firework 460ms ease-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="firework"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--fx-b) 50%, transparent);
+}
+@keyframes fx-firework {
+  0% { transform: translate3d(0, 0, 0) scale(.4); opacity: 0; }
+  12% { opacity: 1; }
+  55% { transform: translate3d(calc(var(--anime-spark-x) * .75), calc(var(--anime-spark-y) * .55), 0) scale(1); opacity: .9; }
+  100% { transform: translate3d(var(--anime-spark-x), calc(var(--anime-spark-y) * .75), 0) scale(.3); opacity: 0; }
+}
+
+/* ---- 星蓝深空 · warp：星速光轨 ---------------------------------------
+   细长光条沿行程对齐、匀速射出，尾部渐亮 —— 曲率飞行的一帧。 */
+html[data-fx="warp"] .anime-interactions-particle {
+  width: 2px;
+  height: 14px;
+  margin: -7px 0 0 -1px;
+  border-radius: 1px;
+  background: linear-gradient(to top, transparent, var(--fx-a));
+  animation: fx-warp 230ms linear both;
+}
+html[data-fx="warp"] .anime-interactions-particle:nth-child(3n) {
+  background: linear-gradient(to top, transparent, var(--fx-b));
+}
+@keyframes fx-warp {
+  0% { transform: rotate(var(--anime-spark-a)) translateY(calc(-.25 * var(--anime-spark-m))) scaleY(.35); opacity: 0; }
+  25% { opacity: .9; }
+  100% { transform: rotate(var(--anime-spark-a)) translateY(calc(-1 * var(--anime-spark-m))) scaleY(1); opacity: 0; }
+}
+
+/* ---- 翡翠夜 · glint：四角星闪 ----------------------------------------
+   clip-path 剪出的四角星原地亮起、旋 90° 收没，错峰 —— 宝石的反光。 */
+html[data-fx="glint"] .anime-interactions-particle {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background: var(--fx-a);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  animation: fx-glint 480ms ease-in-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="glint"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+}
+@keyframes fx-glint {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(0); opacity: 0; }
+  30% { transform: translate3d(calc(var(--anime-spark-x) * .6), calc(var(--anime-spark-y) * .6), 0) rotate(45deg) scale(1); opacity: 1; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) rotate(90deg) scale(0); opacity: 0; }
+}
+
+/* ---- 午夜霓虹 · neon：霓虹环脉冲 -------------------------------------
+   发光环从点击点撑开、内外双色辉光 —— 深夜招牌通电的那一下。 */
+html[data-fx="neon"] .anime-interactions-burst {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  border: 2px solid var(--fx-a);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--fx-a) 60%, transparent),
+    inset 0 0 6px color-mix(in srgb, var(--fx-b) 50%, transparent);
+  animation: fx-neon 460ms cubic-bezier(.2, .7, .3, 1) both;
+}
+@keyframes fx-neon {
+  0% { transform: scale(.35); opacity: .95; }
+  60% { opacity: .8; }
+  100% { transform: scale(2.7); opacity: 0; }
+}
+
+/* ---- 黑白简约 · ripple：素环扩散 -------------------------------------
+   一根细线圆环，无辉光无第二色 —— 克制到底的"点了一下"。 */
+html[data-fx="ripple"] .anime-interactions-burst {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  border: 2px solid var(--text, var(--fx-a));
+  opacity: .65;
+  animation: fx-ripple 420ms cubic-bezier(.2, .6, .3, 1) both;
+}
+@keyframes fx-ripple {
+  to { transform: scale(3); opacity: 0; }
+}
+
+/* ---- 极简 Aero · halo：双层柔环 --------------------------------------
+   两圈不同速扩散的细环，蓝绿双色 —— Aero 玻璃的呼吸。 */
+html[data-fx="halo"] .anime-interactions-burst {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--fx-b) 75%, transparent);
+  animation: fx-halo-outer 480ms ease-out both;
+}
+html[data-fx="halo"] .anime-interactions-burst::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--fx-a) 55%, transparent);
+  animation: fx-halo-inner 480ms ease-out both;
+}
+@keyframes fx-halo-outer {
+  to { transform: scale(2.8); opacity: 0; }
+}
+@keyframes fx-halo-inner {
+  to { transform: scale(1.7); opacity: 0; }
+}
+
+/* ---- Code IDE · pixel：像素跳格 --------------------------------------
+   steps() 把位移量化成 4 格，方块一格一格蹦出去 —— 光标在动。 */
+html[data-fx="pixel"] .anime-interactions-particle {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 0;
+  background: var(--fx-a);
+  animation: fx-pixel 320ms steps(4) both;
+}
+html[data-fx="pixel"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+}
+@keyframes fx-pixel {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: .95; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(.4); opacity: 0; }
+}
+
+/* ---- 夜樱猫语 · petal：樱瓣飘落 --------------------------------------
+   花瓣形（对角圆角）、边落边转、中段横向摆 —— 夜樱被风掀了一下。 */
+html[data-fx="petal"] .anime-interactions-particle {
+  width: 8px;
+  height: 6px;
+  margin: -3px 0 0 -4px;
+  border-radius: 80% 0 80% 0;
+  background: var(--fx-a);
+  animation: fx-petal 660ms ease-in-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="petal"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+}
+@keyframes fx-petal {
+  0% { transform: translate3d(0, 0, 0) rotate(var(--anime-spark-r)) scale(.7); opacity: 0; }
+  18% { opacity: .92; }
+  55% { transform: translate3d(calc(var(--anime-spark-x) * .55), calc(var(--anime-spark-y) * .45), 0) rotate(calc(var(--anime-spark-r) + 80deg)) scale(1); opacity: .9; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) rotate(calc(var(--anime-spark-r) + 170deg)) scale(.45); opacity: 0; }
+}
+
+/* ---- 绯红天穹 · burst：赤红飞刃 --------------------------------------
+   硬边细条沿行程对齐、直线刺出，无旋转无辉光 —— 收敛而锋利。 */
+html[data-fx="burst"] .anime-interactions-particle {
+  width: 3px;
+  height: 10px;
+  margin: -5px 0 0 -1.5px;
+  border-radius: 0;
+  background: var(--fx-a);
+  animation: fx-burst 220ms ease-out both;
+}
+html[data-fx="burst"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+}
+@keyframes fx-burst {
+  0% { transform: rotate(var(--anime-spark-a)) translateY(4px) scale(.6); opacity: 0; }
+  18% { opacity: .95; }
+  100% { transform: rotate(var(--anime-spark-a)) translateY(calc(-1 * var(--anime-spark-m))) scale(.55); opacity: 0; }
+}
+
+/* ---- 纸墨与机芯 · ink：墨点洇开 --------------------------------------
+   小行程、原地胀缩 —— 墨滴落在纸面上洇开又收干。 */
+html[data-fx="ink"] .anime-interactions-particle {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--fx-a);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fx-a) 35%, transparent);
+  animation: fx-ink 520ms ease-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="ink"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fx-b) 35%, transparent);
+}
+@keyframes fx-ink {
+  0% { transform: translate3d(0, 0, 0) scale(.25); opacity: 0; }
+  30% { opacity: .8; }
+  70% { transform: translate3d(calc(var(--anime-spark-x) * .8), calc(var(--anime-spark-y) * .8), 0) scale(1.1); opacity: .55; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(.8); opacity: 0; }
+}
+
+/* ---- 静谧森岭 · firefly：萤火漂浮 ------------------------------------
+   慢速外漂 + 亮度忽明忽暗（闪烁关键帧）—— 夏夜的萤火虫。 */
+html[data-fx="firefly"] .anime-interactions-particle {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--fx-a);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fx-a) 60%, transparent);
+  animation: fx-firefly 780ms ease-in-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="firefly"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fx-b) 55%, transparent);
+}
+@keyframes fx-firefly {
+  0% { transform: translate3d(0, 0, 0) scale(.8); opacity: 0; }
+  15% { opacity: .9; }
+  35% { transform: translate3d(calc(var(--anime-spark-x) * .35), calc(var(--anime-spark-y) * .3 - 6px), 0) scale(1.25); opacity: .25; }
+  55% { transform: translate3d(calc(var(--anime-spark-x) * .6), calc(var(--anime-spark-y) * .55 - 10px), 0) scale(.9); opacity: .85; }
+  75% { opacity: .3; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(.6); opacity: 0; }
+}
+
+/* ---- 瓷与锦 · glaze：釉彩瓷片 ----------------------------------------
+   三角瓷片旋着飞出去，青花为主、金线点缀 —— 瓷器相击的一瞬。 */
+html[data-fx="glaze"] .anime-interactions-particle {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: var(--fx-b);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  animation: fx-glaze 500ms ease-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="glaze"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-hi);
+}
+@keyframes fx-glaze {
+  0% { transform: translate3d(0, 0, 0) rotate(calc(60deg + var(--anime-spark-r))) scale(.5); opacity: 0; }
+  25% { opacity: .95; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) rotate(calc(200deg + var(--anime-spark-r))) scale(.8); opacity: 0; }
+}
+
+/* ---- 雪境晨昏 · snow：雪点飘落 ---------------------------------------
+   慢速下落、中段轻晃 —— 掌心接住一片雪。 */
+html[data-fx="snow"] .anime-interactions-particle {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--text, #eef2f8);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--text, #eef2f8) 45%, transparent);
+  animation: fx-snow 740ms ease-in-out both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="snow"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-hi);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fx-hi) 45%, transparent);
+}
+@keyframes fx-snow {
+  0% { transform: translate3d(0, 0, 0) scale(.6); opacity: 0; }
+  15% { opacity: .9; }
+  50% { transform: translate3d(calc(var(--anime-spark-x) * .6 + 4px), calc(var(--anime-spark-y) * .5), 0) scale(1); opacity: .85; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(.7); opacity: 0; }
+}
+
+/* ---- 酸性玄武 · glitch：酸性故障 -------------------------------------
+   steps() 量化 + 中段横向错位与 skew —— 信号坏了一格。 */
+html[data-fx="glitch"] .anime-interactions-particle {
+  width: 5px;
+  height: 8px;
+  margin: -4px 0 0 -2.5px;
+  border-radius: 0;
+  background: var(--fx-a);
+  animation: fx-glitch 340ms steps(6) both;
+}
+html[data-fx="glitch"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--text, var(--fx-a));
+}
+@keyframes fx-glitch {
+  0% { transform: translate3d(0, 0, 0) skewX(0deg); opacity: 0; }
+  12% { opacity: .95; }
+  35% { transform: translate3d(calc(var(--anime-spark-x) * .45 + 5px), calc(var(--anime-spark-y) * .45), 0) skewX(-12deg); opacity: .9; }
+  55% { transform: translate3d(calc(var(--anime-spark-x) * .6 - 5px), calc(var(--anime-spark-y) * .6), 0) skewX(10deg); opacity: .85; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) skewX(-6deg); opacity: 0; }
+}
+
+/* ---- 流年 · sand：流沙散落 -------------------------------------------
+   细沙粒窄锥下落、加速度离手 —— 指缝间的流年。 */
+html[data-fx="sand"] .anime-interactions-particle {
+  width: 2px;
+  height: 2px;
+  margin: -1px 0 0 -1px;
+  border-radius: 50%;
+  background: var(--fx-a);
+  animation: fx-sand 620ms cubic-bezier(.4, .1, .7, 1) both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="sand"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+}
+@keyframes fx-sand {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  15% { opacity: .85; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(.55); opacity: 0; }
+}
+
+/* ---- iOS 浅色 · pill：系统感软圆 -------------------------------------
+   一枚半透明填充圆轻轻撑开、淡出 —— iOS 的 haptic 视觉化。 */
+html[data-fx="pill"] .anime-interactions-burst {
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fx-a) 32%, transparent);
+  animation: fx-pill 360ms ease-out both;
+}
+@keyframes fx-pill {
+  to { transform: scale(2.2); opacity: 0; }
+}
+
+/* ---- 潮汐·夜 · bubble：气泡上浮 --------------------------------------
+   细描边空心泡向上漂、边升边涨 —— 夜潮吐的泡。 */
+html[data-fx="bubble"] .anime-interactions-particle {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--fx-b) 80%, transparent);
+  background: color-mix(in srgb, var(--fx-b) 14%, transparent);
+  animation: fx-bubble 700ms cubic-bezier(.25, .6, .4, 1) both;
+  animation-delay: var(--anime-spark-d, 0ms);
+}
+html[data-fx="bubble"] .anime-interactions-particle:nth-child(3n) {
+  border-color: color-mix(in srgb, var(--fx-hi) 80%, transparent);
+  background: color-mix(in srgb, var(--fx-hi) 14%, transparent);
+}
+@keyframes fx-bubble {
+  0% { transform: translate3d(0, 0, 0) scale(.55); opacity: 0; }
+  18% { opacity: .85; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) scale(1.15); opacity: 0; }
+}
+
+/* ---- 潮汐·昼 · tide：水面涟漪 ----------------------------------------
+   压扁的双环（俯视水面）先后荡开 —— 昼潮的石子入水。 */
+html[data-fx="tide"] .anime-interactions-burst {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--fx-a) 80%, transparent);
+  animation: fx-tide 520ms ease-out both;
+}
+html[data-fx="tide"] .anime-interactions-burst::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--fx-b) 65%, transparent);
+  animation: fx-tide-inner 520ms ease-out both;
+}
+@keyframes fx-tide {
+  0% { transform: scaleY(.45) scale(.5); opacity: .8; }
+  100% { transform: scaleY(.45) scale(3); opacity: 0; }
+}
+@keyframes fx-tide-inner {
+  0% { transform: scale(.4); opacity: .7; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+/* ---- 兜底 · spark：中性光点 ------------------------------------------
+   自定义配色与未声明 fx 的主题走这里：圆点、主次双色、适度辉光。 */
+html[data-fx="spark"] .anime-interactions-particle {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--fx-a);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--fx-a) 40%, transparent);
+  animation: fx-spark 300ms ease-out both;
+}
+html[data-fx="spark"] .anime-interactions-particle:nth-child(3n) {
+  background: var(--fx-b);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--fx-b) 40%, transparent);
+}
+@keyframes fx-spark {
+  0% { transform: translate3d(0, 0, 0) rotate(45deg) scale(.5); opacity: 0; }
+  22% { opacity: .88; }
+  100% { transform: translate3d(var(--anime-spark-x), var(--anime-spark-y), 0) rotate(110deg) scale(.2); opacity: 0; }
+}
+
+/* ---- 禁用动效与降级 --------------------------------------------------- */
+html[data-fx][data-rm~="ui"] .anime-interactions-layer,
+html[data-fx] body.reduce-motion .anime-interactions-layer,
+html[data-fx] body[data-rm~="ui"] .anime-interactions-layer {
   display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html:is([data-look="glass"], [data-look="cel"]) .anime-interactions-layer { display: none; }
+  html[data-fx] .anime-interactions-layer { display: none; }
 }

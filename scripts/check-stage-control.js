@@ -275,6 +275,12 @@ function makeStageSandbox() {
       removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); return c; },
       querySelector() { return null; },
       querySelectorAll() { return []; },
+      // 真3D 面板靠它判断「焦点是不是还在 3D 体内」来决定要不要重织。
+      contains(n) {
+        let cur = n;
+        while (cur) { if (cur === el) return true; cur = cur._parent; }
+        return false;
+      },
       scrollIntoView() { el.scrolled = true; },
       focus() { focused = el; doc.activeElement = el; },
     };
@@ -307,6 +313,26 @@ function makeStageSandbox() {
     getElementById(id) {
       if (!registry[id]) { registry[id] = makeEl('div'); registry[id].id = id; }
       return registry[id];
+    },
+    // 只认 markup 里的 id 与 .sc-* 类名：面板打开时要按类找搜索行和副标题，
+    // 沙箱里没有真正的 CSS 引擎，按 id 注册表 + classList 反查就够。
+    querySelector(sel) {
+      if (sel[0] === '#') return doc.getElementById(sel.slice(1));
+      if (sel[0] !== '.') return null;
+      const cls = sel.slice(1);
+      const hit = (el) => el.classList.contains(cls);
+      const ids = Object.keys(registry);
+      for (const id of ids) {
+        const el = registry[id];
+        if (hit(el)) return el;
+        const stack = [...el.children];
+        while (stack.length) {
+          const c = stack.pop();
+          if (hit(c)) return c;
+          stack.push(...c.children);
+        }
+      }
+      return null;
     },
     createElement: (tag) => makeEl(tag),
     createDocumentFragment: () => makeEl('fragment'),
@@ -350,6 +376,23 @@ function makeStageSandbox() {
       walk(registry['sc-body']);
       return out.find((n) => (!tag || n.tagName === tag) && n.id.endsWith('-' + key));
     },
+    // 真3D 语境的控件 id 形如 sc-3d-<pref>，宿主是 sc-3d-body（另一棵子树）。
+    node3d: (pref, tag) => {
+      const out = [];
+      const walk = (n) => n.children.forEach((c) => { out.push(c); walk(c); });
+      walk(registry['sc-3d-body']);
+      return out.find((n) => (!tag || n.tagName === tag) && n.id === 'sc-3d-' + pref);
+    },
+    // 按可见文本找 3D 面板里的按钮（分段/药丸没有 id）。
+    btn3d: (text) => {
+      const out = [];
+      const walk = (n) => n.children.forEach((c) => { out.push(c); walk(c); });
+      walk(registry['sc-3d-body']);
+      return out.find((n) => n.tagName === 'button' && n.textContent === text);
+    },
+    groups3d: () => registry['sc-3d-body'].children
+      .filter((c) => c.classList.contains('sc-group'))
+      .map((c) => c.children[0].textContent),
     flushTimers() { const t = timers.splice(0); t.forEach((x) => x.fn()); },
     tick(ms) { clockMs += ms; },
     focusedGet: () => focused,
@@ -472,6 +515,243 @@ function checkSearchAndUndo() {
   eq(s.el('sc-results').hidden, true, '关面板收起搜索结果');
 }
 
+// ---------------------------------------------------------------------------
+// 6. 真3D 语境契约
+//
+// 控制舱原来只有一套「普通舞台 CSS 变量旋钮」，而其中镜头光学 / 胶片材质那几组
+// 在真3D 舞台上全是死旋钮 —— 拖得动、画面毫无反应。现在两套语境互斥显示，
+// 真3D 侧直接读写 Stage3D 偏好。这一节钉三件事：
+//   a. 量程：滑块上界必须等于 Stage3D 里那道 clamp 的上界（踩过：reactivity
+//      默认 1.35 > 1，按「缩放系数」推算会顶到轨道上限，一拖就把值悄悄写小）；
+//   b. 层级：控制舱要能浮在三维舞台之上，否则真3D 里根本打不开；
+//   c. 写回节奏：拖动只生效、松手才落库（与舞台自带滑块同一节奏）。
+// ---------------------------------------------------------------------------
+const s3src = readWeb('stage3d.js');
+const html = readWeb('index.html');
+const stageCss = readWeb('stage.css');
+const s3css = readWeb('stage3d.css');
+
+// —— a. 量程 ——
+const sliderCalls = [...controlSrc.matchAll(/slider3d\('([^']*)',\s*'([^']+)',\s*([\d.]+)/g)]
+  .map((m) => ({ label: m[1], pref: m[2], max: Number(m[3]) }));
+ok(sliderCalls.length >= 4, `真3D 滑块可解析（实测 ${sliderCalls.length} 个）`);
+
+function clampUpper(pref) {
+  // stage3d.js 里形如 `if (…) reactivity = clamp(num(value.reactivity, 1.35), 0, 2);`
+  // —— 赋值不在行首（前面有 if 条件），所以只能锚 `pref = clamp(` 本身。
+  const m = s3src.match(new RegExp('\\b' + pref + '\\s*=\\s*clamp\\([^\\n]*?,\\s*0,\\s*([\\d.]+)\\)'));
+  return m ? Number(m[1]) : null;
+}
+for (const c of sliderCalls) {
+  const upper = clampUpper(c.pref);
+  ok(upper !== null, `${c.pref}: 在 stage3d.js 里能找到 clamp 上界`);
+  eq(c.max, upper, `${c.pref}（${c.label}）滑块上界 = Stage3D clamp 上界`);
+}
+
+// —— b. 层级 ——
+const zCtl = Number((stageCss.match(/\.stage-ctl\s*\{[\s\S]{0,400}?z-index:\s*(\d+)/) || [])[1] || 0);
+const z3d = Number((s3css.match(/\.s3d\s*\{[\s\S]{0,900}?z-index:\s*(\d+)/) || [])[1] || 0);
+ok(z3d > 0, `三维舞台根层 z-index 可解析（实测 ${z3d}）`);
+ok(zCtl > z3d, `控制舱 z=${zCtl} 浮在三维舞台 z=${z3d} 之上（真3D 里也打得开）`);
+
+// —— 语境分段的接线 ——
+ok(/id="sc-context-flat"/.test(html), '语境分段：普通舞台按钮已接线');
+ok(/id="sc-context-3d"/.test(html), '语境分段：真3D 按钮已接线');
+ok(/id="sc-3d-body"[^>]*\shidden/.test(html) || /id="sc-3d-body"[^>]*hidden/.test(html),
+  '真3D 宿主默认收起（不抢普通舞台首屏）');
+
+// —— SCHEMA_3D 的每个取值都必须被 Stage3D.configure 真正接受 ——
+function block3d(name) {
+  const from = controlSrc.indexOf('var SCHEMA_3D');
+  const seg = controlSrc.slice(from, controlSrc.indexOf('var context'));
+  const start = seg.indexOf(name + ':');
+  if (start < 0) return [];
+  // 闭合是行首缩进的 `],`——数组里每行的 `'],` 更早出现，按字符串找会
+  // 把清单截成第一项（来源清单因此只剩 'immersive'，白名单断言就空转了）。
+  const close = seg.slice(start).match(/\n\s*\],/);
+  const end = close ? start + close.index : seg.length;
+  return [...seg.slice(start, end).matchAll(/\['([^']+)',/g)].map((m) => m[1]);
+}
+const srcVals = block3d('sources');
+ok(srcVals.length >= 3, `真3D 来源清单可解析（实测 ${srcVals.length} 项）`);
+for (const v of srcVals) {
+  ok(new RegExp("value\\.sceneSource === '" + v + "'").test(s3src),
+    `来源 ${v} 被 Stage3D.configure 白名单接受`);
+}
+for (const v of block3d('layouts')) {
+  ok(new RegExp("'focus',\\s*'sleeve',\\s*'single'").test(s3src)
+    && ['focus', 'sleeve', 'single'].indexOf(v) >= 0,
+    `布局 ${v} 被 Stage3D.configure 接受`);
+}
+ok(!/carriers/.test(controlSrc), '镜台载体分段必须随镜台一并移除');
+// 布尔药丸：configure 必须按 boolean 收
+for (const k of ['lyrics', 'coastInteract', 'zodiacLines', 'zodiacField', 'zodiacInteract', 'animeMirror']) {
+  ok(new RegExp("typeof value\\." + k + " === 'boolean'").test(s3src),
+    `布尔偏好 ${k} 被 configure 按 boolean 收`);
+}
+
+// —— 控件语言：新样式要有规则，旧样式不留残骸 ——
+ok(/\.sc-pill\s*\{/.test(stageCss), '.sc-pill 有样式定义');
+ok(/\.sc-pill\.on\s*\{[\s\S]{0,300}?--accent/.test(stageCss), '.sc-pill ON 态走 accent（一眼可读）');
+ok(/\.sc-seg-btn\.is-on\s*\{[\s\S]{0,300}?--accent/.test(stageCss), '.sc-seg-btn 当前段走 accent');
+ok(/\.sc-seg-btn\.is-on\s*\{[\s\S]{0,300}?--accent/.test(stageCss), '语境分段与来源分段共用同一套高亮');
+ok(!/\.sc-switch\b/.test(stageCss) && !/'sc-switch'|"sc-switch"/.test(controlSrc),
+  '旧小开关 .sc-switch 已彻底移除（CSS 与 JS 两侧）');
+// 3D 面板的引导行依赖 .sc-note 可见；被 display:none 掉等于写了没人看得到。
+const noteRule = (stageCss.match(/\.sc-note\s*\{[^}]*\}/) || [''])[0];
+ok(noteRule && !/display:\s*none/.test(noteRule), '.sc-note 可见（3D 引导行不是死文本）');
+// 时刻标签不在这里重写阈值
+ok(/coastTodLabel/.test(controlSrc) && /coastTodLabel:\s*coastTodLabel/.test(s3src),
+  '海岸时刻标签复用 Stage3D 导出的 coastTodLabel（阈值只有一处）');
+
+// —— 写回路径 ——
+ok(/S3\.configure\(patch\)/.test(controlSrc) && /\bS3\.save\b/.test(controlSrc),
+  '真3D 写回走 Stage3D.configure + save');
+
+// —— inert：三维舞台开舱必答题 ——
+// stage3d open() 会把 body 直属子节点全部 inert。inert 元素照常绘制但整体
+// 退出命中测试——控制舱被静音后，z-index 提到多高都点不进去（canvas 拦下
+// 全部指针事件），而且不报错，是「真3D 没控制」最隐蔽的一半。
+const s3dOpenFn = s3src.slice(
+  s3src.indexOf('function open(stageId)'), s3src.indexOf('function close()'));
+ok(s3dOpenFn.length > 200, 'stage3d open() 可切片');
+ok(/node\.id === 'stage-ctl'/.test(s3dOpenFn),
+  '三维舞台静音背景时跳过控制舱（inert 会让它点不进去）');
+const setOpenFn = controlSrc.slice(
+  controlSrc.indexOf('function setOpen(next)'), controlSrc.indexOf('function reset()'));
+ok(/panel\.inert = !want/.test(setOpenFn),
+  '控制舱自己管理 inert：关着的抽屉 Tab 落不进去');
+ok(/id="stage-ctl"[^>]*\sinert/.test(html),
+  '控制舱初始 inert（首帧到首次打开之间不可误触）');
+
+// ---------------------------------------------------------------------------
+// 7. 真3D 语境行为（真实模块 + 替身 Stage3D 在 vm 沙箱里跑）
+// ---------------------------------------------------------------------------
+function fakeStage3D(overrides) {
+  const prefs = Object.assign({
+    sceneSource: 'coast',
+    motion: 0.65, bloom: 0.8, reactivity: 1.35,
+    lyrics: true, layout: 'focus',
+    coastTod: 0, coastInteract: true,
+    zodiacLines: true, zodiacField: true, zodiacInteract: true,
+    animeScene: 'anime-coast', animeMirror: false,
+  }, overrides || {});
+  const calls = { configure: [], save: 0 };
+  return {
+    prefs, calls,
+    isActive: () => true,
+    preferences: () => JSON.parse(JSON.stringify(prefs)),
+    coastTodLabel: (v) => (v < 0.22 ? '黄昏' : v < 0.42 ? '入夜' : v < 0.6 ? '午夜' : v < 0.8 ? '凌晨' : '黎明'),
+    configure(patch) {
+      calls.configure.push(JSON.parse(JSON.stringify(patch)));
+      Object.keys(patch).forEach((k) => { prefs[k] = patch[k]; });
+    },
+    save() { calls.save += 1; },
+  };
+}
+
+function openWith(overrides) {
+  const s = makeStageSandbox();
+  const fake = fakeStage3D(overrides);
+  s.sandbox.window.Stage3D = fake;
+  s.SC.init();
+  s.SC.open();
+  return { s, fake };
+}
+
+function check3DContext() {
+  console.log('\n真3D 语境（真实模块 + 替身 Stage3D 在 vm 沙箱里跑）');
+
+  // —— 语境自动跟随 ——
+  {
+    const { s } = openWith({ sceneSource: 'coast' });
+    eq(s.SC.context(), '3d', '海岸公路下打开 → 真3D 语境');
+    eq(s.el('sc-body').hidden, true, '真3D 语境下普通旋钮收起（不留死旋钮）');
+    eq(s.el('sc-3d-body').hidden, false, '真3D 宿主上屏');
+    ok(s.el('stage-ctl').classList.contains('is-3d'), '面板挂 is-3d（皮肤可据此排版）');
+    const groups = s.groups3d();
+    ok(groups.indexOf('舞台来源') >= 0 && groups.indexOf('镜头与画面') >= 0
+      && groups.indexOf('来源专属') >= 0, `真3D 三组齐全（实测 ${groups.join('/')}）`);
+  }
+  {
+    // 普通舞台来源（创意编排 / 动画绘景）没有三维镜头 → 仍是普通舞台语境
+    const { s } = openWith({ sceneSource: 'creative' });
+    eq(s.SC.context(), 'flat', '创意编排下打开 → 普通舞台语境');
+    eq(s.el('sc-body').hidden, false, '普通舞台语境下旋钮照常显示');
+  }
+
+  // —— 手切优先于自动检测，关面板后复位 ——
+  {
+    const { s } = openWith({ sceneSource: 'creative' });
+    s.el('sc-context-3d').fire('click');
+    eq(s.SC.context(), '3d', '手切「真3D 舞台」切得过去（即使当前不是 3D 来源）');
+    s.el('sc-context-flat').fire('click');
+    eq(s.SC.context(), 'flat', '手切「普通舞台」切得回来');
+    s.el('sc-context-3d').fire('click');
+    s.SC.close();
+    s.SC.open();
+    eq(s.SC.context(), 'flat', '关面板后手动锁定复位，下次打开重新自动跟随');
+  }
+
+  // —— 离散动作：当场生效并落库 ——
+  {
+    const { s, fake } = openWith({ sceneSource: 'coast' });
+    const before = fake.calls.save;
+    s.btn3d('星座').fire('click');
+    const last = fake.calls.configure[fake.calls.configure.length - 1];
+    eq(last && last.sceneSource, 'zodiac', '点来源分段写 sceneSource');
+    eq(fake.calls.save, before + 1, '离散动作（切来源）当场落库');
+    // 来源切换后「来源专属」要重织：星座的连线/星场/交互出现在面板里
+    ok(!!s.btn3d('星座连线') && !!s.btn3d('背景星场') && !!s.btn3d('交互旋转（拖拽/滚轮）'),
+      '切到星座后来源专属重织出该来源的控件');
+  }
+
+  // —— 滑块：量程 / 节奏 / 不进撤销栈 ——
+  {
+    const { s, fake } = openWith({ sceneSource: 'coast' });
+    const r = s.node3d('reactivity', 'input');
+    ok(!!r, '律动滑块已生成');
+    // 1.35 / 2 → 68%。按「缩放系数」推算会算出 270（顶格），这条就是那次的守卫。
+    eq(r.value, '68', '律动默认 1.35 显示 68%（按 0..2 上界，不是顶格满值）');
+    ok(Number(r.value) <= 100, `滑块读数落在 0..100（实测 ${r.value}）`);
+
+    const nSave = fake.calls.save;
+    r.value = '100'; r.fire('input');
+    const wrote = fake.calls.configure[fake.calls.configure.length - 1];
+    eq(wrote && wrote.reactivity, 2, '滑块满格写入上界 2');
+    eq(fake.calls.save, nSave, '拖动中不落库（每帧一次 IPC 会把拖动拖成卡顿）');
+    r.value = '50'; r.fire('input');
+    r.fire('change');
+    eq(fake.calls.save, nSave + 1, '松手（change）只落库一次');
+    eq(fake.calls.configure[fake.calls.configure.length - 1].reactivity, 1, '落库值 = 50% × 2');
+
+    // 真3D 的状态属主是 Stage3D 偏好表，不该混进普通舞台的撤销栈
+    const depth = s.SC.historyDepth();
+    const pill = s.btn3d('显示歌词');
+    pill.fire('click');
+    eq(s.SC.historyDepth(), depth, '真3D 调整不进普通舞台撤销栈');
+    eq(fake.calls.configure[fake.calls.configure.length - 1].lyrics, false, '歌词药丸写布尔');
+    ok(pill.classList.contains('on') === false, '药丸 ON 态跟着落下');
+  }
+
+  // —— 时刻标签：显示「黄昏/午夜」而不是百分比 ——
+  {
+    const { s } = openWith({ sceneSource: 'coast', coastTod: 0.5 });
+    const tod = s.node3d('coastTod', 'input');
+    eq(tod.value, '50', '海岸时刻滑块位置正确');
+    const cell = tod._parent;
+    ok(/午夜/.test(cell.textContent), `海岸时刻显示时刻名（实测 ${cell.textContent}）`);
+  }
+
+  // —— 沉浸声场：来源专属给的是引导而不是空白 ——
+  {
+    const { s } = openWith({ sceneSource: 'immersive' });
+    ok(/场景坞/.test(s.el('sc-3d-body').textContent),
+      '沉浸声场的来源专属给出引导（指向场景坞），不是空白');
+  }
+}
+
+check3DContext();
 checkSearchAndUndo();
 
 console.log(`\n舞台控制契约：${checks} 项检查，` +

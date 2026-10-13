@@ -1171,7 +1171,11 @@ body[data-density="compact"] .t-art { width: 32px; height: 32px; border-radius: 
   z-index: 1;
   display: flex;
   align-items: flex-end;
-  justify-content: flex-end;
+  /* 播放键留在左下角。徽标改成角标（见下面 .pl-card-badge）之前，这一排是
+     justify-content:flex-end + 徽标 margin-right:auto 的组合，auto margin 吃掉
+     全部空闲空间、把两个子元素一起推到左边；徽标退出这条 flex 之后若不同步
+     改掉，播放键就会自己跳到右下角——那是排布副产物，不是设计。 */
+  justify-content: flex-start;
   gap: 6px;
   padding: 8px;
   opacity: 0;
@@ -1208,27 +1212,34 @@ body[data-density="compact"] .t-art { width: 32px; height: 32px; border-radius: 
 .pl-card-play:active { transform: scale(var(--press-scale)); }
 .pl-card-play svg { width: 15px; height: 15px; fill: currentColor; }
 
-/* 音源徽标：与歌单架、在线面板卡片用的是同一批图标与配色，由宿主传入。 */
+/* 音源徽标：与歌单架、在线面板卡片用的是同一批图标与配色，由宿主传入。
+   钉在悬停层的左上角。以前它跟着 .pl-card-face 那条 flex 排（播放键在底部），
+   align-self:center 把它停在封面竖向中间——正好压在画面主体上，而底部那道
+   渐变也只护得住下面那排。左上角与底部的播放键各占一角，谁也不挡封面。 */
 .pl-card-badge {
-  margin-right: auto;
-  align-self: center;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: var(--meta-tracking);
-  color: var(--muted);
-}
-/* 平台官方 PNG 徽标：五张图同为 256×256，这里统一钉成 18px 圆角方块，
-   不随原图比例/留白产生视觉大小差。 */
-.pl-card-badge.is-img {
-  padding: 0;
-  line-height: 0;
-  flex: none;
-}
-.pl-card-badge.is-img img {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-grid;
+  place-items: center;
   width: 18px;
   height: 18px;
-  display: block;
   border-radius: 5px;
+  color: #fff;
+  background: var(--badge, var(--accent));
+}
+.pl-card-badge svg { width: 12px; height: 12px; display: block; }
+/* 位图自带品牌底色，所以容器让位（透明）+ 图片填满同一块圆角方块。
+   与在线面板 .src-badge.is-img 同款处理，五张平台 PNG 同为 256×256。 */
+.pl-card-badge.is-img {
+  background: transparent;
+  overflow: hidden;
+}
+.pl-card-badge.is-img img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
   object-fit: cover;
 }
 
@@ -1658,6 +1669,10 @@ body.reduce-motion .shelf-vinyl { transition: none; }
 .q-dur { color: var(--muted); font-size: var(--skin-h3); text-align: right; font-variant-numeric: tabular-nums; }
 .q-row.playing { background: color-mix(in srgb, var(--accent) 13%, transparent); }
 .q-row.playing .q-title { color: var(--accent); font-weight: 600; }
+/* 队列行的封面由业务层统一渲染（与曲库行同一套 .t-art 管线），但行列表的
+   轨道是按无封面排的 —— 默认整格隐藏，零影响；黑胶皮肤的卡片几何显式
+   放开它（skins/skin.heijiao.css 的 .q-row .q-art）。 */
+.q-row .q-art { display: none; }
 
 /* 设置 */
 

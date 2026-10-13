@@ -30,6 +30,67 @@
   var shareViewRevision = 0, shareEditRevision = 0;
   var resetting = false;
   var renderedPage = null;
+  // 「动画绘景」入口暂时下架：四幅画稿的构图与配色还没到能拿出手的程度，先收起用户
+  // 可见的两处入口——这里的画册，以及 index.html「舞台来源」下拉里那个 option。
+  // 画稿资产、注册表、SVG 适配层与 CSS 一律原样保留，已经停在该来源的舞台不受影响；
+  // 恢复时把开关改回 true，并删掉那个 option 上的 hidden。
+  var showAnimeScenery = false;
+  var artObserver = null, artPreviews = [], artPaused = false, artRate = 1;
+
+  // Navigation illustrations use CSS, independently of audio playback. This
+  // owner only gates visibility; it never creates a second stage/frame loop.
+  function syncSceneArt() {
+    var active = isOpen() && target === 'advanced' && tab === 'scene' && !document.hidden && !artPaused;
+    artPreviews.forEach(function (preview) {
+      preview.dataset.motion = active && preview.dataset.inView === 'true' ? 'running' : 'paused';
+      preview.getAnimations({ subtree: true }).forEach(function (animation) {
+        if (animation.effect.getTiming().iterations === Infinity && animation.playbackRate !== artRate) {
+          animation.updatePlaybackRate(artRate);
+        }
+      });
+    });
+  }
+
+  function updateArtControls() {
+    var motion = refs.body.querySelector('.ws-anime-motion-toggle');
+    var speed = refs.body.querySelector('.ws-anime-speed');
+    if (motion) {
+      motion.textContent = artPaused ? '继续动画' : '暂停动画';
+      motion.setAttribute('aria-pressed', String(artPaused));
+    }
+    if (speed) speed.textContent = artRate + '×';
+    syncSceneArt();
+  }
+
+  function sceneArtKey(event) {
+    if (!event.target.closest('.ws-anime-gallery') || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.code === 'Space' && event.target.classList.contains('ws-anime-gallery')) artPaused = !artPaused;
+    else if (event.key === 'ArrowRight') artRate = Math.min(1.5, artRate + .25);
+    else if (event.key === 'ArrowLeft') artRate = Math.max(.5, artRate - .25);
+    else return;
+    event.preventDefault();
+    updateArtControls();
+  }
+
+  function releaseSceneArt() {
+    if (artObserver) artObserver.disconnect();
+    artObserver = null;
+    artPreviews.forEach(function (preview) { preview.dataset.motion = 'paused'; });
+    artPreviews = [];
+  }
+
+  function observeSceneArt() {
+    if (!isOpen() || target !== 'advanced' || tab !== 'scene') return;
+    artPreviews = Array.from(refs.body.querySelectorAll('.ws-anime-preview'));
+    if (!artPreviews.length) return;
+    artObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.target.isConnected) entry.target.dataset.inView = String(entry.isIntersecting && entry.intersectionRatio > 0);
+      });
+      syncSceneArt();
+    }, { root: refs.body, threshold: 0 });
+    artPreviews.forEach(function (preview) { artObserver.observe(preview); });
+  }
 
   function $(id) { return document.getElementById(id); }
 
@@ -459,7 +520,7 @@
     var CS = stage_api();
     var cur = CS.preset();
 
-    renderAnimeGallery(body, CS, cur);
+    if (showAnimeScenery) renderAnimeGallery(body, CS, cur);
 
     var guide = guideCard();
     if (guide) body.appendChild(guide);
@@ -533,11 +594,13 @@
     var scenes = CS.scenes().filter(function (s) { return s.presentation && s.presentation.family === 'anime'; });
     if (!scenes.length) return;
     var section = h('section', 'ws-anime-gallery');
-    section.setAttribute('aria-label', '动画绘景');
+    section.tabIndex = 0;
+    section.setAttribute('aria-label', '动画绘景，空格暂停，左右方向键调速');
+    section.setAttribute('aria-keyshortcuts', 'Space ArrowLeft ArrowRight');
     var heading = h('div', 'ws-anime-heading');
     heading.appendChild(h('span', 'ws-anime-kicker', 'SCENERY COLLECTION'));
     heading.appendChild(h('h2', null, '动画绘景'));
-    heading.appendChild(h('p', null, '让音乐，停在一帧风景里。'));
+    heading.appendChild(h('p', null, '风与光缓缓流动，音乐有了栖身之处。'));
     section.appendChild(heading);
     var grid = h('div', 'ws-anime-grid');
     scenes.forEach(function (scene) {
@@ -549,6 +612,8 @@
       card.setAttribute('aria-pressed', String(cur.scene === scene.id));
       card.setAttribute('aria-label', scene.label);
       var preview = h('span', 'ws-anime-preview');
+      preview.dataset.motion = 'paused';
+      preview.dataset.inView = 'false';
       preview.innerHTML = info.art;
       var check = h('span', 'ws-anime-selected');
       check.setAttribute('aria-hidden', 'true');
@@ -573,8 +638,25 @@
       grid.appendChild(card);
     });
     section.appendChild(grid);
-    var note = h('p', 'ws-anime-note', '平涂光影 · 细线描边 · 随乐微动');
-    section.appendChild(note);
+    var footer = h('div', 'ws-anime-footer');
+    var note = h('p', 'ws-anime-note', '聚焦画册 · 空格暂停 · ← → 调速');
+    var motion = h('button', 'ws-anime-motion-toggle', artPaused ? '继续动画' : '暂停动画');
+    motion.type = 'button';
+    motion.setAttribute('aria-pressed', String(artPaused));
+    motion.setAttribute('aria-label', '暂停风景预览动画');
+    motion.addEventListener('click', function () {
+      artPaused = !artPaused;
+      updateArtControls();
+    });
+    var speed = h('button', 'ws-anime-speed', artRate + '×');
+    speed.type = 'button';
+    speed.setAttribute('aria-label', '切换风景预览速度');
+    speed.title = '切换速度，或使用左右方向键';
+    speed.addEventListener('click', function () { artRate = artRate >= 1.5 ? .5 : artRate + .25; updateArtControls(); });
+    var controls = h('span', 'ws-anime-controls');
+    controls.append(motion, speed);
+    footer.append(note, controls);
+    section.appendChild(footer);
     body.appendChild(section);
   }
 
@@ -1495,6 +1577,7 @@
 
   function render() {
     if (!refs.body) return;
+    releaseSceneArt();
     shareViewRevision += 1;
     var page = target + ':' + tab;
     var samePage = renderedPage === page;
@@ -1525,6 +1608,7 @@
     else if (tab === 'look') renderLook(refs.body);
     else renderIO(refs.body);
     refs.body.scrollTop = scroll;
+    observeSceneArt();
     if (focusId && $(focusId)) $(focusId).focus({ preventScroll: true });
   }
 
@@ -1558,6 +1642,7 @@
       }
       panel.inert = false;
     } else {
+      releaseSceneArt();
       if (gesture) { remember(gesture); gesture = null; Stage3D.save(); }
       $('stage3d').classList.remove('s3d-editing');
       if (home) home.after(panel);
@@ -1621,6 +1706,7 @@
     document.addEventListener('keydown', function (e) {
       if (!isOpen()) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setOpen(false); return; }
+      sceneArtKey(e);
       if (target === 'immersive' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA/.test(e.target.tagName)) {
         e.preventDefault(); e.stopImmediatePropagation(); travel(!e.shiftKey); return;
       }
@@ -1666,6 +1752,7 @@
     }
     new MutationObserver(function () { syncStageStatus(); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     window.addEventListener('resize', revealTab);
+    document.addEventListener('visibilitychange', syncSceneArt);
 
     return api;
   }
@@ -1676,6 +1763,7 @@
     close: function () { return setOpen(false); },
     toggle: function () { return isOpen() ? setOpen(false) : api.open(); },
     isOpen: isOpen,
+    isEditingAdvanced: function () { return isOpen() && target === 'advanced'; },
     setTab: function (t) {
       if (TABS.some(function (x) { return x[0] === t; })) { tab = t; if (isOpen()) switchTarget('advanced'); else target = 'advanced'; render(); }
       return tab;

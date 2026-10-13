@@ -560,14 +560,21 @@
 
 /* ===================== 歌单卡片网格（拍立得） ======================== */
 
+/* 滚动权留在墙自己身上（基础 .pl-grid 的 flex:1 + overflow-y:auto）。
+   这里原先写的是 overflow:visible，意图是让拍立得的抬升与投影不被裁，
+   但本皮肤的 .view 与 .column 都不滚（后者 overflow:hidden），于是墙一旦
+   超过一屏就没有任何滚动宿主：实测 13 个歌单在 620 高视口下第二排 6 张
+   彻底够不着，滚轮两次 scrollTop 纹丝不动。改成纵向可滚，并把上下留白
+   让出来给 hover 的 translateY(-4px) 与投影。 */
 [data-skin="qingfeng"] .pl-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--skin-card-min), 1fr));
   gap: calc(var(--skin-gap) * 0.75);
-  padding: 0;
+  padding: 10px 0 24px;
   background: transparent;
   border: 0;
-  overflow: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 [data-skin="qingfeng"] .pl-grid .pl-card {
@@ -1605,10 +1612,16 @@
 [data-skin="qingfeng"] .qf-modal-close svg {
   width: 18px;
   height: 18px;
+  transition: transform var(--dur-1) var(--ease);
 }
 
 [data-skin="qingfeng"] .qf-modal-close:hover {
   opacity: 1;
+}
+
+/* 悬停旋转 90°：与共享设置浮层（skins.css 的 .skset-modal-close）同一手感 */
+[data-skin="qingfeng"] .qf-modal-close:hover svg {
+  transform: rotate(90deg);
 }
 
 [data-skin="qingfeng"] .qf-modal-close:focus-visible {
@@ -1617,14 +1630,15 @@
 }
 
 /* 「选项 / 帮助」页签条已去掉，body 直接顶到卡片上沿。
-   顶部内边距从 18 提到 24：原先 22px 的头部 padding 没了，
-   18 会让标题显得贴边，24 与底部 26 对称。 */
+   顶部内边距给到 58px：关闭键（top 18 + 高 32 = 50）下缘以下，右栏才开始
+   滚动 —— 不留这条带的话，滚动条与滚过的内容都会从叉叉底下穿过，
+   右上角就是「叉叉压着滚动条」的重叠样式。 */
 [data-skin="qingfeng"] .qf-modal-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   gap: 24px;
-  padding: 24px 26px 26px;
+  padding: 58px 26px 26px;
 }
 
 [data-skin="qingfeng"] .qf-set-layout {
@@ -1640,6 +1654,8 @@
   flex: none;
   min-height: 0; /* 缺它左栏不裁切而是把卡片顶高，浮层会长出视口 */
   overflow-y: auto;
+  /* 滚到边界就停：浮层是模态的，滚轮不许链去底下的页面 */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -1742,6 +1758,7 @@
   min-width: 0; /* 宽表单行不会把左栏挤没 */
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
 }
 
@@ -1750,6 +1767,23 @@
   padding-bottom: 12px;
   border-bottom: 1px solid var(--skin-line-soft);
 }
+
+/* 视图交出滚动权（与 skins.css 的 .skset-pane > #view-settings 同一结论）：
+   #view-settings 的业务样式（overflow-y:auto + overscroll-behavior:contain +
+   scrollbar-gutter:stable）原样进浮层后，自身无溢出也以滚动容器身份占住
+   滚轮、contain 截断向 .qf-set-pane 的链路 —— 右栏内容上滚轮完全失灵、
+   只能拖滚动条（实测复现：滚轮滚完 pane.scrollTop 仍是 0）；右侧还常驻
+   一条死 gutter。滚动容器唯一归 .qf-set-pane，视图只出内容；
+   顶部空带（头部 margin + 组自带 margin-top 叠加）一并收掉。 */
+[data-skin="qingfeng"] .qf-set-pane > #view-settings {
+  overflow: visible;
+  scrollbar-gutter: auto;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+[data-skin="qingfeng"] .qf-set-pane > #view-settings > .set-group { margin-top: 0; }
+[data-skin="qingfeng"] .qf-set-pane > #view-settings > .set-group + .set-group { margin-top: 14px; }
 
 [data-skin="qingfeng"] .qf-set-pane-head h2 {
   margin: 0;
@@ -1765,6 +1799,14 @@
   font-size: var(--fs-xs);
   line-height: 1.5;
 }
+
+/* 浮层头（.qf-set-pane-head）已经写了分类名与说明，视图自带的 .col-head
+   （「设置」大标题）只剩重复：浮层内藏掉（流年同款做法）。规则只命中
+   浮层里的视图 —— 业务视图回中栏时（卸载）不沾边，吸顶标题照旧。 */
+[data-skin="qingfeng"] .qf-set-pane > #view-settings > .col-head { display: none; }
+
+/* 卡片入场已足够，视图再叠一层上浮会显得发糊：浮层内不重播 view-enter。 */
+[data-skin="qingfeng"] .qf-set-pane > #view-settings { animation: none; }
 
 /* 右栏分组：标题 + 卡片，卡片是「标题/描述 + 右侧控件」的行 */
 [data-skin="qingfeng"] .set-group {
@@ -2462,6 +2504,11 @@ body.qf-stage-dragging [data-skin="qingfeng"] .stage,
   [data-skin="qingfeng"] .qf-modal-scrim,
   [data-skin="qingfeng"] .qf-modal-card {
     animation: none;
+  }
+
+  [data-skin="qingfeng"] .qf-modal-close,
+  [data-skin="qingfeng"] .qf-modal-close svg {
+    transition: none;
   }
 
   [data-skin="qingfeng"] .qf-poster,

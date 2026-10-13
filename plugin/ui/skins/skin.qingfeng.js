@@ -354,10 +354,15 @@
   function buildBrandGroup() {
     var brand = $('.brand');
     if (!brand) return;
-    // 品牌与设置按钮编成一组，整体贴左上角。
+    // 品牌与设置按钮编成一组，整体贴左上角。brand 是业务节点，必须走锚点
+    // 搬运：裸搬进自建组的话，卸载时 removeBuilt 拆组会把 brand 连带删掉，
+    // 下次挂载 $('.brand') 找不到 —— 左上角设置按钮从此不再出现
+    // （实测：清风 → 任意皮肤 → 清风，第二颗设置按钮就没了）。
     var group = make('div', 'qf-brand-group');
-    brand.parentNode.insertBefore(group, brand);
-    group.appendChild(brand);
+    var anchor = relocate(brand, group);
+    // 组占 brand 的原位（锚点处）：卸载 restore 先把 brand 送回锚点处、
+    // 摘掉锚点，removeBuilt 再拆组 —— brand 与组解耦，反复切换不丢节点。
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(group, anchor);
 
     var btn = make('button', 'qf-settings-btn', group);
     btn.type = 'button';

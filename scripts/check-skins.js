@@ -35,6 +35,8 @@ const IOS = read(path.join(SKINS, 'skin.ios.css'));
 const QINGFENG = read(path.join(SKINS, 'skin.qingfeng.css'));
 const CHAOXI = read(path.join(SKINS, 'skin.chaoxi.css'));
 const CHAOXI_JS = read(path.join(SKINS, 'skin.chaoxi.js'));
+const HEIJIAO = read(path.join(SKINS, 'skin.heijiao.css'));
+const HEIJIAO_JS = read(path.join(SKINS, 'skin.heijiao.js'));
 const LIUNIAN_JS = read(path.join(SKINS, 'skin.liunian.js'));
 const QINGFENG_JS = read(path.join(SKINS, 'skin.qingfeng.js'));
 const SKINS_CSS = read(path.join(SKINS, 'skins.css'));
@@ -165,7 +167,7 @@ function makeSandbox(cssIds, carrier) {
 function checkCatalog() {
   section('皮肤目录：五套都在，classic 是"没有皮肤"');
 
-  const { sandbox, root, links } = makeSandbox(['sheen', 'workbench', 'liunian', 'ios', 'qingfeng']);
+  const { sandbox, root, links, listHost } = makeSandbox(['sheen', 'workbench', 'liunian', 'ios', 'qingfeng']);
   const ids = sandbox.Skins.catalog().map((s) => s.id);
   ok(ids.indexOf('classic') >= 0, '有 classic（仓库原本那套布局）');
   ok(ids.indexOf('sheen') >= 0, '有 sheen');
@@ -175,6 +177,32 @@ function checkCatalog() {
   ok(ids.indexOf('qingfeng') >= 0, '有 qingfeng');
   ok(sandbox.Skins.catalog().every((s) => s.name && s.note),
     '每套皮肤都有可读的名字与说明（设置页要靠它做选择）');
+
+  section('隐藏的皮肤：目录里还在，界面上不给入口');
+
+  // workbench 是隐藏的：CATALOG 里留着定义（apply 能切过去，排障与老用户都
+  // 不会被困住），但三处宿主一律不渲染它。判据取**渲染结果**，不是源码里有没有
+  // 那个字段——字段写了但宿主忘了过滤，界面上照样会出现。
+  const shown = sandbox.Skins.list().map((s) => s.id);
+  ok(shown.indexOf('workbench') < 0, 'Skins.list() 里没有 workbench（命令面板靠它建命令）');
+  ok(shown.indexOf('classic') >= 0 && shown.indexOf('sheen') >= 0,
+    '其余皮肤不受影响（隐藏一套不是把整张清单关掉）');
+  sandbox.Skins.render();
+  const cardIds = listHost.children.map((r) => r.getAttribute('data-skin-id'));
+  ok(cardIds.indexOf('workbench') < 0, '设置页那组卡片里没有 workbench');
+  ok(cardIds.indexOf('sheen') >= 0, '设置页那组卡片照旧渲染其余皮肤');
+  // 隐藏不等于删掉：排障时仍要能把它调出来，否则"隐藏"就成了不可逆的删除。
+  sandbox.Skins.apply('workbench');
+  eq(root.getAttribute('data-skin'), 'workbench', 'apply() 仍能把隐藏的皮肤切出来（排障用）');
+  sandbox.Skins.apply('classic');
+
+  // 界面上没有入口，开页就不能停在它上面——否则用户换不回来，只能去清
+  // localStorage。回落的同时要把存档冲掉，不然下次开页又读回同一套。
+  const { sandbox: sh, root: rh, store: shStore } = makeSandbox(['sheen', 'workbench']);
+  shStore.set('vmusic.skin', 'workbench');
+  sh.Skins.init();
+  eq(rh.getAttribute('data-skin'), 'classic', '存档是隐藏皮肤时开页回落 classic');
+  eq(shStore.get('vmusic.skin'), 'classic', '回落同时把存档冲掉（下次开页不再读回它）');
 
   section('切换：写 data-skin，并只启用对应那份 CSS');
 
@@ -275,7 +303,8 @@ function checkSkinEntry() {
   eq(skinBtn.getAttribute('aria-expanded'), 'true', 'aria-expanded 跟着展开');
 
   const rows = skinMenu.children;
-  eq(rows.length, sandbox.Skins.catalog().length, '弹层行数等于目录长度（不是各存一份清单）');
+  eq(rows.length, sandbox.Skins.list().length, '弹层行数等于对外可见的皮肤数（不是各存一份清单）');
+  ok(!rows.some((r) => r.getAttribute('data-skin-id') === 'workbench'), '顶栏弹层里没有 workbench');
   ok(rows.every((r) => r.getAttribute('role') === 'menuitemradio'), '每行都是 menuitemradio（单选语义）');
   const on = rows.filter((r) => r.getAttribute('aria-checked') === 'true');
   eq(on.length, 1, '只标记一个当前项');
@@ -1644,7 +1673,7 @@ function checkWiring() {
   section('接线：HTML / 路由 / 启动');
 
   ok(/<link rel="stylesheet" href="skins\/skins\.css">/.test(HTML), 'skins.css 常驻引入');
-  for (const id of ['sheen', 'workbench', 'liunian', 'ios', 'qingfeng', 'chaoxi']) {
+  for (const id of ['sheen', 'workbench', 'liunian', 'ios', 'qingfeng', 'chaoxi', 'heijiao']) {
     ok(new RegExp('href="skins/skin\\.' + id + '\\.css"[^>]*data-skin-css="' + id + '"').test(HTML),
       `skin.${id}.css 引了进来并带上 data-skin-css`);
     ok(new RegExp('data-skin-css="' + id + '"[^>]*disabled').test(HTML),
@@ -1655,7 +1684,7 @@ function checkWiring() {
     'skins.js 排在 app.js 之前（app.js 启动时要能拿到它）');
   ok(/id="skins-list"/.test(HTML), '设置页有皮肤列表容器');
 
-  for (const p of ['skins/skins.js', 'skins/skins.css', 'skins/skin.sheen.css', 'skins/skin.workbench.css', 'skins/skin.liunian.css', 'skins/skin.liunian.js', 'skins/skin.ios.css', 'skins/skin.qingfeng.css', 'skins/skin.qingfeng.js', 'skins/skin.chaoxi.js', 'skins/skin.chaoxi.css']) {
+  for (const p of ['skins/skins.js', 'skins/skins.css', 'skins/skin.sheen.css', 'skins/skin.workbench.css', 'skins/skin.liunian.css', 'skins/skin.liunian.js', 'skins/skin.ios.css', 'skins/skin.qingfeng.css', 'skins/skin.qingfeng.js', 'skins/skin.chaoxi.js', 'skins/skin.chaoxi.css', 'skins/skin.heijiao.js', 'skins/skin.heijiao.css']) {
     ok(MAIN_RS.includes(`/skins/${p.split('/')[1]}`) || MAIN_RS.includes(p),
       `main.rs 注册了 /${p} 路由`);
   }
@@ -2695,13 +2724,17 @@ function checkQingfengWiring() {
 function checkSkinSwitchViewHandoff() {
   section('换肤：设置页切皮肤后落到首页，不留空白中栏');
 
+  // 判据从 setView('library') 改成 setView(defaultView())：
+  // 默认视图现在是"在线曲库"（需求：所有皮肤默认展示在线曲库数据）。
+  // 真正要钉的是「收尾动作只有一处、统一走 defaultView()」这件事，
+  // 不是钉住哪个 id —— 以后再改默认值时这条断言不该跟着红。
   ok(/Skins\.onChange\(onSkinChangedForViews\)/.test(APP)
-    && /function onSkinChangedForViews\(\)\s*\{[\s\S]{0,400}?setView\('library'\);/.test(APP),
+    && /function onSkinChangedForViews\(\)\s*\{[\s\S]{0,400}?setView\(defaultView\(\)\);/.test(APP),
     'app.js 订阅换肤并统一回首页（收尾动作只有一处，不靠各条调用路径记得调）');
   // 启动期闸门 + 补跑：两处都要有，缺一个就退回「首页永久空白」。
   ok(/if \(!dailyStripBound\)\s*\{[\s\S]{0,120}?pendingSkinViewHandoff = true;[\s\S]{0,80}?return;/.test(APP),
     '启动期的那次换肤广播被闸门挡住（不早于 Daily.bind()）');
-  ok(/function bindDailyStrip\(\)\s*\{[\s\S]{0,200}?dailyStripBound = true;[\s\S]{0,200}?setView\('library'\);/.test(APP),
+  ok(/function bindDailyStrip\(\)\s*\{[\s\S]{0,200}?dailyStripBound = true;[\s\S]{0,200}?setView\(defaultView\(\)\);/.test(APP),
     'bind 之后有补跑入口 bindDailyStrip()');
   ok(/Daily\.bind\(favHost\);[\s\S]{0,200}?bindDailyStrip\(\);/.test(APP),
     'bindDailyStrip() 排在 Daily.bind() 之后（闸门由 bind 打开）');
@@ -2888,6 +2921,311 @@ function checkLifecycleAndHost() {
   eq(business.length, before, '宿主可清理且不残留旧处理器');
 }
 
+// ---------------------------------------------------------------------------
+// 6g. 黑胶：双卡片 + 唱片拖转 + 窄屏回退
+// ---------------------------------------------------------------------------
+
+function checkHeijiaoSkin() {
+  section('黑胶：颜色字面量同样全禁，且不重定义主题色变量');
+
+  const hjBody = HEIJIAO.replace(/\/\*[\s\S]*?\*\//g, '');
+  const hjHex = hjBody.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  const hjRgb = hjBody.match(/\brgba?\(/g) || [];
+  const hjNamed = hjBody.replace(/white-space|grey|gray/g, '')
+    .match(/\b(?:red|blue|green|white|black)\b/g) || [];
+  ok(hjHex.length === 0, `heijiao 没有十六进制颜色${hjHex.length ? '（' + hjHex.join(',') + '）' : ''}`);
+  ok(hjRgb.length === 0, `heijiao 没有 rgb()/rgba()${hjRgb.length ? '（' + hjRgb.join(',') + '）' : ''}`);
+  ok(hjNamed.length === 0, `heijiao 没有颜色关键字${hjNamed.length ? '（' + hjNamed.join(',') + '）' : ''}`);
+  ok(/\bvar\(--/.test(hjBody), 'heijiao 的着色一律走 var(--…)');
+  ok(!/^\s*(--bg|--text|--accent|--muted|--brand|--highlight)\s*:/m.test(hjBody),
+    'heijiao 不重定义主题色变量（配色归 themes.js 管）');
+  // 文字色仍归主题：允许写 color，但值必须引用 token。
+  // （hj-lyric-toggle 是皮肤自造的按钮节点，没有业务样式兜底 ——
+  //   不写 color 它会拿到浏览器默认的按钮文字色，深底上直接看不见。）
+  const hjColors = Array.from(hjBody.matchAll(/(?:^|[\s;}])color\s*:\s*([^;}]+)/g));
+  const hjBadColor = hjColors.filter((m) => !/^\s*var\(--/.test(m[1]));
+  ok(hjBadColor.length === 0,
+    `heijiao 的 color 只能引用主题 token${hjBadColor.length ? '（' + hjBadColor.map((m) => m[1].trim()).join(',') + '）' : ''}`);
+
+  section('黑胶：双卡片骨架（左 1/3 + 右 2/3）与常驻左卡');
+
+  // 壳层 .app 必须是两轨，且左边是封面卡那一轨。
+  ok(/\[data-skin="heijiao"\] \.app\s*\{[^}]*grid-template-columns:[^}]*minmax\(\s*300px\s*,\s*1fr\s*\)[^}]*minmax\(\s*0\s*,\s*2fr\s*\)/s.test(hjBody),
+    '.app 是两轨：左 300px~1fr（封面卡）+ 右 2fr（内容面板）');
+  // ⚠ 这条钉的是 style.css 里 body[data-stage-idle="1"] .app 那条 (0,2,1) 补丁。
+  // 它会把外壳改成「86px + 1fr」，而皮肤基础 .app 是 (0,2,0) 压不过 ——
+  // 症状是"切到黑胶后内容落进一条 86px 窄轨，整块布局错位"，且不报错。
+  ok(/@media \(min-width: 1241px\)[\s\S]*?\[data-skin="heijiao"\] body\[data-stage-idle="1"\] \.app\s*\{[^}]*minmax\(\s*300px\s*,\s*1fr\s*\)/.test(hjBody),
+    '钉死了 body[data-stage-idle] 的窄轨补丁（否则空闲时布局整个塌成一条）');
+  // 舞台在黑胶里是**常驻左卡**，不是可收起的侧栏：那两句 display:none /
+  // display:flex 必须成对出现，缺一条的表现都是"左卡凭空消失或收不起来"。
+  ok(/\[data-skin="heijiao"\] body\[data-stage-idle="1"\] \.stage\s*\{[^}]*display:\s*flex/.test(hjBody),
+    '空闲时左卡仍在（body[data-stage-idle] 不能把舞台 display:none）');
+  // 左卡不能是 fixed 抽屉：style.css 在 ≤1240px 把 .stage 变成 fixed，
+  // 黑胶要让栅格接管定位，继承下来会以 translateX 的姿态撑出横向滚动。
+  ok(/\[data-skin="heijiao"\] \.stage\s*\{[^}]*position:\s*relative/.test(hjBody),
+    '左卡退回常规流（position:relative），不被基础样式的 fixed 抽屉接管');
+
+  section('黑胶：列表卡片化 + 滚动权唯一');
+
+  // 卡片化的判据是 grid-template-areas 出现 —— 行列表靠列轨道数区分，
+  // 卡片靠"区域"排布。两者不能同时存在，否则 .t-album 会落进隐式行
+  //（隐式行没有 gap，症状是专辑名间距偏小，很难一眼看出成因）。
+  ok(/\[data-skin="heijiao"\] \.track\s*\{[^}]*grid-template-areas:[\s\S]*?"art\s+art"/.test(hjBody),
+    '.track 卡片化：封面跨两列排在第一行');
+  ok(/\[data-skin="heijiao"\] \.track \.t-index\s*\{[^}]*display:\s*none/.test(hjBody),
+    '索引列在卡片里摘掉（否则隐式格会在封面与曲名之间插一条空轨道）');
+  // 操作按钮浮到封面角上 → 必须绝对定位，而它的定位基准是 .track。
+  // 基础样式 .track 已是 relative，但皮肤这条同时覆写了它，显式重申更稳。
+  ok(/\[data-skin="heijiao"\] \.track\s*\{[^}]*position:\s*relative/.test(hjBody),
+    '.track 保持定位基准（操作按钮浮在封面角上）');
+  // 定高 flex 列的纪律：滚动容器里的直接子元素一律不可收缩，
+  // 否则浏览器先压扁可收缩项而不产生滚动（潮汐栽在这上面）。
+  ok(/\[data-skin="heijiao"\] \.view > \*\s*\{[^}]*flex:\s*none/.test(hjBody),
+    '.view 的直接子元素不可收缩（否则列表被压扁而不是出滚动条）');
+  ok(/\[data-skin="heijiao"\] \.view\s*\{[^}]*overflow-y:\s*auto/.test(hjBody),
+    '滚动权收在 .view 一个容器上');
+  ok(/\[data-skin="heijiao"\] \.lib-list[\s\S]*?overflow:\s*visible/.test(hjBody),
+    '列表体不自滚（避免两层滚动条并排）');
+
+  section('黑胶：队列两档排布（卡片 / 行列表）');
+
+  // 队列从「只有卡片」变成「卡片 + 行列表」两档。判据不是"有没有写列表样式"，
+  // 恰恰相反：列表档必须**没有**皮肤自己的行样式，几何全部交回 style.css 的
+  // 行列表基线 —— 重写一份行几何迟早跟基线漂移，而基线是其余六套皮肤共用的。
+  const hjGridGroup = hjBody.match(/\[data-skin="heijiao"\] \.lib-list[^{]*\{/);
+  ok(!!hjGridGroup && !/\.q-list/.test(hjGridGroup[0]),
+    '队列容器已从「所有列表都是网格」那一组里拆出来（它不再恒为网格）');
+  ok(/\[data-skin="heijiao"\] \.q-list:not\(\.hj-queue-list\)\s*\{[^}]*display:\s*grid/.test(hjBody),
+    '卡片档：网格只在容器不带 hj-queue-list 时成立');
+  // 「不自滚」这条留在门控之外。基线的 .q-list 是 overflow-y:auto + flex:1，
+  // 跟着整条回退会在黑胶的 .view 里再套一层滚动容器 —— 两层滚动条并排是
+  // 本项目反复出过的体验事故，且**不报错**。
+  ok(/\[data-skin="heijiao"\] \.q-list\s*\{[^}]*overflow:\s*visible[^}]*flex:\s*none/.test(hjBody),
+    '两档都不自滚（滚动权恒在 .view，列表档也不例外）');
+  // 行规则的特异性必须与改造前逐字相同：容器限定要用 :where() 包住（恒为 0）。
+  // 直接串上去会从 (0,2,0) 涨到 (0,4,0)，反超 anime-ui.css / cel-ui.css 那两条
+  // 针对 .q-row 的 (0,2,1) 规则 —— 症状是同一屏里队列卡片的圆角/描边跟曲库
+  // 卡片不一致，而 .track 那边一切正常，最难往特异性上想。
+  ok(/\[data-skin="heijiao"\] :where\(\.q-list:not\(\.hj-queue-list\)\) \.q-row\s*\{[^}]*grid-template-areas/.test(hjBody)
+    && !/\[data-skin="heijiao"\] \.q-list:not\([^)]*\) \.q-row/.test(hjBody)
+    && !/\[data-skin="heijiao"\] \.q-row\s*\{[^}]*grid-template-areas/.test(hjBody),
+    '行规则的容器限定走 :where()（特异性不涨），且卡片几何没有一条是无门控的');
+  ok(/\[data-skin="heijiao"\] :where\(\.q-list:not\(\.hj-queue-list\)\) \.q-row\.playing\s*\{[^}]*border-color/.test(hjBody),
+    '播放高亮的 border-color 也在门控里（列表档没边框，否则行上多一条品牌色横线）');
+  ok(/\.hj-q-views/.test(hjBody), 'CSS 给自造的切换按钮组留了排布');
+
+  // JS 侧：按钮组是皮肤自造节点，必须挂进队列视图的工具行，并在卸载时归还。
+  ok(/querySelector\('#view-queue \.col-tools'\)/.test(HEIJIAO_JS)
+    && /insertBefore\(queueViews/.test(HEIJIAO_JS),
+    '切换按钮挂在队列头部（用户看到队列的地方，不在设置页里）');
+  ok(/vmusic\.heijiao\.queue/.test(HEIJIAO_JS), '排布选择落 localStorage');
+  ok(/setQueueMode\(readStored\(QUEUE_STORE_KEY\), false\)/.test(HEIJIAO_JS),
+    '开机恢复不写盘（无条件写回会把默认档钉死）');
+  const hjQueueUnmount = HEIJIAO_JS.slice(HEIJIAO_JS.indexOf('function unmount('),
+    HEIJIAO_JS.indexOf('window.Skins.registerLifecycle'));
+  ok(/queueViews\.parentNode\.removeChild\(queueViews\)/.test(hjQueueUnmount)
+    && /classList\.remove\(QUEUE_LIST_CLASS\)/.test(hjQueueUnmount),
+    '卸载摘按钮、也摘状态类（#queue-list 是业务节点，类会跨皮肤存活）');
+
+  section('黑胶：唱片拖转的机制（CSS 侧）');
+
+  // 角度只有一个通道：CSS 里那条 disc-spin 必须停掉，否则它与 JS 写的
+  // transform 互相覆盖，表现为"唱片每帧被拽回 0°"。
+  ok(/\[data-skin="heijiao"\] \.disc\s*\{[^}]*animation:\s*none/.test(hjBody),
+    '唱片停掉基础 disc-spin（角度通道归 JS 独占）');
+  ok(/\[data-skin="heijiao"\] \.disc\s*\{[^}]*transform:\s*rotate\(var\(--hj-turn/.test(hjBody),
+    '唱片角度走 --hj-turn 这一个变量');
+  // 「旋转不影响页面滚动」的唯一 CSS 保证。不写 touch-action，移动端在唱片上
+  // 纵向划动会被浏览器的滚动判定抢走（"唱片转不动"）；写 none 则是把页面
+  // 滚动一起禁掉（更糟：用户困在一张唱片里出不来），所以必须是 pan-y。
+  ok(/\[data-skin="heijiao"\] \.disc-wrap\s*\{[^}]*touch-action:\s*pan-y/.test(hjBody),
+    '唱片 touch-action:pan-y（纵向手势留给页面滚动）');
+  ok(/\[data-skin="heijiao"\] \.disc-wrap\s*\{[^}]*cursor:\s*grab/.test(hjBody),
+    '唱片给出 grab 光标（"能拖"先在手形上说一遍）');
+
+  section('黑胶：机箱台面的深度与曲名让位同源');
+
+  // 台面左右已被卡片宽度钉死（1707 下 497px 宽 vs 卡片内容宽 497，再多一像素
+  // 就被 .stage 的 overflow:hidden 裁掉一条边），所以"把底座做大"只有上下可走。
+  // 上下还必须是**同一个值**：上 4% / 下 9% 时唱片明显贴在机箱上沿、下面那条
+  // 前面板厚到像另一件家具（用户圈出来要求"上下等宽"）。
+  // 而向下长必须同时把曲名推开 —— 底板压在歌名上会变成一行脏影。
+  // 两处共用 --skin-deck-band 才算锁死：写成两个数就会漂，漂了的表现要么啃到
+  // 歌名，要么中间凭空多一条空档。
+  ok(/--skin-deck-band:\s*0\.\d+/.test(hjBody), '机箱台面的上下边深是一个令牌');
+  ok(/\.disc-wrap::before\s*\{[^}]*inset:\s*calc\(var\(--skin-deck-band\)[^;]*\)\s+calc\(var\(--skin-deck-overhang\)[^;]*\)\s*;/.test(hjBody),
+    '台面 inset 只写两段（上下共用 --skin-deck-band → 唱片在机箱里上下等宽）');
+  ok(/\.stage-title\s*\{[^}]*margin-top:\s*calc\([^;]*var\(--skin-deck-band\)[^;]*var\(--skin-disc-max\)/.test(hjBody),
+    '曲名让位 = 固定底数 + 同一比例 × 盘面上限（盘面只会比上限小 → 只会多让不会压字）');
+  // 左右外扩与盘面宽度反推必须同值，否则台面被卡片裁边、盘面看着不居中。
+  ok(/\.disc-wrap\s*\{[^}]*width:\s*min\([^;]*var\(--skin-deck-overhang\)[^;]*var\(--skin-disc-max\)/.test(hjBody),
+    '盘面宽度按 --skin-deck-overhang 反推（与台面左右同源）');
+
+  section('黑胶：两块必须显式认领栅格轨道（不能靠源序）');
+
+  // .app 的子元素源序是 rail / column / stage，而本皮肤把 .rail 设成
+  // position:fixed —— fixed 脱离栅格流不占轨道，于是源序第一格归了 .column、
+  // .stage 落进第二格：实测左卡 916px / 右面板 458px，比例整个反过来，
+  // 而页面不报错、卡片照旧渲染，看上去只是"左边那块宽了点"。
+  // 潮汐是单列，永远碰不到这个 —— 所以这条规则在潮汐里根本不存在，
+  // 照抄它的写法也发现不了。
+  ok(/\[data-skin="heijiao"\] \.stage\s*\{\s*grid-area:\s*1 \/ 1/.test(hjBody),
+    '左卡钉在 (1行,1列)（fixed 的 rail 不占轨道，靠源序会排反）');
+  ok(/\[data-skin="heijiao"\] \.column\s*\{\s*grid-area:\s*1 \/ 2/.test(hjBody),
+    '内容面板钉在 (1行,2列)');
+  // ⚠ 行也必须认领。只钉列的话自动行分配会把 .stage 推到下一行，
+  // 实测 gridTemplateRows 变成 "714px 50px" —— 左卡整块掉到右面板下方，
+  // 中间那道空行就是"上面一大片空白"的真身。
+  ok(!/\[data-skin="heijiao"\] \.(stage|column)\s*\{\s*grid-column:/.test(hjBody),
+    '不用 grid-column 单独认领（行也要一起钉，否则被自动分配推到下一行）');
+  // 行高必须显式给：不给的话由最高那列决定，而 .column 是 flex:0 1 auto
+  // 按内容高，于是整行塌到内容高度（实测 308px），左卡 stretch 后
+  // 内部内容溢出，表现为"左卡掉到页面下方、上方一大片空白"。
+  ok(/\[data-skin="heijiao"\] \.app\s*\{[^}]*grid-template-rows:\s*calc\(100dvh/.test(hjBody),
+    '.app 显式给行高（两列才真的撑满视口，而不是塌到内容高）');
+  // 堆叠断点必须复位：grid-area:auto 才能回到自动放置。
+  ok(/\[data-skin="heijiao"\] \.stage \{ order: -1; grid-area: auto; \}/.test(hjBody),
+    '堆叠态复位 grid-area（1/1 与 1/2 在单列下指同一格，不复位会叠在一起）');
+
+  section('黑胶：定高 flex 列的纪律（左卡不许被压扁）');
+
+  // ⚠ 这条钉的是实测踩到的：基础样式 .stage 的 flex 是 `0 1 auto`（可收缩），
+  // 左卡是栅格子项，内容超高时浏览器先压扁可收缩项而不是让栅格行长高 ——
+  // 实测左卡被压到 356px（内容需要 470px），歌词只剩地板高度；
+  // 更糟的是展开歌词那一刻卡片跟着缩到 291px，"展开后歌词变多"成了"变少"。
+  ok(/\[data-skin="heijiao"\] \.stage\s*\{[^}]*flex:\s*none/.test(hjBody),
+    '左卡 flex:none（可收缩会把整卡连歌词一起压扁）');
+  // 展开态歌词要有下限：flex:1 无地板时余量归零就只剩内容那么高。
+  ok(/body\.hj-lyrics-open \.stage-lyrics\s*\{[^}]*min-height:\s*\d+px/.test(hjBody),
+    '展开态歌词区有高度下限（不写就只剩两行）');
+  // 矮屏要有一条让左卡自身可滚的兜底：唱片按内容长高后可能超出一屏，
+  // 而基础样式是 overflow:hidden —— 内容被静默裁掉，页面不报错。
+  ok(/@media \(max-height: \d+px\)[\s\S]*?\[data-skin="heijiao"\] \.stage\s*\{[^}]*overflow-y:\s*auto/.test(hjBody),
+    '矮屏下左卡自身可滚（flex:none 后按内容长高，内容不该被 overflow:hidden 裁掉）');
+
+  section('黑胶：唱片拖转的机制（JS 侧）');
+
+  ok(/Skins\.registerLifecycle\('heijiao'/.test(HEIJIAO_JS.replace(/SKIN_ID/g, "'heijiao'")),
+    '黑胶向 Skins 注册生命周期');
+  // 只用 Pointer Events。三套分开写是这类交互最常见的 bug 源：
+  // 双写在触屏上触发两次（合成 mouse 事件），三写要处理 pointercancel 后
+  // 触摸流还在继续。
+  ok(!/addEventListener\('mouse|addEventListener\('touch(?!start)/.test(HEIJIAO_JS),
+    '只用 Pointer Events（不混 mouse/touch 监听）');
+  ok(/addEventListener\('pointerdown'/.test(HEIJIAO_JS) &&
+    /addEventListener\('pointermove'/.test(HEIJIAO_JS) &&
+    /addEventListener\('pointerup'/.test(HEIJIAO_JS) &&
+    /addEventListener\('pointercancel'/.test(HEIJIAO_JS),
+    '指针四件套齐全（含 cancel：系统打断时不该留惯性）');
+  // 捕获必须延后到"确认横向"之后：不延后的话纵向滑动会被指针捕获
+  // 劫持，页面滚不动。
+  //
+  // ⚠ 这里必须**函数级**地断言，不能只测「turned = true 附近有没有 capture」：
+  // 写成就近正则时，把 capture 提前到 pointerdown 里**照样能通过** ——
+  // 因为原文件里 turned = true 到 capture 的距离本就在窗口内。
+  // 变异测试（把 setPointerCapture 挪进 onDown）实测不红，说明那条断言
+  // 形同虚设。所以改成数「onDown 函数体内有没有 setPointerCapture」。
+  const hjOnDown = HEIJIAO_JS.slice(
+    HEIJIAO_JS.indexOf('function onDown('),
+    HEIJIAO_JS.indexOf('function onMove('));
+  ok(hjOnDown && hjOnDown.indexOf('setPointerCapture') === -1,
+    'onDown 不捕获指针（捕获会劫持纵向手势，页面滚不动）');
+  const hjOnMove = HEIJIAO_JS.slice(
+    HEIJIAO_JS.indexOf('function onMove('),
+    HEIJIAO_JS.indexOf('function onUp('));
+  ok(hjOnMove && hjOnMove.indexOf('setPointerCapture') > hjOnMove.indexOf('turned = true'),
+    'setPointerCapture 在确认横向（turned）之后才调用');
+  ok(/Math\.abs\(dx\) <= Math\.abs\(dy\)/.test(HEIJIAO_JS),
+    '横向不占优就放行（对角线上判给滚动更安全）');
+  // 惯性用 rAF 指数衰减：写成 CSS transition 会变成"松手后匀速转固定角度"，
+  // 快甩与轻推表现一样。
+  ok(/requestAnimationFrame/.test(HEIJIAO_JS) && /spinVel \*= /.test(HEIJIAO_JS),
+    '惯性走 rAF 指数衰减（不是匀速 transition）');
+  // ⚠ 「起新轮」与「续下一帧」必须分开，且续帧**不能**由 ensureLoop 承担。
+  // tick 开头把 rafId 置 0，于是 ensureLoop 里两种判据都发不出下一帧：
+  //   · 判 `!rafId` → 每帧都判定成"起新轮" → 每帧重置 lastFrame → dt 恒为 0
+  //     → 角度永不推进；
+  //   · 判 `!looping` → 续帧时 looping 仍为 true → 本帧不发下一帧 → 循环在
+  //     第一帧后就静默停住（实测 51 帧里只有第 1 帧真做过积分）。
+  // 两种症状一模一样：循环在跑、速度从 88°/s 衰减到 5°/s、角度一动不动、
+  // 控制台一行错也没有。这个 bug 抓了两轮才对，值得钉死。
+  ok(/var looping = false;/.test(HEIJIAO_JS),
+    'rAF 循环有独立的"本轮进行中"标记');
+  const hjLoop = HEIJIAO_JS.slice(
+    HEIJIAO_JS.indexOf('function ensureLoop('),
+    HEIJIAO_JS.indexOf('function tick('));
+  ok(hjLoop && /if \(needs && !looping\)/.test(hjLoop),
+    'ensureLoop 用 looping 区分起新轮（拿 rafId 判会让 dt 恒为 0）');
+  // "起新轮"那一支的条件里不能出现 rafId。取消分支里用 rafId 是对的
+  // （cancelAnimationFrame 需要句柄），别连它一起禁掉。
+  ok(!/if \(needs && [^{]*rafId/.test(hjLoop),
+    'ensureLoop 起新轮的条件不含 rafId（rafId 在 tick 开头已归零，判它就发不出下一帧）');
+  // 续帧在 tick 末尾显式重排。
+  const hjTick = HEIJIAO_JS.slice(
+    HEIJIAO_JS.indexOf('function tick(now)'),
+    HEIJIAO_JS.indexOf('function onPlayingChange('));
+  ok(hjTick && /if \(looping\) rafId = requestAnimationFrame\(tick\);/.test(hjTick),
+    'tick 末尾显式续帧（交回 ensureLoop 判会在第一帧后静默停住）');
+  // 卸载必须复位 looping：留着 true 的话下次挂载 ensureLoop 永远不成立，
+  // 表现为"切走再切回，唱片再也转不起来"，且不报错。
+  ok(/looping = false;[\s\S]{0,400}?lastFrame = 0;/.test(HEIJIAO_JS),
+    '卸载复位 looping（否则切回皮肤后唱片再也转不动）');
+  // 角度不取模：取模会在跨 360° 那帧产生 359°→0° 插值，唱片"倒转一整圈"。
+  ok(/setProperty\('--hj-turn', angle\.toFixed\(2\)/.test(HEIJIAO_JS),
+    '角度连续写出、不取模（取模会在跨 360° 时倒转一圈）');
+  // 卸载必须摘干净：--hj-turn 是皮肤写的，留着会在别的皮肤里残留一个角度。
+  ok(/removeProperty\('--hj-turn'\)/.test(HEIJIAO_JS),
+    '卸载摘掉 --hj-turn（不留残角给别的皮肤）');
+  ok(/removeEventListener\('pointerdown'/.test(HEIJIAO_JS) &&
+    /removeEventListener\('keydown'/.test(HEIJIAO_JS),
+    '卸载摘掉全部监听（含键盘旋转）');
+  // 键盘可达：唱片是这套皮肤唯一的交互，只绑指针等于纯键盘用户拿到静态图。
+  ok(/onKey/.test(HEIJIAO_JS) && /role', 'slider'/.test(HEIJIAO_JS.replace(/"/g, "'")),
+    '唱片键盘可达（方向键旋转，role=slider 可播报）');
+  // 降低动效：关掉自转与惯性，保留用户主动发起的拖转。
+  ok(/prefers-reduced-motion/.test(HEIJIAO_JS),
+    'JS 侧认 prefers-reduced-motion（关自转与惯性）');
+  ok(/prefers-reduced-motion/.test(hjBody),
+    'CSS 侧也认 prefers-reduced-motion');
+  // 设置浮层与其它皮肤同一份实现。
+  ok(/SkinSettingsSheet/.test(HEIJIAO_JS),
+    '复用共享设置浮层（持久化逻辑与其它皮肤一致）');
+
+  section('黑胶：默认视图是「在线曲库」，且只改「回首页」语义');
+
+  // 需求：所有皮肤的曲库选项卡默认展示在线曲库数据。
+  ok(/var DEFAULT_VIEW = 'online';/.test(APP),
+    '默认视图是 online（本地曲库要填过目录才有内容，开机是空引导卡）');
+  ok(/function defaultView\(\)/.test(APP), '默认视图有统一解析入口（不是各处硬编码 id）');
+  // 显式导航**不能**被改掉：用户点导航里的「曲库」仍然要去本地曲库。
+  // 把 rail 的点击也换成 defaultView() 的表现是「本地曲库再也回不去」。
+  ok(/\{ id: 'view-library', group: '导航'[\s\S]{0,120}?run: \(\) => setView\('library'\) \}/.test(APP),
+    '命令面板「转到：曲库」仍去本地曲库（显式导航不改）');
+  ok(/case '1': setView\('library'\); break;/.test(APP),
+    '快捷键 1 仍去本地曲库（显式导航不改）');
+  // 三处「回首页」都要走 defaultView()，漏一处就是"启动去了在线、
+  // 换肤后又跳回本地"这种前后不一致。
+  eq((APP.match(/setView\(defaultView\(\)\)/g) || []).length, 3,
+    '三处回首页调用（启动 / 换肤 / bind 后补跑）统一走 defaultView()');
+  // 兜底判据：默认视图自己被关掉时（nav_visible_online=false）也必须有地方去。
+  ok(/if \(hidCurrent\) setView\(ui\.views\[DEFAULT_VIEW\] \? DEFAULT_VIEW : 'library'\)/.test(APP),
+    '当前视图被隐藏时的兜底会先试默认视图、再退 library（默认视图被关掉时不空白）');
+
+  section('黑胶：响应式断点（宽屏双栏 / 窄屏纵向堆叠）');
+
+  // 堆叠断点必须存在，且 .stage 要显式 order:-1 才能排到内容之上 ——
+  // .app 的子元素源序是 rail/column/stage（rail 是 fixed 不占位），
+  // 不写 order 的话堆叠态封面卡会跑到页面最下面。
+  ok(/@media \(max-width: 1100px\)[\s\S]*?grid-template-columns:\s*minmax\(\s*0\s*,\s*1fr\s*\)/.test(hjBody),
+    '≤1100px 收成单列（纵向堆叠）');
+  ok(/\[data-skin="heijiao"\] \.stage\s*\{\s*order:\s*-1/.test(hjBody),
+    '堆叠态封面卡排在内容之上（order:-1）');
+  // 卡片下限随宽度收窄，否则 620px 下每张卡只剩一个封面、一列字。
+  ok(/--skin-card-min:\s*132px/.test(hjBody),
+    '最窄断点把卡片下限压到 132px（一屏放得下几张）');
+}
+
 (function main() {
   checkCatalog();
   checkLifecycleAndHost();
@@ -2908,6 +3246,7 @@ function checkLifecycleAndHost() {
   checkQingfengSettings();
   checkQingfengWiring();
   checkChaoxiSkin();
+  checkHeijiaoSkin();
   checkSkinSwitchViewHandoff();
   checkStageNoHorizontalScroll();
   checkWiring();

@@ -17,6 +17,8 @@ type IdPageOp<T> = for<'a> fn(&'a Ctx, &'a str, usize, usize) -> FutureResult<'a
 type TrackWriteOp = for<'a> fn(&'a Ctx, &'a str, &'a [TrackEntry]) -> FutureResult<'a, ()>;
 type LikeOp = for<'a> fn(&'a Ctx, &'a str, bool) -> FutureResult<'a, ()>;
 type ScrobbleOp = for<'a> fn(&'a Ctx, &'a str, u64) -> FutureResult<'a, ()>;
+/// 批量权益探测：按传入顺序逐首回「当前账号能不能取到流」。
+type EntitlementOp = for<'a> fn(&'a Ctx, &'a [String], u32) -> FutureResult<'a, Vec<bool>>;
 type StreamOp =
     for<'a> fn(&'a Ctx, &'a str, Option<&'a TrackRef>, u32) -> FutureResult<'a, StreamInfo>;
 type ReadyOp = for<'a> fn(&'a Ctx) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
@@ -110,6 +112,7 @@ pub(super) struct Provider {
     pub recommend_playlists: Option<PageOp<Vec<OnlinePlaylist>>>,
     pub personal_fm: Option<ContextOp<Vec<OnlineTrack>>>,
     pub scrobble: Option<ScrobbleOp>,
+    pub entitlement: Option<EntitlementOp>,
     pub qr: Option<QrOps>,
 }
 
@@ -137,6 +140,7 @@ impl Provider {
             recommend_playlists: None,
             personal_fm: None,
             scrobble: None,
+            entitlement: None,
             qr: None,
         }
     }
@@ -346,6 +350,12 @@ const PROVIDERS: &[Provider] = &[
                 label: "网易云音乐",
                 cats: netease::CATS,
                 supports_cookie: true,
+                // 弹窗上的「怎么弄到 cookie」说明；keys 是后端判登录态实际认的字段，
+                // 写进文案用户才知道自己拷全没有。cred::signed_in_netease 只认这一个字段。
+                login: Some(&LoginGuide {
+                    site: "https://music.163.com",
+                    keys: &["MUSIC_U"],
+                }),
                 caps: &[
                     Capability::CookieLogin,
                     Capability::QrLogin,
@@ -390,6 +400,7 @@ const PROVIDERS: &[Provider] = &[
             signed_in: cred::signed_in_qq,
         }),
         account: Some(|ctx| Box::pin(qq::account(ctx))),
+        entitlement: Some(|ctx, ids, quality| Box::pin(qq::entitlement(ctx, ids, quality))),
         playlists: Some(|ctx, scope, offset, limit| {
             Box::pin(qq::playlists(ctx, scope, offset, limit))
         }),
@@ -425,6 +436,12 @@ const PROVIDERS: &[Provider] = &[
                 label: "QQ音乐",
                 cats: &[],
                 supports_cookie: true,
+                // 弹窗上的「怎么弄到 cookie」说明；keys 是后端判登录态实际认的字段，
+                // 写进文案用户才知道自己拷全没有。两个都要有：musicu.fcg 认 qm_keyst，uin 从 cookie 里归一。
+                login: Some(&LoginGuide {
+                    site: "https://y.qq.com",
+                    keys: &["uin", "qm_keyst"],
+                }),
                 // 扫码走 QQ Connect 授权链（2026-09 真机验证 waiting 态返回正常）；
                 // Like 暂无平台实现（红心等价 dirid=201 加曲，待真机后补）。
                 // RecommendSongs 走雷达端点（2026-09 真机验证，需登录态）：QQ 这条
@@ -498,6 +515,12 @@ const PROVIDERS: &[Provider] = &[
                 label: "酷狗音乐",
                 cats: &[],
                 supports_cookie: true,
+                // 弹窗上的「怎么弄到 cookie」说明；keys 是后端判登录态实际认的字段，
+                // 写进文案用户才知道自己拷全没有。KugooID/uid 与 KugooPassToken 是同义键，见 cred::enrich_kugou。
+                login: Some(&LoginGuide {
+                    site: "https://www.kugou.com",
+                    keys: &["userid", "token"],
+                }),
                 // 扫码走 login-user.kugou.com v2 网页流（2026-09 真机验证
                 // create + waiting 正常）；confirmed 换票链路待真机确认。
                 // 歌单详情/用户歌单/写操作/推荐/红心端点仍待真机后逐个摘开。
@@ -536,6 +559,12 @@ const PROVIDERS: &[Provider] = &[
                 label: "酷我音乐",
                 cats: &[],
                 supports_cookie: true,
+                // 弹窗上的「怎么弄到 cookie」说明；keys 是后端判登录态实际认的字段，
+                // 写进文案用户才知道自己拷全没有。只有 uid 判态。
+                login: Some(&LoginGuide {
+                    site: "https://www.kuwo.cn",
+                    keys: &["uid"],
+                }),
                 // 登录只有 cookie 粘贴一条路（uid 判态，spike 2026-09-27 无账号
                 // 实测，字段名待核对）；匿名档位上限 128k 完整曲/试听片段，登录
                 // 通道对移动接口的效果待实测——不标 HighQuality（标了等于承诺
@@ -558,6 +587,7 @@ const PROVIDERS: &[Provider] = &[
                 label: "CCmixter · CC 授权曲库",
                 cats: &[],
                 supports_cookie: false,
+                login: None,
                 caps: &[],
             },
             CoreOps {
@@ -578,6 +608,7 @@ const PROVIDERS: &[Provider] = &[
                 // client_id 由用户注册后写入 settings（jamendo::CLIENT_ID_KEY）；
                 // 未配置时 list_sources 与聚合搜索都会跳过，列表里不出现这个源。
                 supports_cookie: false,
+                login: None,
                 caps: &[],
             },
             CoreOps {
@@ -606,8 +637,15 @@ const PROVIDERS: &[Provider] = &[
                 label: "汽水音乐",
                 cats: &[],
                 supports_cookie: true,
-                // Passport 创建/轮询使用原握手票；二维码改为手机授权入口。
-                // 抖音 App 确认尚待本人验收，2046 安全验证继续引导官网 Cookie。
+                // 弹窗上的「怎么弄到 cookie」说明；keys 是后端判登录态实际认的字段，
+                // 写进文案用户才知道自己拷全没有。任一存在即算已登录（还有 sessionid_ss），见 cred::SESSION_COOKIES。
+                login: Some(&LoginGuide {
+                    site: "https://www.qishui.com",
+                    keys: &["sessionid", "sid_guard", "sid_tt"],
+                }),
+                // Passport 创建/轮询使用原握手票；二维码是手机授权入口。
+                // 2026-10-11 真机验收：汽水 App 能扫上，但交付被上游拒（2156，
+                // 详见 qishui 模块头），扫码走不通、只当 cookie 登录的辅助入口。
                 caps: &[Capability::CookieLogin, Capability::QrLogin],
             },
             CoreOps {
@@ -636,6 +674,12 @@ const PROVIDERS: &[Provider] = &[
                 label: "咪咕音乐",
                 cats: &[],
                 supports_cookie: true,
+                // 弹窗上的「怎么弄到 cookie」说明；keys 是后端判登录态实际认的字段，
+                // 写进文案用户才知道自己拷全没有。v5 账号接口只认它。
+                login: Some(&LoginGuide {
+                    site: "https://music.migu.cn/v5",
+                    keys: &["pacmtoken"],
+                }),
                 // v5 的 pacmtoken 账号接口与公开歌单；有效本人账号仍待验收。
                 // 取流使用官方 Web 响应封装，是否有权播放以返回的 URL/权限码为准。
                 caps: &[
@@ -664,6 +708,7 @@ const PROVIDERS: &[Provider] = &[
                 label: "播客",
                 cats: &[],
                 supports_cookie: false,
+                login: None,
                 caps: &[],
             },
             CoreOps {
@@ -692,6 +737,7 @@ mod tests {
             label: "Fixture provider",
             cats: &[],
             supports_cookie: false,
+            login: None,
             caps: &[],
         },
         CoreOps {

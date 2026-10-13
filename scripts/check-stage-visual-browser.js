@@ -167,8 +167,10 @@ async function main() {
     assert.equal(await page.locator('#s3d-fl-backdrop').isVisible(), false);
     assert.equal(await page.evaluate(() => document.getElementById('stage3d').classList.contains('s3d-scene-covered')), false);
     // 减少动效下 15fps：configure 后立刻截图会抢在恢复后首帧之前拍到黑画布。
+    // 点阵化后（点径 0.66×网格间距）DPR=1 的移动端是覆盖率最坏情形，实测
+    // litRatio≈0.165；黑画布是 0，阈值 0.12 仍能 decisively 区分。
     const luma = await sphereLuma(page);
-    assert.ok(luma.gl && luma.litRatio > 0.2, 'sphere pixels after returning to 3D: ' + JSON.stringify(luma));
+    assert.ok(luma.gl && luma.litRatio > 0.12, 'sphere pixels after returning to 3D: ' + JSON.stringify(luma));
     await page.screenshot({ path: path.join(output, 'sphere-mobile.png') });
     pass('returning to 3D restores the sphere and its input surface');
     assert.deepEqual(errors, []);

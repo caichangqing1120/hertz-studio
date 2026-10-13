@@ -167,6 +167,13 @@ async function openSettings(page) {
     ok(geo.navW >= 180, `左栏宽度够放条目（${geo.navW}px）`);
     ok(geo.paneW >= 400, `右栏没被挤扁（${geo.paneW}px）`);
     ok(geo.navRight <= geo.paneLeft + 1, '两栏不重叠（nav 右缘 ≤ pane 左缘）');
+    // 浮层头已写分类名与说明：视图自带的「设置」col-head 浮层内必须藏掉
+    // （三份设置浮层同一契约：流年 / 清风 / 共享）。
+    const colHead = await page.evaluate(() => {
+      const el = document.querySelector('.ln-set-pane > #view-settings > .col-head');
+      return el ? getComputedStyle(el).display : '(missing)';
+    });
+    eq(colHead, 'none', '浮层内不再显示重复的「设置」标题（col-head 已藏）');
     ok(geo.cardTop >= 0 && geo.cardBottom <= HEIGHT,
       `浮层不超出视口（top=${geo.cardTop} bottom=${geo.cardBottom} viewport=${HEIGHT}）`);
     ok(!geo.navScrollable || geo.navScrollable === undefined || true, `左栏滚动状态（16 条时允许出滚道）：scrollHeight 检查放宽`);
@@ -200,6 +207,15 @@ async function openSettings(page) {
       return localStorage.getItem('vmusic.ln-set-section');
     });
     eq(persisted, 'keys', '选中分类写进了 localStorage');
+
+    // 悬停叉叉旋转 90°：与清风/共享设置浮层同一手感（identity/none 都算没转）。
+    await page.hover('.ln-modal-close');
+    await page.waitForTimeout(300);
+    const rot = await page.evaluate(() => {
+      const t = getComputedStyle(document.querySelector('.ln-modal-close svg')).transform;
+      return { raw: t, turned: t !== 'none' && !/matrix\(1, 0, 0, 1, 0, 0\)/.test(t) };
+    });
+    ok(rot.turned, '悬停时叉叉旋转（transform=' + rot.raw + '）');
 
     // 关掉再打开，应停在同一类
     await page.evaluate(() => { document.querySelector('.ln-modal-close').click(); });

@@ -60,6 +60,7 @@ mod qq;
 // 所以对子模块外暴露到 crate 内；平台协议细节仍关在 online 内部。
 pub(crate) mod qr;
 pub mod quality;
+mod quote;
 mod sign;
 
 // 候选类型出现在 StreamInfo 与 progressive::start 的签名上，平台模块和上层都
@@ -72,6 +73,10 @@ pub(crate) use cred::{
     clear as cred_clear, get as cred_get, is_signed_in as cred_is_signed_in,
     put_cookie as cred_put_cookie, CRED_PREFIX,
 };
+
+// 每日一言的取句对两个门面开放：routes.rs 的 HTTP 端点与 rpc 的同名方法共用这一份
+// 实现，分类白名单与字段归一只有一个 owner。
+pub(crate) use quote::{daily_quote, QuoteQuery};
 
 use std::time::Duration;
 
@@ -500,7 +505,22 @@ pub struct SourceInfo {
     pub cats: &'static [(&'static str, &'static str)],
     /// 支持「用户自己的账号 cookie」，UI 才需要给出登录入口。
     pub supports_cookie: bool,
+    /// 怎么弄到那份 cookie 的说明。`supports_cookie` 的源必须给——不然弹窗上
+    /// 只剩一句「先在官网登录再粘贴」，用户既不知道去哪个站、也不知道拷全没有。
+    pub login: Option<&'static LoginGuide>,
     pub caps: &'static [Capability],
+}
+
+/// 「手动粘贴 cookie」的取证说明。每个源真的只有这两项不同：去哪个站登录、
+/// 以及判登录态认哪几个字段。步骤本身六个站是同一套（DevTools 里拷 cookie
+/// 请求头），文案由前端统一给，不在这里逐份抄一遍。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct LoginGuide {
+    /// 用户要自己去登录的官网地址。
+    pub site: &'static str,
+    /// 判登录态必需的 cookie 字段名（来自 `cred` 的登录规则）。列出来用户才
+    /// 能对照自查拷没拷全——这些字段常常只是整罐 cookie 里的两三个。
+    pub keys: &'static [&'static str],
 }
 
 /// 已登记但尚无整条真机验收记录的能力，随 Provider 一起登记。
@@ -681,6 +701,9 @@ pub async fn list_sources(ctx: &Ctx) -> Vec<serde_json::Value> {
             "caps": src.caps,
             // 第三档：登记了但没真机验收过的能力。前端要把它与「不支持」分开画。
             "unverified": unverified_caps(src.id),
+            // 怎么弄到 cookie：官网地址 + 判登录态认哪几个字段。前端照这份渲染，
+            // 不再按音源名特判（SourceInfo 的契约就是「前端不硬编码音源名」）。
+            "login": src.login,
         }));
     }
     out
@@ -852,6 +875,38 @@ pub async fn stream(
         (provider::require(source)?.core.stream)(ctx, id, track_ref, q).await
     })
     .await
+}
+
+/// 批量问「这些曲目当前账号能不能取到流」，按传入顺序逐首回布尔。
+///
+/// `Ok(None)` = 这个源没有这条探测能力：调用方必须当「不知道」，绝不许当
+/// 「不能播」去剔歌——否则没接探测的源的曲子会整片从候选里消失。
+/// 探测走的是取流同一个接口、同一套入参，判定与真实点播同尺子（见 `qq::entitlement`）。
+pub async fn probe_playable(
+    ctx: &Ctx,
+    source: &str,
+    ids: &[String],
+    quality: u32,
+) -> ApiResult<Option<Vec<bool>>> {
+    if ids.is_empty() || !is_music_source(source) {
+        return Ok(None);
+    }
+    let Some(op) = provider::find(source).and_then(|p| p.entitlement) else {
+        return Ok(None);
+    };
+    let verdicts = with_deadline(STREAM_DEADLINE, source, async move {
+        op(ctx, ids, quality).await
+    })
+    .await?;
+    if verdicts.len() != ids.len() {
+        return Err(ApiError::upstream_rejected(format!(
+            "{source} 权益探测返回 {} 条，请求 {} 首",
+            verdicts.len(),
+            ids.len()
+        ))
+        .with_source(source));
+    }
+    Ok(Some(verdicts))
 }
 
 /// 单曲详情。搜索接口返回的字段不全（尤其是封面），播放前用它补齐。
@@ -1182,6 +1237,32 @@ mod tests {
             assert!(find(src.id).is_some());
         }
         assert!(find("nope").is_none());
+    }
+
+    #[test]
+    fn every_cookie_source_ships_a_login_guide() {
+        // 「手动粘贴 cookie」是扫码之外唯一的登录路径，而扫码那几个源还没验收。
+        // 少了官网地址或字段名，弹窗上就只剩一句「先在官网登录再粘贴」——用户
+        // 既不知道该去哪个站，也不知道拷回来的整串里有没有判登录态那几个字段。
+        for src in SOURCES {
+            match (src.supports_cookie, src.login) {
+                (true, Some(g)) => {
+                    assert!(
+                        g.site.starts_with("https://"),
+                        "{} 的官网要写全 https 地址",
+                        src.id
+                    );
+                    assert!(
+                        !g.keys.is_empty() && !g.keys.iter().any(|k| k.is_empty()),
+                        "{} 得说清判登录态认哪些 cookie 字段",
+                        src.id
+                    );
+                }
+                (true, None) => panic!("{} 支持 cookie 登录，却没给取证说明", src.id),
+                (false, None) => {}
+                (false, Some(_)) => panic!("{} 不接受 cookie，却给了取证说明", src.id),
+            }
+        }
     }
 
     #[test]

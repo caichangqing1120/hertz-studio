@@ -99,9 +99,16 @@ function grabFn(src, head) {
       'stage_beats.rs 的在线曲缓存查找要走夹上限的档位（否则被降档那首永远找不到文件）');
     ok(!/crate::online::quality::get\(&prefs/.test(beats),
       'stage_beats.rs 不许再按原始偏好拼档位');
-    for (const head of ['async fn play_online(', 'async fn spawn_prefetch(', 'async fn handle_decode_failure(']) {
+    for (const head of ['async fn play_online(', 'async fn spawn_prefetch(']) {
       ok(/online_quality_for\(/.test(grabFn(state, head)), `${head} 使用夹上限后的档位`);
     }
+    // 解码失败这条入口不自己取档了：它把取档委托给 downgrade_for_retry，因为那边
+    // 要在记账前后各取一次档位才能判"这一首确实降下来了"。委托必须两头都可查 ——
+    // 入口里出现那一跳，且那一跳自己走夹上限的档位，否则"绕开上限取档"又能藏进去。
+    ok(/online_quality_for\(|downgrade_for_retry\(/.test(grabFn(state, 'async fn handle_decode_failure(')),
+      'async fn handle_decode_failure( 使用夹上限后的档位');
+    ok(/online_quality_for\(/.test(grabFn(state, 'async fn downgrade_for_retry(')),
+      'handle_decode_failure 委托的那一跳也走夹上限的档位');
   }
 
   section('失败证据：固定尝试档位、匹配代际、一次记账');
@@ -132,8 +139,14 @@ function grabFn(src, head) {
     const decode = grabFn(state, 'async fn handle_decode_failure(');
     ok(/take_failed_quality\(&track_id,\s*generation\)\.await/.test(decode)
       && /let failed_at = failed\.actual/.test(decode)
-      && /if let Some\(tier\) = failed_at\s*\{\s*self\.note_quality_failure\(&track_id,\s*"decode_stalled",\s*tier\)/.test(decode),
+      && /if let Some\(tier\) = failed_at\s*\{\s*if self\s*\.downgrade_for_retry\(&track_id,\s*"decode_stalled",\s*tier\)/.test(decode),
     '解码失败的档位来自匹配提交证据，未知档位不制造音质判决');
+    // "一次记账"这件事跟着那一跳走了，所以在被委托方身上钉住：只按传进来的档位
+    // 记一次，多记一次就会一次故障连降两档。
+    const retry = grabFn(state, 'async fn downgrade_for_retry(');
+    ok(/self\.note_quality_failure\(track_id,\s*code,\s*failed_at\)\.await/.test(retry)
+      && count(retry, 'note_quality_failure(') === 1,
+    'downgrade_for_retry 只按传入档位记一次账');
     const take = grabFn(state, 'async fn take_failed_quality(');
     ok(/c\.track_id == track_id/.test(take)
       && /c\.actor_generation == actor_generation/.test(take)

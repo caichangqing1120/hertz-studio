@@ -288,7 +288,9 @@ body.s3d-open > .bar { display: none; }
   width: var(--s3d-btn);
   height: var(--s3d-btn);
   padding: 0;
-  border-radius: var(--r-pill);
+  /* 幽灵按钮的 11px 圆角：胶囊上一排 999px 全圆读成「算盘珠」，方一点
+     才和dock 药丸、控制舱分段同一套几何语言。 */
+  border-radius: 11px;
   border: 1px solid transparent;
   /* 这里三处一律用 background-color 而不是 background 简写：顶栏的盘体靠一条
      常驻的受光渐变（background-image）撑材质，简写会在更高优先级的状态规则里
@@ -323,6 +325,25 @@ body.s3d-open > .bar { display: none; }
   height: 19px;
 }
 
+/* 「打开一个面板」的两颗钮：药丸 + 名字。
+   圆牌留给开关与动作（歌词/复位/全屏），药丸留给容器（控制=展开这一排，
+   设置=舞台设置面板）——同一排里两种几何各管一件事，之前两颗都画 #i-tune，
+   谁开什么都分不出来。高度仍跟 --s3d-btn 走，和圆牌同高，只有宽度让给文字。 */
+.s3d-head .s3d-btn.s3d-btn-pill {
+  width: auto;
+  padding: 0 13px 0 11px;
+  gap: 7px;
+  border-radius: 999px;
+}
+.s3d-btn-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.s3d-head .s3d-btn.s3d-btn-pill svg { flex-shrink: 0; }
+
 .s3d-btn .ic-compress {
   display: none;
 }
@@ -335,33 +356,26 @@ body.s3d-open > .bar { display: none; }
   display: block;
 }
 
-/* --- 顶栏控件：受光小圆牌 ---------------------------------------------------
-   静止时五颗都带一层极淡的盘体（原来只有点下的那颗有底色，整排于是读成
-   「三个图标 + 两个按钮」），底色本身又是一层平涂，跟右侧歌单架卡片完全无关。
-   这里换成与卡片同一套三层受光：斜向受光 + 顶缘高光 + 底缘压暗 + 接触阴影；
-   悬停抬起并把阴影推深，点亮改走强调色的内发光，关闭键悬停转 --danger。
-
-   材质写成 --chip-* 变量，星落 / iOS 只换配方、不重写结构。选择器多带一层
-   .s3d-open 不是冗余：两个主题挂在 .s3d-btn 上的平涂状态是 (0,3,0)，而
-   stage3d.css 排在它们前面，同权重会被主题盖掉 —— 加一层就把顶栏交还给这里，
-   主题想改的只有颜色。每条状态规则都重述 background-image 同理：主题用
-   background 简写写自己的底色，同权重时后加载的那份会把渐变一起清成 none。 */
+/* --- 顶栏控件：玻璃胶囊上的幽灵按钮 -----------------------------------------
+   参照主流播放器的舞台控制条语言：静止时只留图标（盘体/描边/受光全透明），
+   悬停浮一层平光，点亮走强调色。材质仍写成 --chip-* 变量而不是写死——
+   星落 / iOS 主题换配方即可恢复带盘体的质感，结构不动。
+   原三层受光配方（斜向高光 + 顶缘亮 + 底缘回光）在九颗按钮挤一条胶囊时
+   读成了一排小疙瘩，是「控制按钮太丑」的主要来源。 */
 .s3d-head {
-  --chip-body: color-mix(in srgb, var(--s3d-text) 9%, transparent);
-  --chip-sheen: color-mix(in srgb, var(--s3d-text) 15%, transparent);
-  --chip-edge: color-mix(in srgb, var(--s3d-text) 12%, transparent);
-  --chip-top: color-mix(in srgb, var(--s3d-text) 24%, transparent);
-  /* 底缘给一道回光而不是压暗：整排在同一条玻璃胶囊上，底缘一暗就读成凹进去的
-     坑，只有顶缘亮 + 底缘回光 + 落影在盘外，才是浮起来的 puck。 */
-  --chip-bounce: color-mix(in srgb, var(--s3d-text) 7%, transparent);
+  --chip-body: transparent;
+  --chip-sheen: transparent;
+  --chip-edge: transparent;
+  --chip-top: transparent;
+  --chip-bounce: transparent;
   --chip-base: color-mix(in srgb, var(--s3d-bg) 38%, transparent);
-  --chip-drop: color-mix(in srgb, var(--s3d-bg) 60%, transparent);
-  --chip-hover-body: color-mix(in srgb, var(--s3d-text) 13%, transparent);
-  --chip-hover-edge: color-mix(in srgb, var(--s3d-text) 22%, transparent);
-  --chip-on-body: color-mix(in srgb, var(--s3d-accent) 16%, transparent);
-  --chip-on-edge: color-mix(in srgb, var(--s3d-accent) 40%, transparent);
-  --chip-on-glow: color-mix(in srgb, var(--s3d-accent) 32%, transparent);
-  --chip-lift: -1px;
+  --chip-drop: transparent;
+  --chip-hover-body: color-mix(in srgb, var(--s3d-text) 7%, transparent);
+  --chip-hover-edge: transparent;
+  --chip-on-body: color-mix(in srgb, var(--s3d-accent) 10%, transparent);
+  --chip-on-edge: color-mix(in srgb, var(--s3d-accent) 34%, transparent);
+  --chip-on-glow: color-mix(in srgb, var(--s3d-accent) 26%, transparent);
+  --chip-lift: 0px;
   --chip-press: scale(.955);
 }
 
@@ -425,16 +439,64 @@ body.s3d-open > .bar { display: none; }
   outline-offset: 2px;
 }
 
-.s3d-head-sep {
-  flex: none;
-  width: 1px;
-  height: 22px;
-  margin: 0 3px;
-  border-radius: 1px;
-  background: linear-gradient(180deg, transparent,
-      color-mix(in srgb, var(--s3d-text) 15%, transparent) 30% 70%, transparent);
+/* ----- 头部按钮组：收拢 + 飞出 -----
+   触发按钮常驻；功能牌折进 .s3d-head-menu，悬停/聚焦/触屏首击时向左展开。
+   胶囊本体靠 max-width 撑开（等高同底，视觉上还是一条玻璃条），功能牌逐个
+   错峰入场；触发按钮图标旋转 90° 表示「展开了」。隐藏态要压过
+   .s3d.s3d-open .s3d-head .s3d-btn 的平涂（同权重会输），所以整段都带 .s3d-open。 */
+.s3d-head-cluster {
+  display: flex;
+  flex-direction: row-reverse; /* 触发按钮固定在最右，菜单向左展开 */
+  align-items: center;
+  gap: 6px;
 }
-
+.s3d-head-trigger svg { transition: transform 0.32s var(--ease, ease); }
+/* 功能牌不许被撑开中的容器压扁：菜单靠 max-width 0→320px 展开，按钮默认
+   flex-shrink:1，于是展开那 360ms 里 44px 的圆牌被挤成 21×44 的竖椭圆（实测），
+   图标跟着变形。钉成不伸缩，让容器去裁，视觉上就是一道从左往右的擦入。 */
+.s3d-head-menu .s3d-btn { flex: 0 0 auto; }
+.s3d-head-menu {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+  transition: max-width 0.36s var(--ease, ease), opacity 0.28s var(--ease, ease),
+    transform 0.36s var(--ease, ease);
+}
+.s3d.s3d-open .s3d-head-menu .s3d-btn {
+  opacity: 0;
+  transform: translateX(8px);
+  pointer-events: none;
+  transition: opacity var(--dur-1, 0.16s) var(--ease, ease),
+    transform var(--dur-1, 0.16s) var(--ease, ease),
+    background-color var(--dur-1, 0.16s) var(--ease, ease),
+    border-color var(--dur-1, 0.16s) var(--ease, ease),
+    color var(--dur-1, 0.16s) var(--ease, ease),
+    box-shadow var(--dur-1, 0.16s) var(--ease, ease);
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu {
+  max-width: 320px;
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-trigger svg {
+  transform: rotate(90deg);
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  transition-delay: 0ms;
+}
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(2) { transition-delay: 30ms; }
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(3) { transition-delay: 60ms; }
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(4) { transition-delay: 90ms; }
+.s3d.s3d-open .s3d-head-cluster:is(:hover, :focus-within, .is-open) .s3d-head-menu .s3d-btn:nth-child(5) { transition-delay: 120ms; }
 /* ---------------------------------------------------------------------------
    底部舞台坞
    --------------------------------------------------------------------------- */
@@ -480,9 +542,13 @@ body.s3d-open > .bar { display: none; }
   color: var(--s3d-text);
 }
 
+/* 场景坞当前项：与头部来源牌、控制舱分段同一套 accent 高亮语言
+   （accent 字色 + 34% 描边 + 10% 底），别写成两条同名规则——后一条会整块
+   盖掉前一条，描边就没了。（极光场景有自己的彩色配方，在下方按 data-scene 覆写。） */
 .s3d-dock-btn.active {
   color: var(--s3d-accent);
-  background: color-mix(in srgb, var(--s3d-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--s3d-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--s3d-accent) 10%, transparent);
 }
 
 .s3d-dock-btn.active:hover {
@@ -1094,7 +1160,6 @@ body.s3d-open > .bar { display: none; }
   .s3d-brand small { font-size: 8px; }
   /* 盘体常驻之后 2px 会把五颗挤成一条，分隔线也省掉腾出宽度。 */
   .s3d-head { gap: 4px; padding: 5px 6px; }
-  .s3d-head-sep { display: none; }
   .s3d-reading { left: 5%; width: 90%; top: 90px; bottom: 240px; }
   .s3d-eyebrow { margin-bottom: 18px; }
   .s3d-player { width: calc(100% - 28px); bottom: max(16px,env(safe-area-inset-bottom)); padding: 14px 18px; grid-template-columns: minmax(0,1fr) auto; gap: 12px; border-radius: 20px; }
@@ -1482,6 +1547,32 @@ body.s3d-open > .bar { display: none; }
 .s3d-art-overlay { z-index: 4; }
 .s3d-creative-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
 .s3d-creative-source::before, .s3d-creative-source::after { display: none; }
+/* 「纯真3D」海岸公路：与 creative 同层的第三背景源。默认不接指针，
+   开「舞台交互」后才接管（拖拽环绕/滚轮推拉），不抢歌词行的点击。 */
+.s3d-coast { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #0b1626; }
+.s3d-coast[hidden] { display: none; }
+.s3d-coast .coast-canvas { display: block; width: 100%; height: 100%; }
+.s3d-coast.coast-interact { pointer-events: auto; cursor: grab; }
+.s3d-coast.coast-interact:active { cursor: grabbing; }
+.s3d-coast-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-coast-source::before, .s3d-coast-source::after { display: none; }
+.s3d-coast-source .s3d-reading { z-index: 3; }
+/* 「星座 · 十二星图」：第四背景源。纯粒子场景（背景星场 + 十二座星图 +
+   连线），不接管歌词，歌词由 .s3d-reading / stanza 叠加层照常演出；
+   整幅场景压在 3D 轨画布之上。开启交互时画布接收拖拽/滚轮。 */
+.s3d-zodiac { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; background: #05060a; }
+.s3d-zodiac[hidden] { display: none; }
+.s3d-zodiac .zodiac-canvas { display: block; width: 100%; height: 100%; }
+.s3d-zodiac.zodiac-interact { pointer-events: auto; cursor: grab; }
+.s3d-zodiac.zodiac-interact:active { cursor: grabbing; }
+.s3d-zodiac-source .s3d-canvas-wrap > .s3d-canvas { visibility: hidden; }
+.s3d-zodiac-source::before, .s3d-zodiac-source::after { display: none; }
+.s3d-zodiac-source .s3d-reading { z-index: 3; }
+
+/* 普通舞台来源（创意编排 / 动画绘景）没有三维镜头：复位视角这类
+   3D 专属键不显示，来源切换与歌词/设置/全屏照常。class 由 syncLayout
+   按当前 sceneSource 切换。 */
+.s3d-flat-source #s3d-reset { display: none; }
 .s3d-creative-source .s3d-reading { z-index: 3; }
 .s3d-creative-source .s3d-sleeve { z-index: 3; }
 .s3d-creative-source #s3d-creative .creative-canvas { visibility: visible; z-index: 1; mix-blend-mode: screen; }

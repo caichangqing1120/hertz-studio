@@ -24,10 +24,30 @@ const ok = (cond, label, extra) => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
-  page.on('console', (m) => {
-    if (m.type() === 'error' && !/status of 401/.test(m.text())) errors.push(m.text());
+  // 401 是账号探测的既有正常行为；一言（/v1/home/quote）上游偶发 504、
+  // 舞台对无 beatmap 曲目探 /v1/stage/beatmap 回 404 后走默认视觉 ——
+  // 都是前端 catch 住的「优雅失手」，不是 JS 报错。豁免按端点失手次数
+  // 记账，多余的错误照样红（与 check-qingfeng-browser.js 同一套）。
+  let quote5xx = 0;
+  let beatmap404 = 0;
+  const badUrls = [];
+  page.on('response', (r) => {
+    if (r.status() >= 500 && /\/v1\/home\/quote/.test(r.url())) quote5xx += 1;
+    if (r.status() === 404 && /\/v1\/stage\/beatmap/.test(r.url())) beatmap404 += 1;
+    if (r.status() >= 400 && r.status() !== 401) badUrls.push(`${r.status()} ${r.url()}`);
   });
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const softErrors = [];
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    if (/status of 401/.test(m.text())) return;
+    if (/status of (5\d\d|404)/.test(m.text())) { softErrors.push(m.text()); return; }
+    errors.push(m.text());
+  });
+  const settleSoft = () => {
+    const forgivable = quote5xx + beatmap404;
+    return softErrors.length <= forgivable ? [] : softErrors.slice(forgivable);
+  };
 
   await page.goto(`${BASE}/?token=${TOKEN}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
@@ -407,8 +427,9 @@ const ok = (cond, label, extra) => {
   });
   ok(clickable, '关掉设置后底层恢复可点（body 隔离标记已摘）');
 
-  const real = errors.filter((e) => !/favicon|ERR_ABORTED/i.test(e));
-  ok(real.length === 0, '全流程无 JS 报错', real.slice(0, 2).join(' | '));
+  const real = errors.concat(settleSoft()).filter((e) => !/favicon|ERR_ABORTED/i.test(e));
+  ok(real.length === 0, '全流程无 JS 报错',
+    real.slice(0, 2).join(' | ') + (badUrls.length ? '   [4xx/5xx: ' + badUrls.slice(0, 5).join(' , ') + ']' : ''));
 
   await browser.close();
   console.log('\n' + '─'.repeat(56));

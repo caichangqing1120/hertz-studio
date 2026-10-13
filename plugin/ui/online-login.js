@@ -113,21 +113,80 @@
   }
 
   // 各平台二维码必须用对应 App 扫：QQ 走的是 QQ 互联授权，用 QQ 音乐 App
-  // 扫只会打开网页（用户实测会跳到 QQ 音乐 PC 首页）。汽水的登录码由抖音
-  // Passport 签发，上游文案也是「请使用「抖音 APP」扫码验证」。
+  // 扫只会打开网页（用户实测会跳到 QQ 音乐 PC 首页）。汽水的码由抖音 Passport
+  // 签发，上游文案写着「请使用「抖音 APP」扫码验证」，但那是错的——抖音扫只会
+  // 回「请用汽水音乐 App 扫码」，实测扫上的是汽水 App（轮询里 scan_app_id 8478）。
   var SCAN_APP = {
     netease: '网易云音乐 App',
     qq: '手机 QQ（不是 QQ 音乐 App）',
     kugou: '酷狗音乐 App',
-    qishui: '抖音 App（汽水音乐用抖音账号登录）',
+    qishui: '汽水音乐 App',
   };
   function scanApp(source) { return SCAN_APP[source] || '对应平台的 App'; }
+
+  /// 「怎么弄到这份 cookie」按音源渲染。数据来自 /v1/online/sources 的 login 字段
+  /// （官网地址 + 后端判登录态实际认的字段名），这里不按音源名特判——SourceInfo
+  /// 的契约就是「前端只认这张表，不硬编码任何音源名」。
+  /// 步骤六个站是同一套：唯一可靠、且不受 httpOnly 影响的取法是从 DevTools 的
+  /// Network 里拷请求头那整行，所以文案写死在这里、只让站点与字段随源变。
+  function renderLoginGuide(definition) {
+    var guide = el('qr-login-guide');
+    var login = definition.login;
+    if (!login || !login.site) {
+      guide.hidden = true;
+      guide.innerHTML = '';
+      el('qr-cookie-help').textContent = '先在平台官网完成登录，再复制该平台的 cookie。';
+      return;
+    }
+    var keys = (login.keys || []).filter(Boolean);
+    guide.innerHTML = '<div class="qr-guide-site"><code class="qr-guide-url"></code>'
+      + '<button type="button" class="qr-guide-copy">复制地址</button></div>'
+      + '<ol class="qr-guide-steps">'
+      + '<li>先在这个站点登录好账号（扫码或手机号验证码都行）。</li>'
+      + '<li>按 <kbd>F12</kbd> 打开开发者工具，切到 <b>Network / 网络</b> 面板。</li>'
+      + '<li>刷新页面，点列表里任意一条发往该站点的请求。</li>'
+      + '<li>在 <b>Request Headers</b> 里找到 <code>cookie:</code> 那一行，把冒号后面的整串复制过来。'
+      + '<b>别用 Console 里的 document.cookie</b>：登录态字段大多是 httpOnly，那样根本拷不到。</li>'
+      + '</ol>'
+      + (keys.length ? '<p class="qr-guide-keys"></p>' : '');
+    // 站点与字段名一律走 textContent：它们来自后端表，不该变成可注入的标记。
+    guide.querySelector('.qr-guide-url').textContent = login.site;
+    var keyLine = guide.querySelector('.qr-guide-keys');
+    if (keyLine) {
+      keyLine.textContent = '本平台判登录态只认这些字段：' + keys.join(' / ')
+        + '。整串照抄最省事；只拷到其中一两个也能用，少一个就会存成「未登录」。';
+    }
+    var copy = guide.querySelector('.qr-guide-copy');
+    copy.onclick = function () {
+      var done = function (ok) {
+        copy.textContent = ok ? '已复制' : '复制失败，请手动选中';
+        setTimeout(function () { copy.textContent = '复制地址'; }, 1800);
+      };
+      // 契约沙箱只加载本模块、没有 app.js，所以拿不到 HertzClipboard 时退回
+      // navigator.clipboard——即独立形态的同款行为。
+      var write = (window.HertzClipboard && window.HertzClipboard.write)
+        || function (t) { return navigator.clipboard.writeText(t); };
+      Promise.resolve().then(function () { return write(login.site); }).then(
+        function () { done(true); }, function () { done(false); });
+    };
+    guide.hidden = false;
+    el('qr-cookie-help').textContent = '把上面拷到的整串粘贴到这里，保存后立即生效。';
+  }
+  /// 上游拒绝这次扫码时的说法。默认那句「平台拒绝了」对汽水不准：汽水是
+  /// 手机已确认、服务端却发不出会话（交付要官方客户端签名，本机没有浏览器
+  /// 内核），说清成因用户才不会再去换个 App 反复扫。
+  var REJECT_TEXT = {
+    qishui: '汽水音乐已确认扫码，但登录态要官方客户端签名才能下发，本机做不到，请用下方「手动粘贴 cookie」登录',
+  };
 
   function el(id) { return document.getElementById(id); }
 
   function stopPolling() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
   }
+  /// 扫码走到终态就把 cookie 面板展开：文案在让用户「改用下方手动粘贴 cookie」，
+  /// 面板却还折叠着，等于让他先找一个没见过的控件去哪了。
+  function openCookieFallback() { el('qr-cookie-panel').open = true; }
 
   function renderQr(start, mine) {
     if (!isCurrent(mine.attempt)) {
@@ -191,14 +250,17 @@
       close();
       if (window.OnlinePlaylists) window.OnlinePlaylists.refresh();
     } else if (p.state === 'rejected') {
-      // 上游明确拒绝这次扫码（如网易云 8821）：不是"再等等"，刷新二维码
-      // 也只会拿到同一句，直接引导走手动 cookie。
+      // 上游明确拒绝这次扫码（如网易云 8821、汽水交付失败 2156）：不是"再等等"，
+      // 对同一枚票再问只会拿到同一句，直接停下并引导走手动 cookie。
       stopPolling();
-      el('qr-status').textContent = '该平台拒绝了这次扫码登录，请改用下方手动 cookie 登录';
+      openCookieFallback();
+      el('qr-status').textContent = REJECT_TEXT[mine.source]
+        || '该平台拒绝了这次扫码登录，请改用下方手动 cookie 登录';
     } else if (p.state === 'mfa_required') {
       // 上游要求二次验证（汽水音乐 2046），而那一步要在官方 JS 环境里跑，
       // 本地服务没有浏览器内核：这条码走不通，如实说清并指向 cookie 导入。
       stopPolling();
+      openCookieFallback();
       el('qr-status').textContent = '该平台要求二次安全验证，本机无法完成，请改用下方手动 cookie 登录';
     } else if (p.state === 'expired') {
       stopPolling();
@@ -569,10 +631,7 @@
       var cookiePanel = el('qr-cookie-panel');
       cookiePanel.hidden = caps.indexOf('cookie_login') < 0;
       cookiePanel.open = caps.indexOf('qr_login') < 0;
-      el('qr-official-login').hidden = source !== 'migu';
-      el('qr-cookie-help').textContent = source === 'migu'
-        ? '先在咪咕音乐官网完成登录，再粘贴包含 pacmtoken 的完整 cookie。'
-        : '先在平台官网完成登录，再复制该平台的 cookie。';
+      renderLoginGuide(definition);
       if (caps.indexOf('qr_login') < 0) {
         box.hidden = true;
         el('qr-channels').hidden = true;

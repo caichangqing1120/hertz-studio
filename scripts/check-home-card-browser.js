@@ -35,9 +35,14 @@ const section = (n) => console.log('\n' + n);
   await page.evaluate(() => {
     window.__quoteRequests = 0;
     window.__quoteStacks = [];
+    // 取句改走后端 /v1/home/quote 之后，界面里再出现任何直连 hitokoto 的请求都是
+    // 回归（插件形态下那条路会被 CSP 拦死），所以单独计数并断言为 0。
+    window.__externalQuoteHits = 0;
     const orig = window.fetch;
-    window.fetch = function (url, opts) {
-      if (String(url).indexOf('hitokoto') >= 0) {
+    window.fetch = function (url) {
+      const target = String(url);
+      if (target.indexOf('hitokoto') >= 0) window.__externalQuoteHits += 1;
+      if (target.indexOf('/v1/home/quote') >= 0) {
         window.__quoteRequests += 1;
         window.__quoteStacks.push(new Error().stack);
       }
@@ -46,14 +51,16 @@ const section = (n) => console.log('\n' + n);
   });
   await page.reload({ waitUntil: 'domcontentloaded' });   // 让监听在抓取前生效
   await page.waitForFunction(() => !!window.Skins, null, { timeout: 30000 });
-  // 等首次串行抓取跑完（8 次请求 × 140ms + 重试）。不等到就往下走的话，
-  // 后面量到的是抓取过程中的中间态 —— 名言会随抓取一条条变，
-  // 「换一条不变」「同一天不变」这类断言都会假红。
+  // 等首次串行抓取**真的结束**。取句走后端之后节奏变了：8 次 × 520ms，而被限流或
+  // 超时的那次要等满后端 8s 连接超时，所以整轮是十几到几十秒，不是原来的两秒。
   await page.waitForFunction(() => !!window.HomeQuote, null, { timeout: 20000 });
-  await page.waitForFunction(() => {
-    const s = window.HomeQuote.state();
-    return !s.usingFallback || s.count >= 3;
-  }, null, { timeout: 30000 });
+  // 判据只认 `!usingFallback`。旧写法带了个 `|| count >= 3`，而兜底池本身就有 6 条，
+  // 于是网络一次都没成也照样放行，后面量到的全是中间态（实测就是这么假绿的）。
+  // 上游真不可达时这条会等不到 —— 那是可接受的降级，超时后按兜底继续测下面的断言。
+  const filled = await page.waitForFunction(() => !window.HomeQuote.state().usingFallback,
+    null, { timeout: 90000 }).then(() => true, () => false);
+  console.log(filled ? '  ok  首次抓取拿到网络语料'
+    : '  -- 90s 内没拿到网络语料，按兜底继续（上游限流或不可达）');
   await page.waitForTimeout(400);
 
   section('几何：封面左置，右列吃满剩余宽度');
@@ -253,6 +260,9 @@ const section = (n) => console.log('\n' + n);
   };
   const inFlight = await settle();
   if (inFlight > 0) console.log('  -- 首次抓取共 ' + inFlight + ' 次请求，已结束');
+  const external = await page.evaluate(() => window.__externalQuoteHits || 0);
+  ok(external === 0, '取句只走后端 /v1/home/quote，界面没有直连第三方',
+    external ? external + ' 次直连 hitokoto 的请求' : '0 次');
   await page.evaluate(() => { window.__quoteRequests = 0; window.__quoteStacks = []; });
   const swapped = await page.evaluate(() => {
     const before = document.getElementById('home-quote-text').textContent;

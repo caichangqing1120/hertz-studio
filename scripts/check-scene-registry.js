@@ -197,7 +197,7 @@ function lyricHost() {
   vm.runInContext(read('stage3d.js').replace('  global.Stage3D = api;', `
     global.probe = { mount: function (host) { root = host; ensureStanza(); }, stanza: stanza,
       configure: applyStanzaConfig, frame: driveStanza, update: syncStanzaMeta, plane: planeFor,
-      stages: STAGES, buildField: buildField, buildPrism: buildPrism,
+      stages: STAGES, buildField: buildField, buildPrism: buildPrism, buildBlank: buildBlank,
       ownsLyrics: sceneOwnsLyrics, source: function (s) { sceneSource = s; } };
     global.Stage3D = api;`), box);
   const host = box.Stage3D, probe = box.probe;
@@ -229,7 +229,10 @@ function lyricHost() {
   ok(Object.entries(instances).filter(([id]) => !['bg', 'sub'].includes(id)).every(([, api]) => api.element.hidden), 'creative-owned lyrics hide all registered layers');
   probe.source('immersive');
   ok(probe.stages.every(def => typeof def.build === 'function'), 'immersive descriptors own factories');
-  ok(probe.stages.find(def => def.id === 'prism').build === probe.buildPrism && probe.stages.filter(def => def.id !== 'prism').every(def => def.build === probe.buildField), 'built-in factory bindings preserved');
+  ok(probe.stages.find(def => def.id === 'prism').build === probe.buildPrism
+    && probe.stages.find(def => def.id === 'off').build === probe.buildBlank
+    && probe.stages.filter(def => !['prism', 'off'].includes(def.id)).every(def => def.build === probe.buildField), 'built-in factory bindings preserved');
+  ok(probe.stages.find(def => def.id === 'off').blank === true, 'off scene declares blank so the frame loop can skip the GL pipeline');
   host.destroy();
   equal(calls.filter(c => c.method === 'destroy').map(c => c.id), ['bg', 'sub', 'classic', 'cadenza', 'sonnet', 'tempera', 'probe'], 'destroy releases every instance once');
 

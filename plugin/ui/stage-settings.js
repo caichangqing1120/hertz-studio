@@ -17,17 +17,25 @@
     var selected = definition(visual);
     var stanza = visual !== 'stage';
     var creative = state.source === 'creative';
-    var covered = creative || stanza && state.background !== 'stage';
+    var coast = state.source === 'coast';
+    var zodiac = state.source === 'zodiac';
+    var svgScene = state.source === 'anime-svg';
+    var covered = creative || coast || zodiac || svgScene || stanza && state.background !== 'stage';
     var scene = !!state.webgl && !covered;
     var lyrics = state.lyrics !== false;
     var animated = !state.reduced;
     var rows = {};
     function row(id, enabled, reason) { rows[id] = { enabled: !!enabled, reason: enabled ? '' : reason }; }
-    row('s3d-fl-bg-mode', !creative, '当前背景由创意工坊编排；切回沉浸声场后使用此设置');
+    row('s3d-fl-bg-mode', !creative && !coast && !zodiac && !svgScene, zodiac ? '当前为星座粒子星图；切回沉浸声场后使用此设置' : coast ? '当前背景为「纯真3D」海岸公路；切回沉浸声场后使用此设置' : svgScene ? '当前背景由动画绘景舞台接管；切回沉浸声场后使用此设置' : '当前背景由创意工坊编排；切回沉浸声场后使用此设置');
+    row('s3d-coast-tod', coast, '选择「海岸公路」背景后生效');
+    row('s3d-coast-interact', coast, '选择「海岸公路」背景后生效');
+    row('s3d-zodiac-lines', zodiac, '选择「星座」背景后生效');
+    row('s3d-zodiac-field', zodiac, '选择「星座」背景后生效');
+    row('s3d-zodiac-interact', zodiac, '选择「星座」背景后生效');
     row('s3d-layout', !stanza, '当前歌词视觉使用独立排版；切回舞台 3D 歌词轨后生效');
-    row('s3d-bloom', scene, creative ? '请在创意工坊的参数中调整场景泛光' : covered ? '当前背景覆盖了 3D 场景；选择「舞台场景（3D）」后生效' : '当前设备未启用 3D 渲染');
-    row('s3d-motion', animated && (scene || stanza && lyrics), state.reduced ? '减少动态效果已开启' : '显示歌词或启用 3D 场景后生效');
-    row('s3d-reactivity', animated && (scene || stanza && lyrics), state.reduced ? '减少动态效果已开启' : '显示歌词或启用 3D 场景后生效');
+    row('s3d-bloom', scene, coast ? '海岸舞台的光效随时刻与音乐自动变化' : zodiac ? '星座的星点辉光随音乐自动变化' : creative ? '请在创意工坊的参数中调整场景泛光' : svgScene ? '动画绘景是矢量舞台，不使用 3D 光晕' : covered ? '当前背景覆盖了 3D 场景；选择「舞台场景（3D）」后生效' : '当前设备未启用 3D 渲染');
+    row('s3d-motion', animated && (scene || stanza && lyrics), state.reduced ? '减少动态效果已开启' : svgScene ? '动画绘景的节奏由作品自身的循环决定' : '显示歌词或启用 3D 场景后生效');
+    row('s3d-reactivity', animated && (scene || stanza && lyrics), state.reduced ? '减少动态效果已开启' : svgScene ? '动画绘景的音频响应是内置的呼吸辉光' : '显示歌词或启用 3D 场景后生效');
     row('s3d-fl-size', lyrics, '显示歌词后生效');
     row('s3d-fl-subtitle', lyrics, '显示歌词后生效');
     row('s3d-fl-opacity', state.background === 'fluid', '仅用于「流体」封面背景');
@@ -38,7 +46,11 @@
     return { visual: visual, effective: effective, stanza: stanza, covered: covered,
       scene: scene, lyrics: lyrics, rows: rows,
       label: selected.kind === 'director' ? selected.label + ' · 当前演出：' + definition(effective).label : selected.label,
-      backgroundNote: creative ? '创意编排正在大舞台演出；场景、背景与音乐响应在创意工坊中调整。' : covered ? '当前使用独立背景，已隐藏 3D 场景；原场景设置已保留。' :
+      backgroundNote: creative ? '创意编排正在大舞台演出；场景、背景与音乐响应在创意工坊中调整。' :
+        coast ? '「纯真3D」海岸公路正在演出；时刻与交互在下方调整。' :
+        zodiac ? '「星座」正在演出：十二座粒子星图沿黄道环缓缓成环，连线、背景星场与交互在下方调整。' :
+        svgScene ? '动画绘景正在大舞台演出；绘景作品与镜像对称在下方「动画绘景」中调整。' :
+        covered ? '当前使用独立背景，已隐藏 3D 场景；原场景设置已保留。' :
         scene ? '3D 背景与歌词同时生效。' : '当前设备未启用 3D 渲染。' };
   }
   return { resolve: resolve };

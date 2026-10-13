@@ -130,6 +130,12 @@ async function settle(page) {
 }
 
 async function navigate(page, view) {
+  // 皮肤设置浮层（skin-settings-sheet.js）会把 setView('settings') 拦成
+  // "开浮层"，且它的 scrim 挡住浮层外的一切指针事件 —— 看见它开着就先
+  // 按 Esc 收起（浮层自己的 Esc 语义），再去点导航条目。开合真值取
+  // body.skset-modal-open（浮层的底层隔离标记，进出退场动画都盖得住）。
+  const sheetOpen = await page.evaluate(() => document.body.classList.contains('skset-modal-open'));
+  if (sheetOpen) await page.keyboard.press('Escape');
   await page.locator('.rail-item[data-view="' + view + '"]').click();
   await page.locator('#view-' + view).waitFor({ state: 'visible' });
   await settle(page);
@@ -170,7 +176,7 @@ async function prepareParticleClick(page) {
   await page.evaluate(() => { AnimeInteractions.clear(); __animeClicks.length = 0; });
 }
 
-async function readParticleClick(page, id, label, expected) {
+async function readParticleClick(page, id, label, expected, duration = '0.28s') {
   const sample = await page.evaluate(value => __animeClicks.find(c => c.id === value), id);
   assert.ok(sample, label + ' native click observed');
   assert.equal(sample.particles, expected, label + ' particle count');
@@ -178,7 +184,8 @@ async function readParticleClick(page, id, label, expected) {
     assert.equal(sample.bursts, 1, label + ' produces one burst');
     assert.equal(sample.hidden, 'true', label + ' stays decorative');
     assert.equal(sample.pointerEvents, 'none', label + ' cannot intercept the next action');
-    assert.equal(sample.duration, '0.28s', label + ' has a short bounded animation');
+    // 时长随主题的 fx 原型走（星屑 280ms、碎片 240ms……），不再是单一值。
+    assert.equal(sample.duration, duration, label + ' has a short bounded animation');
   }
   report.particles.push({ label, ...sample });
   await page.locator('.anime-interactions-layer').waitFor({ state: 'detached' });
@@ -366,14 +373,15 @@ async function main() {
     await page.waitForFunction(() => document.querySelectorAll('#lib-list .track').length === 8);
     report.initial = await page.evaluate(() => ({ theme: Theme.current().id, name: Theme.current().name, skin: Skins.currentId(),
       themes: Theme.list().map(t => t.id), wallpaper: ThemeStudio.state.id, pinned: ThemeStudio.state.pinned }));
-    assert.equal(report.initial.theme, 'celestial');
-    assert.match(report.initial.name, /^晴空绘卷(?:（默认）)?$/);
+    // 默认档已从晴空绘卷换成矿石黑（一次性迁移见 themes.js 的 migrateDefault）。
+    assert.equal(report.initial.theme, 'mineral');
+    assert.match(report.initial.name, /^矿石黑(?:（默认）)?$/);
     assert.equal(report.initial.skin, 'classic');
-    assert.equal(report.initial.themes[0], 'celestial');
-    assert.equal(report.initial.wallpaper, 'celestial-sky.jpg');
+    assert.equal(report.initial.themes[0], 'mineral');
+    assert.equal(report.initial.wallpaper, 'night-08.jpg');
     assert.equal(report.initial.pinned, false);
-    await page.waitForFunction(() => document.querySelector('#ts-wallpaper .ts-wall-img')?.dataset.wall === 'celestial-sky.jpg');
-    pass('fresh installation opens 晴空绘卷 with its local wallpaper and populated library');
+    await page.waitForFunction(() => document.querySelector('#ts-wallpaper .ts-wall-img')?.dataset.wall === 'night-08.jpg');
+    pass('fresh installation opens 矿石黑 with its local wallpaper and populated library');
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
       await settle(page);
@@ -434,8 +442,14 @@ async function main() {
     assert.equal(await page.evaluate(() => ThemeStudio.state.pinned), true);
     await selectTheme(page, 'celestial');
     await page.evaluate(() => localStorage.removeItem('vmusic.wallpaper.v1'));
+    // 模拟"已走过一次性迁移"的老用户：标记在场，主动选回的晴空绘卷才会
+    // 原样恢复。否则这次 reload 正好是 migrateDefault 的形状——存的是旧
+    // 默认 celestial 又没有标记，会被一次性改写回矿石黑（这是迁移的
+    // 本职工作，check-appearance-restore.js 静态侧已钉）。
+    await page.evaluate(() => localStorage.setItem('vmusic.theme.mineral-default', '1'));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await ready(page, current.id);
+    assert.equal(await page.evaluate(() => Theme.current().id), 'celestial', 're-picked celestial survives the reload');
     assert.equal(await page.evaluate(() => ThemeStudio.state.id), 'celestial-sky.jpg');
     pass('built-in and delayed themes persist; explicitly pinned wallpaper survives theme changes and refresh');
 
@@ -502,7 +516,15 @@ async function main() {
 
     for (const source of ['system', 'app']) {
       if (source === 'system') await page.emulateMedia({ reducedMotion: 'reduce' });
-      else { await navigate(page, 'settings'); await page.locator('#set-motion').check(); }
+      else {
+        await navigate(page, 'settings');
+        // 浮层按分组展示设置：#set-motion 住在「外观」分组里，先切过去再勾。
+        await page.locator('.skset-link[data-skset-key="look"]').click();
+        await page.locator('#set-motion').check();
+      }
+      // 设置浮层是模态的：勾完开关先按 Esc 收起，#theme-btn 才点得到
+      // （scrim 会一直吞掉浮层外的指针事件）。
+      if (source === 'app') await page.keyboard.press('Escape');
       await prepareParticleClick(page);
       await page.locator('#theme-btn').hover();
       assert.equal(await page.locator('#theme-btn').evaluate(el => getComputedStyle(el).transform), 'none', source + ' reduced motion prevents hover movement');
@@ -512,17 +534,25 @@ async function main() {
       if (source === 'system') await page.emulateMedia({ reducedMotion: 'no-preference' });
       else {
         await until(async () => (await fixture.api('/v1/settings')).reduce_motion === true, 'reduced motion is saved');
+        // 浮层已被收起，#set-motion（住在浮层右栏的「外观」分组里）要
+        // 重新开浮层、切回分组才够得着。
+        await navigate(page, 'settings');
+        await page.locator('.skset-link[data-skset-key="look"]').click();
         await page.locator('#set-motion').uncheck();
+        await page.keyboard.press('Escape');
         await until(async () => (await fixture.api('/v1/settings')).reduce_motion === false, 'reduced motion is restored');
       }
     }
     await selectTheme(page, 'mineral');
     await prepareParticleClick(page);
     await page.locator('#theme-btn').click();
-    await readParticleClick(page, 'theme-btn', 'legacy theme', 0);
+    // mineral 曾经是"纯换色的 legacy 主题"，点击反馈为 0；现在特效按主题
+    // 声明，mineral 声明了 fx: 'shard'（7 粒晶体碎片）。这条断言钉的是
+    // "不落在 glass/cel 两族的主题也有自己的特效"。
+    await readParticleClick(page, 'theme-btn', 'plain theme gets its own fx', 7, '0.24s');
     await page.keyboard.press('Escape');
     await selectTheme(page, 'celestial');
-    pass('system and saved app reduced motion suppress particles; legacy themes keep their existing behavior');
+    pass('system and saved app reduced motion suppress particles; plain-look themes get their own declared fx');
 
     for (const width of [1440, 1024, 390, 320]) await auditLayout(page, width);
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -593,6 +623,8 @@ async function main() {
 
     const baseline = await page.evaluate(() => ({ stage: Stage3D.defaults(), creative: CreativeStage.preset() }));
     await page.locator('#stage3d-entry').click();
+    // 设置钮收在头部飞出组里：先悬停触发钮展开（与真实交互一致）再点击。
+    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-settings-toggle').click();
     await page.locator('#s3d-workshop').click();
     await page.locator('#workshop').waitFor({ state: 'visible' });

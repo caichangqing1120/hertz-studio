@@ -8,6 +8,10 @@
 // 混进去会让每次换歌都白跑一遍网络与存取，还把它和「封面不能重复解码」
 // 那类有严格时序的逻辑绑在一起。这里自己管自己的生命周期。
 //
+// 取句走后端 `/v1/home/quote`，不在这里直连第三方：DBX 宿主给插件文档注入的 CSP
+// 是 `connect-src 'none'`（manifest 没声明 host.network 权限），界面自己 fetch
+// https://v1.hitokoto.cn 在插件形态一定被拦，只有后端发请求不受 CSP 约束。
+//
 // 三条纪律：
 //   1. **不打网络在渲染路径上**。启动拉一次 → 存 localStorage → 之后全部读缓存。
 //      一言网官方明确限 QPS（2~3.5）并会屏蔽大流量站点，所以「换一条」
@@ -21,7 +25,9 @@
   'use strict';
 
   var CACHE_KEY = 'vmusic.home.quote.v1';
-  var CATS = { poem: 'i', literature: 'd', philosophy: 'k', film: 'h' };
+  // 分类名就是前端能用的白名单；**名字到一言 `c` 参数的映射在后端**
+  // （crates/hertz-studio/src/online/quote.rs 的 CATEGORIES），这里不留第二份。
+  var CATS = { poem: true, literature: true, philosophy: true, film: true };
 
   // 内置兜底。网络失败、数据目录被清、或用户点「重试」失败时用这些。
   // 每条自带出处；分类名与 hitokoto 的 c 参数一一对应，方便换库时对齐。
@@ -138,15 +144,17 @@ var fetchSeq = 0;          // 请求序号，用来绕开 CDN 合并
   }
 
 async function fetchRemote(cat) {
-    // 尾部那个自增参数是为了**绕开 CDN 的请求合并**：实测相同 URL 的并发/
-    // 重复请求会被合并成同一个响应（8 次只回 3~4 个唯一 id）。
-    // 给每次请求一个不同的查询参数，才能真正拿到不同的句子。
+    // 走后端而不是直连 v1.hitokoto.cn：DBX 宿主给插件文档注入的 CSP 是
+    // `connect-src 'none'`（manifest 没声明 host.network 权限），前端 fetch 在插件
+    // 形态一定被浏览器拦掉，只剩本地兜底句池。后端那条通道两种形态共用，
+    // 分类白名单与字段归一见 crates/hertz-studio/src/online/quote.rs。
+    //
+    // `r` 是**必须带**的请求序号：一言的 CDN 会把相同 URL 的并发/重复请求合并成
+    // 同一个响应（实测 8 次只回 3~4 个唯一 id），给每次一个不同参数才拿得到不同句子。
     fetchSeq += 1;
-    var url = 'https://v1.hitokoto.cn/?encode=json&c=' + (CATS[cat] || CATS.poem)
-      + '&max_length=48&_=' + dayKey() + '-' + fetchSeq;
-    var res = await global.fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return normalize(await res.json());
+    var url = '/v1/home/quote?c=' + encodeURIComponent(cat || 'poem')
+      + '&r=' + encodeURIComponent(dayKey() + '-' + fetchSeq);
+    return normalize(await host.get(url));
   }
 
   async function refresh() {
@@ -155,13 +163,18 @@ async function fetchRemote(cat) {
       // **必须串行 + 带间隔**：实测并发请求会被一言网 CDN 合并成同一个响应
       // （8 次并发只回 3~4 个唯一 id）。URL 尾部已经加了自增参数绕开合并，
       // 这里留一点间隔再求稳。全部在本地完成，之后「换一条」永远不打网络。
+      //
+      // 间隔为什么是 520ms 而不是原来的 140ms：一言官方限流 **QPS 2~3.5**，
+      // 140ms 一次是 ~7 QPS，本来就在超。以前浏览器直连时这条被静默吞掉，
+      // 取句挪到后端之后上游有 8s 连接 / 12s 读超时，被限流就明确回 504，
+      // 整轮抓取全失败、只剩兜底句池。按 ~2 QPS 走才既礼貌又拿得到句子。
       var got = [];
       var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
       for (var i = 0; i < 8; i += 1) {
-        if (i) await wait(140);
+        if (i) await wait(520);
         var tries = 0, one = null;
         while (tries < 2 && !one) {
-          if (tries) await wait(320);          // 撞上重复就再等一下重试
+          if (tries) await wait(700);          // 撞上重复或被限流就再等一下重试
           try { one = await fetchRemote(settings.category); } catch (_) { one = null; }
           tries += 1;
         }
@@ -206,6 +219,9 @@ async function fetchRemote(cat) {
     }
   }
 
+  // nextHost 是 app.js 选好的传输层（独立形态 HTTP、插件形态 stdio RPC 同一套
+  // 路径写法），只用到 `get(path)`。没传就永远只有兜底句池 —— 所以 app.js 那边
+  // 的接线由 check-home-card-browser.js 断言，不靠这里报错。
   function load(nextHost) {
     if (host) return;
     host = nextHost || null;

@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 use crate::error::{bad_request, internal, ApiError};
 use crate::online;
 use crate::routes::{
-    online_ctx, playlist_scope, qr_session, source_of, tagged, AccountQuery, CacheClearRequest,
+    online_ctx, playlist_scope, qr_poll_body, source_of, tagged, AccountQuery, CacheClearRequest,
     CacheKeepRequest, CacheLimitRequest, CookieRequest, ItemQuery, LikeRequest, OnlinePlayRequest,
     OnlineQualityRequest, PlaylistCreateRequest, PlaylistDeleteRequest, PlaylistQuery,
     PlaylistTracksRequest, PlaylistsQuery, QrCancelRequest, QrPollQuery, RadioRequest,
@@ -114,6 +114,14 @@ pub async fn cover_proxy(_state: &Arc<AppState>, query: &Value) -> RpcResult {
         "data": crate::rpc::encode_base64(&bytes),
         "content_type": content_type,
     })))
+}
+
+/// 每日一言的 RPC 门面，与 `routes::home_quote` 共用 `online::daily_quote`。
+/// 只接 HTTP 一边的话，插件形态的首页卡片会静默回落本地句池，而独立形态一切正常
+/// ——这类「一边好一边坏」正是这个文件存在的理由。
+pub async fn home_quote(_state: &Arc<AppState>, query: &Value) -> RpcResult {
+    let q: crate::online::QuoteQuery = query_as(query)?;
+    Ok(Reply::ok(crate::online::daily_quote(&q).await?))
 }
 
 // ---------------------------------------------------------------------------
@@ -548,28 +556,7 @@ pub async fn qr_start(state: &Arc<AppState>, body: &Value) -> RpcResult {
 
 pub async fn qr_poll(state: &Arc<AppState>, query: &Value) -> RpcResult {
     let q: QrPollQuery = query_as(query)?;
-    let sess = qr_session(&q.source, state.qr.take(&q.ticket).await)?;
-    // 终态直接回本地票态、不再打上游：confirmed/expired 不可回退，QQ 的
-    // check_sig 是一次性凭证，confirmed 后重放只会报错并可能逼票态降级。
-    // account 在首次 confirmed 响应里已带过，前端见终态即停止轮询。
-    if online::qr::is_terminal(&sess.state) {
-        return Reply::json(&online::QrPoll {
-            state: sess.state,
-            account: None,
-        });
-    }
-    let (state_name, account) = tagged(
-        &q.source,
-        online::qr_poll(&online_ctx(state), &q.source, &sess.platform_ticket).await,
-    )?;
-    // 平台已确认时凭据由平台模块自己写入 cred 保险库；这里只同步票态。上游调用
-    // 失败时不更新票态，让前端按原节奏继续轮询；Registry 自身再挡一道：终态不会
-    // 被任何上游返回降级。
-    state.qr.update(&q.ticket, &state_name).await;
-    Reply::json(&online::QrPoll {
-        state: state_name,
-        account,
-    })
+    Reply::json(&qr_poll_body(state, &q).await?)
 }
 
 pub async fn qr_cancel(state: &Arc<AppState>, body: &Value) -> RpcResult {

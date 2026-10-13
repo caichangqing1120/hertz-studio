@@ -66,7 +66,50 @@ async function main() {
       Stage3D.open('aurora');
     });
     await page.waitForFunction(() => document.querySelector('.fl-tempera-canvas'));
+    // chrome 静止 CHROME_HIDE_MS 后自动打烊（.s3d-head 变 pointer-events:none），
+    // 无头下没有指针活动，点击前必须像真实用户那样先动一下鼠标唤醒 chrome。
+    // 功能牌又收在右上角那颗触发按钮飞出的菜单里（舞台控制舱）：不先展开就点不到，
+    // 而 Playwright 只会重试并报「canvas … intercepts pointer events」51 次后超时。
+    const openSettingsKey = async () => {
+      await page.mouse.move(720, 500);
+      await page.hover('#s3d-head-trigger');
+      await page.waitForFunction(() => Number(
+        getComputedStyle(document.getElementById('s3d-settings-toggle')).opacity) === 1);
+    };
+    await openSettingsKey();
     await page.locator('#s3d-settings-toggle').click();
+    await page.waitForTimeout(200);
+
+    // 吸顶的「舞台设置」标题栏必须**盖得住**滚过的行。两档玻璃主题原来把它的底色
+    // 直接复用面板那层半透明玻璃（星落 12%、iOS 15%），指望 backdrop-filter 糊住
+    // 滑过去的行 —— 实测糊不住：整行文字透过标题叠成一片乱码（用户截图报的就是这个）。
+    // 所以这里量两件事：① 确实有行滚到了标题底下（否则这条断言在量一个没发生的状态）；
+    // ② 标题栏自身的有效不透明度 = 1。
+    for (const theme of ['starfall', 'ios']) {
+      await page.selectOption('#s3d-stage-theme', theme);
+      await page.waitForTimeout(150);
+      await page.evaluate(() => { document.getElementById('s3d-settings').scrollTop = 320; });
+      await page.waitForTimeout(150);
+      const head = await page.evaluate(() => {
+        const panel = document.getElementById('s3d-settings');
+        const bar = panel.querySelector('.s3d-settings-heading');
+        const rect = bar.getBoundingClientRect();
+        const bg = getComputedStyle(bar).backgroundColor;
+        let under = 0;
+        panel.querySelectorAll('label, select, input, p, button').forEach((n) => {
+          if (n.closest('.s3d-settings-heading')) return;
+          const b = n.getBoundingClientRect();
+          if (b.height > 2 && b.bottom > rect.top + 2 && b.top < rect.bottom - 2) under += 1;
+        });
+        const m = /rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/.exec(bg) || /\/\s*([\d.]+)\s*\)/.exec(bg);
+        return { under, alpha: m ? parseFloat(m[1]) : 1, bg, scroll: Math.round(panel.scrollTop) };
+      });
+      assert.ok(head.under > 0, theme + ' 需要先让内容滚到标题底下才谈遮不遮：' + JSON.stringify(head));
+      assert.equal(head.alpha, 1, theme + ' 吸顶标题栏不能是半透明的：' + JSON.stringify(head));
+      await page.evaluate(() => { document.getElementById('s3d-settings').scrollTop = 0; });
+    }
+    await page.selectOption('#s3d-stage-theme', 'starfall');
+    await page.waitForTimeout(150);
     for (const visual of ['classic', 'cadenza', 'sonnet', 'tempera', 'starborn']) {
       await page.selectOption('#s3d-lyric-visual', visual);
       for (const background of ['stage', 'atmosphere', 'anime', 'geometric', 'fluid', 'solid']) {
@@ -181,6 +224,7 @@ async function main() {
       await page.evaluate(() => Stage3D.configure({ stanzaVisual: 'sonnet' }));
       await page.waitForFunction(() => !__stageRenderers.sonnet.rootEl().hidden);
       assert.equal(await page.evaluate(() => getComputedStyle(__stageRenderers.sonnet.rootEl()).opacity), '1');
+      await openSettingsKey();
       await page.locator('#s3d-settings-toggle').click();
       console.log('PASS real Stage frame gate and renderer handoff: delayed readiness, media-clock fade, pause and cleanup');
     } finally {
@@ -210,6 +254,8 @@ async function main() {
     await page.screenshot({ path: path.join(out, 'starborn-desktop.png') });
     console.log('PASS starborn cinematic host wiring and pause freeze');
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.mouse.move(200, 400);
+    await page.waitForTimeout(80);
     await page.locator('#s3d-settings-toggle').click();
     await page.selectOption('#s3d-lyric-visual', 'tempera');
     await page.waitForFunction(() => document.getElementById('s3d-settings').getAnimations().every(a => a.playState === 'finished'));

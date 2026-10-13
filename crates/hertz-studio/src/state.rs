@@ -1000,6 +1000,29 @@ impl AppState {
         });
     }
 
+    /// 记一次「这一档放不出来」，并回答该不该**重投同一首**：只有这一轮请求的档位
+    /// 真的降下来一格才重投。
+    ///
+    /// 基准恒取请求档位，不取交付档位。平台会把 44.1k/16bit 的 FLAC 标成 Hi-Res
+    /// 码率（网易《追光者》：标称 1061k、实测 738k），这首歌请求的是无损、失败证据
+    /// 里却是 hires —— 拿交付档位当基准，`lower_ceiling` 落下来的上限正好等于请求
+    /// 那一格，可重投条件永远成立，同一首、同一份字节就能重投到永远（实测 689 次
+    /// / 7 小时：既听不响，也跳不走）。
+    async fn downgrade_for_retry(
+        &self,
+        track_id: &str,
+        code: &str,
+        failed_at: crate::online::quality::Quality,
+    ) -> bool {
+        let Some((source, _)) = crate::online::split_virtual_id(track_id) else {
+            return false;
+        };
+        let requested = self.online_quality_for(&source, track_id).await;
+        self.note_quality_failure(track_id, code, failed_at).await;
+        let next = self.online_quality_for(&source, track_id).await;
+        next.rank() < requested.rank()
+    }
+
     /// 在线曲在当前档位下应下的增益（已含防削波），与本地曲同一条规则。
     ///
     /// current_loudness（对外汇报「用了多少增益」）与播放落地（apply_online_loudness）
@@ -2222,6 +2245,16 @@ impl AppState {
         self.publish(WsEvent::Buffering { active, pct });
     }
 
+    /// 按服务端真值现取一帧缓冲态事件，供事件泵**掉队时补发**。
+    ///
+    /// `Buffering` 是边沿事件：状态帧每拍全量重发，所以别的帧掉了无所谓，唯独它
+    /// 掉了 `active=false` 会把播放键的转圈永久留在屏幕上。两条泵（独立形态的
+    /// WS、插件形态的 stdio 转发）在 `Lagged` 分支各调一次这里。
+    pub async fn buffering_event(&self) -> WsEvent {
+        let (active, pct) = *self.buffering.lock().await;
+        WsEvent::Buffering { active, pct }
+    }
+
     /// 中止全部在途下载并清空注册表（切到本地曲/换队预留时调用）。
     /// 短锁内 drain：cancel 只是置 AtomicBool + 删 .part，不 await。
     pub(crate) async fn cancel_all_downloads(&self) {
@@ -3036,6 +3069,50 @@ impl AppState {
         origin
     }
 
+    /// 顺位找一首「这个账号真能播」的同源在线曲：按队列顺序取候选，一次批量权益
+    /// 探测，回第一首可播的下标与曲名（元数据缺失时曲名为空串，由调用方措辞）。
+    ///
+    /// 探测拿不到结果（这源没这能力、上游异常、整批都没权益）一律回 `None`：
+    /// 宁可如实报错，也不换一首「猜能播」的上去。
+    async fn playable_substitute(
+        &self,
+        index: usize,
+        source: &str,
+        track_id: &str,
+    ) -> Option<(usize, String)> {
+        /// 一次换曲最多问多少首：20 首 × 5 档 = 100 条 filename，是实测过上游
+        /// 一次回全的量（176ms），再往上没验过。
+        const SCAN: usize = 20;
+        let queue = self.queue.lock().await;
+        let candidates = substitute_candidates(&queue, source, index, SCAN);
+        drop(queue);
+        if candidates.is_empty() {
+            return None;
+        }
+        let ids: Vec<String> = candidates.iter().map(|(_, id)| id.clone()).collect();
+        let ctx = crate::online::Ctx {
+            db: self.db.clone(),
+        };
+        let quality = self.online_quality_for(source, track_id).await.bps();
+        let verdicts = crate::online::probe_playable(&ctx, source, &ids, quality)
+            .await
+            .ok()
+            .flatten()?;
+        let (target, target_id) = candidates
+            .iter()
+            .zip(verdicts.iter())
+            .find(|(_, playable)| **playable)
+            .map(|(found, _)| found.clone())?;
+        let title = self
+            .online_meta
+            .lock()
+            .await
+            .get(&format!("online:{source}:{target_id}"))
+            .map(|meta| meta.title.clone())
+            .unwrap_or_default();
+        Some((target, title))
+    }
+
     /// 仍属当代时把 cursor 恢复到切入前，不让 next/prev 从一首没播起来的
     /// 曲算起；已被用户切走则整体静默（连 Err 都不回）。
     ///
@@ -3045,6 +3122,9 @@ impl AppState {
     ///   找不到才发终态事件；上游整体故障不试，免得一次限流烧穿整队。
     /// - 点播（Pick）：推原始错误（不停服务），返回 Err 交回 HTTP 调用方，由前端
     ///   错误条引导重试。
+    ///
+    /// 三条出口之前先收口缓冲态：走到这里就说明本代际的取流已经终止，转圈不该
+    /// 留给任何一条分支去关。
     ///
     /// 接力入口在最前面、且不持 `play_commit`：跨源搜索是数秒 await，提交
     /// 尾部的串行锁绝不被它拖住；接力失败（含用户中途切走）才落回原路径。
@@ -3071,6 +3151,14 @@ impl AppState {
             source = e.source.clone().unwrap_or_default(),
             reason = e.message
         );
+        // 缓冲态收口：取流失败就是本代际点亮的那次 `set_buffering(true)` 的终点。
+        // 必须收在这里而不是各分支各自收——下面的接力/换曲/跳曲都可能把控制权交给
+        // 一次「在线缓存命中」的新流程，而那条路全程不发 buffering，漏到这里的
+        // true 再也关不掉（表现是播放键永久转圈，旧曲却照常播）。代际复核保住
+        // 反方向：用户已切走时，这一刀不该抹掉新一代刚点亮的 true。
+        if self.attempt_alive(gen, index, &track_id).await {
+            self.set_buffering(false, None).await;
+        }
         // F1 曲源自动接力：这首本身放不了时先试跨源救回，救不回才按
         // trigger 的既有语义跳曲/报错。接力期间 buffering 自理。先做一次
         // 锁外代际复核（attempt_alive 允许的非提交复核）：用户已切走就不
@@ -3083,6 +3171,53 @@ impl AppState {
                 committed: false,
                 actual_quality: None,
             });
+        }
+        // 点播点在一首「这账号就是没权益」的曲上，且跨源接力已经试过（同一首别家
+        // 未必有）：再顺位换成队列里下一首这个账号真能播的，让这一下点击有声音。
+        // 放在接力之后、提交锁之前——探测是一次上游往返，不该拖住提交尾部。
+        if matches!(trigger, PlayTrigger::Pick)
+            && e.code == "vip_required"
+            && self.attempt_alive(gen, index, &track_id).await
+        {
+            if let Some((failed_source, _)) = crate::online::split_virtual_id(&track_id) {
+                if let Some((target, title)) = self
+                    .playable_substitute(index, &failed_source, &track_id)
+                    .await
+                {
+                    crate::diaglog!(
+                        "play.substitute",
+                        from = index,
+                        to = target,
+                        source = failed_source.clone(),
+                        title = title.clone()
+                    );
+                    let failed_title = self
+                        .online_meta
+                        .lock()
+                        .await
+                        .get(&track_id)
+                        .map(|meta| meta.title.clone())
+                        .filter(|t| !t.trim().is_empty())
+                        .unwrap_or_else(|| track_title(&track_id));
+                    let message = if title.is_empty() {
+                        format!("《{failed_title}》当前账号没有播放权益，已改播队列里下一首能播的",)
+                    } else {
+                        format!("《{failed_title}》当前账号没有播放权益，已改播《{title}》")
+                    };
+                    self.publish(WsEvent::Error {
+                        message,
+                        code: Some("vip_substituted".to_string()),
+                        source: e.source.clone(),
+                        index: None,
+                    });
+                    let delta = target as isize - index as isize;
+                    let _ = Box::pin(self.step_for(delta, PlayTrigger::Pick, None, None)).await;
+                    return Ok(PlayOutcome {
+                        committed: false,
+                        actual_quality: None,
+                    });
+                }
+            }
         }
         let commit = self.play_commit.lock().await;
         if !self.attempt_alive(gen, index, &track_id).await {
@@ -3247,10 +3382,10 @@ impl AppState {
                 let _ = tokio::fs::remove_file(path).await;
             }
             if let Some(tier) = failed_at {
-                self.note_quality_failure(&track_id, "decode_stalled", tier)
-                    .await;
-                let next = self.online_quality_for(&source, &track_id).await;
-                if next.rank() < tier.rank() {
+                if self
+                    .downgrade_for_retry(&track_id, "decode_stalled", tier)
+                    .await
+                {
                     let index = *self.cursor.lock().await;
                     self.set_buffering(false, None).await;
                     drop(commit);
@@ -3482,6 +3617,29 @@ fn track_title(track_id: &str) -> String {
 /// 接力匹配的文本归一化：去空白与全部标点（中英）、折叠大小写。只求
 /// 「同一首歌的不同平台写法」归到一起，不做括号内容剥离——《歌名 (Live)》
 /// 与《歌名》本就不是同一首，保守归一化宁漏勿错。
+/// `from` 之后（环形、不含自己）最多 `scan` 首**同音源**在线曲目的下标与平台 id。
+///
+/// 只看同源：权益探测是按源注册的能力，跨源候选得挨家各问一遍，代价与「换一首
+/// 立刻能响」的收益不成比。本地曲与其它音源的项直接跳过——不猜它们的可播性。
+fn substitute_candidates(
+    queue: &[String],
+    source: &str,
+    from: usize,
+    scan: usize,
+) -> Vec<(usize, String)> {
+    let len = queue.len();
+    if len < 2 {
+        return Vec::new();
+    }
+    (1..=scan.min(len - 1))
+        .filter_map(|offset| {
+            let index = (from + offset) % len;
+            let (item_source, id) = crate::online::split_virtual_id(&queue[index])?;
+            (item_source == source).then_some((index, id))
+        })
+        .collect()
+}
+
 fn normalize_relay_text(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_alphanumeric())
@@ -4610,6 +4768,79 @@ pub(crate) mod tests {
         assert!(relay_score(&vip, "晴天", Some("周杰伦"), Some(269_000)).unwrap() < exact);
     }
 
+    #[tokio::test]
+    async fn playable_substitute_refuses_to_guess_when_source_cannot_be_probed() {
+        let (state, _handle) = playback_state().await;
+        let failed = "online:netease:n1";
+        let _ = state
+            .set_queue(vec![failed.into(), "online:netease:n2".into()], Some(0))
+            .await;
+        // 网易没有注册权益探测能力：探测拿不到结果就不换曲。把「不知道」当
+        // 「不能播」会把整队列的网易歌都跳掉，把「不知道」当「能播」又会换到
+        // 一首点了还是哑的曲——两种都不许发生。
+        assert!(state
+            .playable_substitute(0, "netease", "online:netease:n1")
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn playable_substitute_without_same_source_candidate_does_not_probe() {
+        let (state, _handle) = playback_state().await;
+        let _ = state
+            .set_queue(
+                vec![
+                    "online:qq:a".to_string(),
+                    "7".to_string(),
+                    "online:netease:b".to_string(),
+                ],
+                Some(0),
+            )
+            .await;
+        // 队列里没有第二首 QQ 曲：一次上游都不该发，直接回「不换」。
+        assert!(state
+            .playable_substitute(0, "qq", "online:qq:a")
+            .await
+            .is_none());
+    }
+
+    #[test]
+    fn substitute_candidates_walks_forward_and_only_same_source() {
+        let queue: Vec<String> = [
+            "online:qq:a",
+            "12",
+            "online:netease:x",
+            "online:qq:b",
+            "online:qq:c",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+        // 从失败那首（下标 0）往后按队列顺序给同源候选；本地曲「12」与网易项
+        // 一律不参与——不猜它们的可播性。
+        assert_eq!(
+            substitute_candidates(&queue, "qq", 0, 20),
+            vec![(3, "b".to_string()), (4, "c".to_string())]
+        );
+        // 环形：走到队尾绕回队首，且偏移从 1 起算，绝不回头指认失败那一首。
+        assert_eq!(
+            substitute_candidates(&queue, "qq", 4, 20),
+            vec![(0, "a".to_string()), (3, "b".to_string())]
+        );
+        // scan 是问上游几首的硬上限。
+        assert_eq!(
+            substitute_candidates(&queue, "qq", 0, 3),
+            vec![(3, "b".to_string())]
+        );
+        assert_eq!(substitute_candidates(&queue, "qq", 0, 1), Vec::new());
+        // 队列里只剩失败那一首：无从可换。
+        assert_eq!(substitute_candidates(&queue, "kuwo", 0, 20), Vec::new());
+        assert_eq!(
+            substitute_candidates(&["online:qq:a".to_string()], "qq", 0, 20),
+            Vec::new()
+        );
+    }
+
     #[test]
     fn relay_eligible_tracks_only_unplayable_songs() {
         // 这首本身放不了 → 接力；网络抖动与参数问题 → 不接力。
@@ -4768,6 +4999,48 @@ pub(crate) mod tests {
             state.online_quality_for("netease", &vid).await,
             Quality::Standard,
             "改偏好不是这首能放高档的证据"
+        );
+    }
+
+    /// 「退一格重投同一首」的基准必须是**这一轮请求的档位**，不是交付档位。
+    /// 网易把一张 44.1k/16bit 的 FLAC 标成 Hi-Res 码率，于是请求无损、实测报
+    /// Hi-Res：`lower_ceiling(Hires)` 落下来的上限正好是无损那一格，请求档位一动
+    /// 没动。按实测档位判「还能不能再退」就永远为真，同一首、同一份字节无限重投
+    /// （实测 689 次 / 7 小时：既听不响，也跳不走）。
+    #[tokio::test]
+    async fn an_inflated_actual_tier_does_not_earn_a_replay() {
+        use crate::online::quality::Quality;
+        let (state, _handle) = playback_state().await;
+        state
+            .quality
+            .lock()
+            .await
+            .insert("netease".to_string(), Quality::Lossless);
+        let vid = crate::online::virtual_id("netease", "inflated");
+        assert!(
+            !state
+                .downgrade_for_retry(&vid, "decode_stalled", Quality::Hires)
+                .await,
+            "请求那一格没降，就不该重投同一首"
+        );
+        assert_eq!(
+            state.quality_caps.lock().await.get(&vid).copied(),
+            Some(Quality::Lossless),
+            "上限落在无损：重投也只会拿回同一份字节，这正是旧判据恒真的来源"
+        );
+
+        // 真降得动的那一格照旧重投：偏好 hires、失败在 hires → 请求退到无损。
+        state
+            .quality
+            .lock()
+            .await
+            .insert("netease".to_string(), Quality::Hires);
+        let real = crate::online::virtual_id("netease", "genuine");
+        assert!(
+            state
+                .downgrade_for_retry(&real, "decode_stalled", Quality::Hires)
+                .await,
+            "降了一格就该重投，否则 B4 的降档自愈整个失效"
         );
     }
 
@@ -5064,6 +5337,94 @@ pub(crate) mod tests {
         while let Ok(event) = events.try_recv() {
             assert!(!matches!(event, WsEvent::QualityDowngraded { .. }));
         }
+        state.audio.shutdown();
+        handle.join().unwrap();
+    }
+
+    /// 点播取流失败（既不接力也不跳曲）是本代际缓冲态的终点：服务端必须收口并
+    /// 推 `active=false`，否则播放键永久转圈而旧曲照常播（真机日志里那次
+    /// `play.fail code=upstream_error trigger=pick` 之后再没有收口事件）。
+    #[tokio::test]
+    async fn pick_stream_failure_closes_the_buffering_overlay() {
+        let (state, handle) = playback_state().await;
+        let vid = "online:qq:dead-link";
+        let (gen, _, _) = state.set_queue(vec![vid.into()], Some(0)).await;
+        // 对应 play_online 缓存未命中时点亮的那一次
+        state.set_buffering(true, None).await;
+        let mut events = state.events.subscribe();
+        let outcome = state
+            .online_failed(
+                gen,
+                0,
+                vid.into(),
+                Some(0),
+                PlayTrigger::Pick,
+                None,
+                // 与真机日志同一条：code=upstream_error，既不接力也不换曲
+                crate::error::ApiError::internal("QQ 返回的播放地址暂时无法访问").with_source("qq"),
+            )
+            .await;
+        assert!(outcome.is_err());
+        assert_eq!(*state.buffering.lock().await, (false, None));
+        let pushed_off = events
+            .try_recv()
+            .is_ok_and(|event| matches!(&event, WsEvent::Buffering { active, .. } if !active));
+        assert!(
+            pushed_off,
+            "收口必须推 active=false，否则前端只能靠下一次点播自愈"
+        );
+        state.audio.shutdown();
+        handle.join().unwrap();
+    }
+
+    /// 上一条的另一半：收口必须按代际。用户已切走时，旧曲迟到的失败不能把新曲
+    /// 刚点亮的转圈抹掉（与 `late_stream_failure_does_not_change_caps_or_new_buffering`
+    /// 同一条约束，只是站在 `online_failed` 这一侧）。
+    #[tokio::test]
+    async fn stale_failure_leaves_the_new_generation_buffering_alone() {
+        let (state, handle) = playback_state().await;
+        let vid = "online:qq:dead-link";
+        let (gen, _, _) = state.set_queue(vec![vid.into()], Some(0)).await;
+        state.set_queue(vec!["new-choice".into()], Some(0)).await;
+        state.set_buffering(true, Some(40)).await;
+        let outcome = state
+            .online_failed(
+                gen,
+                0,
+                vid.into(),
+                Some(0),
+                PlayTrigger::Pick,
+                None,
+                crate::error::ApiError::internal("QQ 返回的播放地址暂时无法访问").with_source("qq"),
+            )
+            .await;
+        assert!(outcome.is_ok(), "被顶代际应当静默收场");
+        assert_eq!(*state.buffering.lock().await, (true, Some(40)));
+        state.audio.shutdown();
+        handle.join().unwrap();
+    }
+
+    /// 掉队补发的帧必须读实时标志，而不是某个边沿值：补发的意义就是「客户端
+    /// 错过了切换，把现在的真值告诉它」。
+    #[tokio::test]
+    async fn buffering_event_resyncs_from_the_live_flag() {
+        let (state, handle) = playback_state().await;
+        state.set_buffering(true, Some(40)).await;
+        assert!(matches!(
+            state.buffering_event().await,
+            WsEvent::Buffering {
+                active: true,
+                pct: Some(40)
+            }
+        ));
+        state.set_buffering(false, None).await;
+        assert!(matches!(
+            state.buffering_event().await,
+            WsEvent::Buffering {
+                active: false,
+                pct: None
+            }
+        ));
         state.audio.shutdown();
         handle.join().unwrap();
     }

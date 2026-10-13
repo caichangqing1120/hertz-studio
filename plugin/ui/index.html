@@ -18,6 +18,9 @@
 <link rel="stylesheet" href="stage.css">
 <link rel="stylesheet" href="creative.css">
 <link rel="stylesheet" href="stage3d.css">
+<!-- 动画绘景 SVG 舞台层：画稿与关键帧在 creative-anime.css，这里只管舞台集成侧。
+     新层排在舞台基础层之后，同特异性争议整块胜出。 -->
+<link rel="stylesheet" href="stage-anime-svg.css">
 <link rel="stylesheet" href="stage-themes/starfall.css">
 <link rel="stylesheet" href="stage-themes/ios.css">
 <link rel="stylesheet" href="stanza/stanza.css">
@@ -35,12 +38,12 @@
 <link rel="stylesheet" href="anime-stage.css">
 <link rel="stylesheet" href="anime-interactions.css">
 <link rel="stylesheet" href="creative-anime.css">
-<!-- 赛璐璐材质覆盖：**必须排在 anime-ui.css / anime-stage.css /
-     anime-interactions.css 之后**。三者与它的选择器特异性相同
-     （都是 html[data-look="…"] 单类），同优先级靠源码顺序决胜——
-     放前面会被整块盖掉，而症状全是"看起来没换材质"：
-     放 anime-ui 前面 → 面板还是玻璃；放 anime-interactions 前面 →
-     点击粒子还是玻璃那套旋转星屑。两处都不报错、元素齐全。 -->
+<!-- 赛璐璐材质覆盖：**必须排在 anime-ui.css / anime-stage.css 之后**。
+     两者与它的选择器特异性相同（都是 html[data-look="…"] 单类），
+     同优先级靠源码顺序决胜——放前面会被整块盖掉，而症状全是
+     "看起来没换材质"：面板还是玻璃。都不报错、元素齐全。
+     （点击反馈已按主题声明 fx，原型全在 anime-interactions.css，
+     cel-ui.css 不再碰粒子，与它的先后无关。） -->
 <link rel="stylesheet" href="cel-ui.css">
 <!-- 界面皮肤：默认全部 disabled，切到哪套由 skins.js 解开哪套。
      排在其它样式表之后——皮肤做的是覆盖，必须在最后。
@@ -52,6 +55,7 @@
 <link rel="stylesheet" href="skins/skin.ios.css" data-skin-css="ios" disabled>
 <link rel="stylesheet" href="skins/skin.qingfeng.css" data-skin-css="qingfeng" disabled>
 <link rel="stylesheet" href="skins/skin.chaoxi.css" data-skin-css="chaoxi" disabled>
+<link rel="stylesheet" href="skins/skin.heijiao.css" data-skin-css="heijiao" disabled>
 </head>
 <body>
 <script>
@@ -191,6 +195,22 @@
     <circle cx="10" cy="6" r="2"/>
     <circle cx="15" cy="12" r="2"/>
     <circle cx="8" cy="18" r="2"/>
+  </symbol>
+  <symbol id="i-coast" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round">
+    <!-- 落日悬在海平线上：半轮太阳 + 地平线 + 一道浪 -->
+    <path d="M6.5 13a5.5 5.5 0 0 1 11 0"/>
+    <path d="M3 13h18"/>
+    <path d="M4 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2"/>
+  </symbol>
+  <symbol id="i-zodiac" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+    <!-- 星座：折线串起的一串星点 -->
+    <path d="M4.5 18.5 9 9.5l5 4 5.5-8"/>
+    <circle cx="4.5" cy="18.5" r="1.7" fill="currentColor" stroke="none"/>
+    <circle cx="9" cy="9.5" r="1.7" fill="currentColor" stroke="none"/>
+    <circle cx="14" cy="13.5" r="1.7" fill="currentColor" stroke="none"/>
+    <circle cx="19.5" cy="5.5" r="1.7" fill="currentColor" stroke="none"/>
   </symbol>
   <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
@@ -730,10 +750,12 @@
                （state.playlists + 在线歌单）的三种排法，不是三个页面：切换只改
                .shelf / .pl-grid / .pl-list 的显隐，架子索引、已取到的封面、
                列表滚动位置全部保留，来回切不会重新拉一遍。选择记在
-               localStorage 的 vmusic.playlists.mode 里。 -->
+               localStorage 的 vmusic.playlists.mode 里，没选过时的默认档是封面
+               ——一屏同时看到所有歌单的封面，不用一张一张拨。下面这份初始标记
+               就是默认档的初始态：#playlist-grid 可见、架子不带 on。 -->
           <div class="pl-views" id="pl-views" role="group" aria-label="歌单浏览方式">
-            <button class="chip active" type="button" data-pl-view="shelf" aria-pressed="true">歌单架</button>
-            <button class="chip" type="button" data-pl-view="grid" aria-pressed="false">封面</button>
+            <button class="chip" type="button" data-pl-view="shelf" aria-pressed="false">歌单架</button>
+            <button class="chip active" type="button" data-pl-view="grid" aria-pressed="true">封面</button>
             <button class="chip" type="button" data-pl-view="list" aria-pressed="false">列表</button>
           </div>
           <input id="new-playlist-name" type="text" placeholder="新建歌单…">
@@ -741,7 +763,7 @@
         </div>
       </div>
 
-      <div class="shelf on" id="shelf">
+      <div class="shelf" id="shelf">
         <div class="shelf-stage" id="shelf-stage"></div>
         <div class="shelf-hint">滚轮 / ← → 拨动 · 拖拽平移 · Enter 播放 · 点侧边卡转过来</div>
         <div class="shelf-detail" id="shelf-detail" hidden></div>
@@ -749,14 +771,14 @@
 
       <div class="pl-list" id="playlist-list" hidden></div>
 
-      <!-- 封面平铺：本地歌单与在线歌单混排成一片封面墙，数据源与歌单架
+      <!-- 封面平铺（默认排布）：本地歌单与在线歌单混排成一片封面墙，数据源与歌单架
            完全一致（shelfItems()），因此同一个歌单在两种排布下的
            动作、封面缓存、选中态都对得上。 -->
-      <div class="pl-grid" id="playlist-grid" hidden></div>
+      <div class="pl-grid" id="playlist-grid"></div>
 
       <!-- 在线歌单分区的架子模式宿主：列表模式下块挂在 #playlist-list 末尾
-           与本地行同列滚动；架子模式下列表被隐藏，块搬到这里占架子下方
-           剩余空间，保证默认排布也能看到全部在线歌单。 -->
+           与本地行同列滚动；歌单架模式下列表被隐藏，块搬到这里占架子下方
+           剩余空间，保证歌单架排布下也能看到全部在线歌单。 -->
       <div class="pl-online-host" id="playlist-online" hidden></div>
 
       <!-- 歌单详情：与架子/列表是同一视图内的两层，返回即回到原排布 -->
@@ -1184,7 +1206,7 @@
         <div class="theme-swatches" id="theme-swatches" role="group" aria-label="主题色快选"></div>
         <div class="set-row">
           <label for="set-cover-follow">界面随歌曲封面变化</label>
-          <input id="set-cover-follow" type="checkbox" checked aria-describedby="set-cover-follow-note">
+          <input id="set-cover-follow" type="checkbox" aria-describedby="set-cover-follow-note">
           <span class="hint" id="set-cover-follow-note">开启时背景与舞台高亮跟随封面；关闭后使用所选主题，保留歌曲封面。即时生效并自动保存。</span>
         </div>
         <div class="set-row">
@@ -1474,7 +1496,7 @@
       </div>
       <!-- 全屏不再是一种"展示模式"：唯一的进入方式是右侧的全屏舞台按钮
            （与顶栏"沉浸声场"、V/F 键等效，都是开启沉浸声场并申请原生全屏）。
-           旧"星河"对应沉浸声场 1 号舞台「极光穹顶」，在里面 1-7 或坞上切。 -->
+           旧"星河"对应沉浸声场 1 号舞台「极光穹顶」，在里面 1-8 或坞上切。 -->
       <button class="stage-head-fs" id="stage-fs" title="全屏舞台 (F)" aria-label="全屏舞台" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
       </button>
@@ -1589,24 +1611,34 @@
      它是唯一的全屏演出层，独占指针 / 独占全屏 / 独占后处理链。
      默认 hidden + visibility:hidden：不可见时不参与命中测试也不参与合成。
      内部节点由 stage3d.js 填充（舞台坞的清单来自它的 STAGES 目录），这里只
-     放骨架和四个固定按钮，避免 JS 里拼整段 DOM。 -->
-<div class="s3d" id="stage3d" aria-hidden="true" aria-modal="true" role="dialog" aria-label="沉浸式三维舞台" tabindex="-1">
+     放骨架和四个固定按钮，避免 JS 里拼整段 DOM。
+     data-fx-zone 是点击特效的场景钩子：舞台是全屏暗底，落点在这一区的点击
+     由 anime-interactions.css 按 zone 放大一档，否则主题的细碎粒子在 44px 的
+     圆牌尺度上等于没有。 -->
+<div class="s3d" id="stage3d" data-fx-zone="stage" aria-hidden="true" aria-modal="true" role="dialog" aria-label="沉浸式三维舞台" tabindex="-1">
   <div class="s3d-canvas-wrap" id="s3d-canvas-wrap"></div>
   <div class="s3d-vignette" aria-hidden="true"></div>
   <div class="s3d-brand"><span class="s3d-brand-mark" aria-hidden="true">h<span>z</span></span><div>hertz studio<small>沉 浸 声 场</small></div></div>
   <div class="s3d-head">
-    <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
-    <button class="s3d-btn" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-tune"/></svg></button>
-    <!-- 视图组（歌词 / 设置）与窗口组（复位 / 全屏 / 关闭）之间的分隔。
-         五颗等宽等色的圆牌连成一排读不出分组，靠这条淡出细线给视线一个落点。 -->
-    <span class="s3d-head-sep" aria-hidden="true"></span>
-    <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
-    </button>
-    <button class="s3d-btn" id="s3d-fs" title="全屏 (F)" aria-label="全屏" aria-pressed="false">
-      <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
-      <svg class="ic-compress" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-compress"/></svg>
-    </button>
+    <!-- 功能牌收拢进触发按钮：悬停/聚焦飞出（触屏首击展开），关闭键独立常驻。
+         两颗「打开面板」的钮走药丸并带名字（控制=展开这一行，设置=舞台设置面板），
+         开关与动作仍是圆牌 —— 同一排里两种几何各管一件事，图标也就不再撞车。
+         海岸公路 / 星座这类舞台效果不在这排上：它们是「换一整个舞台」而不是
+         拧一个旋钮，入口在设置面板的「舞台来源」与舞台控制舱的分段里。 -->
+    <div class="s3d-head-cluster" id="s3d-head-cluster">
+      <button class="s3d-btn s3d-btn-pill s3d-head-trigger" id="s3d-head-trigger" title="舞台控制" aria-label="舞台控制" aria-expanded="false" aria-controls="s3d-head-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg><span class="s3d-btn-label">控制</span></button>
+      <div class="s3d-head-menu" id="s3d-head-menu">
+        <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
+        <button class="s3d-btn s3d-btn-pill" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg><span class="s3d-btn-label">设置</span></button>
+        <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
+        </button>
+        <button class="s3d-btn" id="s3d-fs" title="全屏 (F)" aria-label="全屏" aria-pressed="false">
+          <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
+          <svg class="ic-compress" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-compress"/></svg>
+        </button>
+      </div>
+    </div>
     <button class="s3d-btn s3d-btn-x" id="s3d-close" title="关闭 (Esc)" aria-label="关闭三维舞台">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
     </button>
@@ -1656,9 +1688,29 @@
       <p class="s3d-fl-auto-state" id="s3d-fl-auto-state" hidden></p>
     </div>
     <label for="s3d-scene-source">舞台来源</label>
-    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option></select>
+    <!-- 「动画绘景」暂时下架：画稿还不够精美，入口先收起（开关见 workshop.js 的
+         showAnimeScenery）。这里保留 option 只加 hidden，不删整项——已经停在这个
+         来源的偏好要能显示出来，也随时能切走。 -->
+    <select id="s3d-scene-source"><option value="immersive">沉浸声场</option><option value="creative">创意编排</option><option value="coast">海岸公路</option><option value="zodiac">星座</option><option value="anime-svg" hidden>动画绘景</option></select>
+    <div id="s3d-coast-tuning" hidden>
+      <label for="s3d-coast-tod">海岸时刻 <output id="s3d-coast-tod-value">黄昏</output></label>
+      <input id="s3d-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
+      <label for="s3d-coast-interact"><input id="s3d-coast-interact" type="checkbox" checked> 舞台交互（拖拽转视角）</label>
+      <p class="s3d-setting-note">拖拽环绕、滚轮推拉、双击复位；静置后自动回到巡航镜头。</p>
+    </div>
+    <div id="s3d-zodiac-tuning" hidden>
+      <label for="s3d-zodiac-lines"><input id="s3d-zodiac-lines" type="checkbox" checked> 星座连线</label>
+      <label for="s3d-zodiac-field"><input id="s3d-zodiac-field" type="checkbox" checked> 背景星场</label>
+      <label for="s3d-zodiac-interact"><input id="s3d-zodiac-interact" type="checkbox" checked> 交互旋转（拖拽环绕 / 滚轮推拉 / 双击复位）</label>
+      <p class="s3d-setting-note">十二座粒子星图沿黄道环缓缓成环，星点随音乐闪烁增辉。拖拽环绕、滚轮缩放；关闭连线或背景星场可换取低端设备的流畅。</p>
+    </div>
+    <div id="s3d-anime-tuning" hidden>
+      <label for="s3d-anime-scene">绘景作品</label>
+      <select id="s3d-anime-scene"></select>
+      <label for="s3d-anime-mirror"><input id="s3d-anime-mirror" type="checkbox"> 镜像对称（左右两侧一致）</label>
+    </div>
     <label for="s3d-stage-theme">设置风格</label>
-    <select id="s3d-stage-theme"><option value="classic">默认</option><option value="starfall">星落</option><option value="ios">iOS</option></select>
+    <select id="s3d-stage-theme"><option value="starfall">星落</option><option value="ios">iOS</option></select>
     <label for="s3d-shelf-mode">3D 歌单架</label>
     <select id="s3d-shelf-mode"><option value="stage">舞台封面流</option><option value="side">右侧歌单架</option><option value="off">关闭</option></select>
     <button class="btn s3d-workshop" id="s3d-workshop">进入创意工坊</button>
@@ -1754,7 +1806,7 @@
   <div class="s3d-hint" id="s3d-hint"></div>
   <div class="s3d-keys">
     拖动旋转 · 拖歌词转歌词 · 双击复位<br>
-    1–7 切舞台 · F 全屏 · L 歌词 · Q 队列 · Esc 返回
+    1–8 切舞台 · F 全屏 · L 歌词 · Q 队列 · Esc 返回
   </div>
   <div class="s3d-fallback" id="s3d-fallback" hidden></div>
 </div>
@@ -1764,7 +1816,7 @@
 <!-- 舞台控制舱：从右侧滑出的调参面板。
      所有滑块都只是往 <html> 写 CSS 变量，实际渲染由 stage.css 里的
      var(--fx-*) 消费——面板本身不懂任何渲染逻辑，加一个旋钮成本极低。 -->
-<div class="stage-ctl" id="stage-ctl" aria-hidden="true" role="dialog" aria-label="舞台控制">
+<div class="stage-ctl" id="stage-ctl" inert aria-hidden="true" role="dialog" aria-label="舞台控制">
   <div class="sc-head">
     <span class="sc-badge">S</span>
     <div class="sc-head-text">
@@ -1783,9 +1835,20 @@
   </div>
   <div class="sc-results" id="sc-results" role="listbox" aria-label="搜索结果" hidden></div>
 
+  <!-- 语境分段：普通舞台（CSS 变量旋钮）/ 真3D 舞台（Stage3D 偏好即时生效）。
+       打开时自动跟随当前舞台状态，也可手动互切；两套内容互斥显示。 -->
+  <div class="sc-context" id="sc-context" role="tablist" aria-label="舞台语境">
+    <button type="button" class="sc-seg-btn is-on" id="sc-context-flat" role="tab" aria-selected="true">普通舞台</button>
+    <button type="button" class="sc-seg-btn" id="sc-context-3d" role="tab" aria-selected="false">真3D 舞台</button>
+  </div>
+
   <div class="sc-body" id="sc-body">
     <!-- 分组与滑块由 stage.js 依据 SCHEMA 生成，避免 20 组 markup 手写错漏 -->
   </div>
+
+  <!-- 真3D 语境的内容宿主：来源分段 / 镜头与画面 / 当前来源专属，
+       全部由 stage-control.js 依据 Stage3D.preferences() 生成并写回。 -->
+  <div class="sc-body sc-body-3d" id="sc-3d-body" hidden></div>
 
   <div class="sc-foot">
     <button class="sc-undo" id="sc-undo" type="button" disabled title="撤销上一次调参（Ctrl+Z）">
@@ -1843,8 +1906,12 @@
     <div id="qr-status" class="qr-status">正在生成二维码…</div>
     <details id="qr-cookie-panel" class="qr-cookie-fallback">
       <summary>手动粘贴 cookie</summary>
+      <!-- 取证说明按音源渲染，数据是 /v1/online/sources 的 login 字段（官网地址 +
+           后端判登录态实际认的 cookie 字段名）。官网地址给「可选中文本 + 复制」
+           而不是 <a target=_blank>：插件 iframe 没有 allow-popups，点链接会被静默
+           丢弃，看着像按钮坏了。 -->
+      <div id="qr-login-guide" class="qr-login-guide" hidden></div>
       <p id="qr-cookie-help">先在平台官网完成登录，再复制该平台的 cookie。</p>
-      <a id="qr-official-login" href="https://music.migu.cn/v5" target="_blank" rel="noopener noreferrer" hidden>打开咪咕音乐官网</a>
       <textarea id="qr-cookie-input" rows="3" placeholder="粘贴该平台的完整 cookie"></textarea>
       <button id="qr-cookie-save" type="button">保存</button>
     </details>
@@ -1957,6 +2024,9 @@
 <!-- 皮肤公共段（锚点搬运 / 自建节点登记 / 封面位图回填）：必须在两张重编排
      皮肤（流年 / 清风）之前加载。 -->
 <script defer src="skins/skin-shared.js"></script>
+<!-- 共享设置浮层（清风同款）：classic / sheen / workbench / ios 的生命周期
+     由它代管，chaoxi 在自己的生命周期里调用；依赖 skins.js 与 skin-shared.js。 -->
+<script defer src="skins/skin-settings-sheet.js"></script>
 <!-- 流年皮肤的 DOM 重编排层：在 Skins 上登记挂载与卸载，
      必须在 app.js 初始化皮肤宿主之前加载。 -->
 <script defer src="skins/skin.liunian.js"></script>
@@ -1966,6 +2036,9 @@
 <!-- 潮汐登记生命周期（播放面板的展开/收起把手）；不重编排业务节点，
      但把手的挂载要在 app.js 之前登记完。 -->
 <script defer src="skins/skin.chaoxi.js"></script>
+<!-- 黑胶同款：唱片卡的歌词展开 + 唱片拖转旋钮。必须在 app.js 初始化
+     皮肤宿主之前加载（registerLifecycle 要先于 Skins.init）。 -->
+<script defer src="skins/skin.heijiao.js"></script>
 <script defer src="themes.js"></script>
 <script defer src="anime-interactions.js"></script>
 <script defer src="perf-probe.js"></script>
@@ -2021,7 +2094,14 @@
 <!-- 3D 歌单架（封面流）：只依赖 Stage 只读出口，必须排在 stage3d.js 之前 -->
 <script defer src="stage-shelf.js"></script>
 <script defer src="stage-settings.js"></script>
+<script defer src="vendor/coast-stage.js"></script>
+<script defer src="stage-coast.js"></script>
+<script defer src="vendor/zodiac-stage.js"></script>
+<script defer src="stage-zodiac.js"></script>
 <script defer src="stage3d.js"></script>
+<!-- 动画绘景 SVG 舞台适配层：读 CreativeGL 注册表的 presentation.art，必须排在
+     creative-anime.js（注册表）之后；与 stage3d.js 无加载期依赖，只被调用。 -->
+<script defer src="stage-anime-svg.js"></script>
 <script defer src="stage-immersive.js"></script>
 <script defer src="vendor/qrcode.js"></script>
 <script defer src="online-login.js"></script>

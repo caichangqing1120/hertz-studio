@@ -238,6 +238,32 @@
     return url + '?param=' + n + 'y' + n;
   }
 
+  // 大图展示位（舞台盘面）用的封面地址，与 rowCoverUrl 反向：服务端给的是列表
+  // 够用的尺寸，盘面要的是 CSS 边长 × 设备像素比。
+  //
+  // QQ 的 photo_new 只认**离散**几档。2026-10-12 拿同一张专辑实测：
+  //   R300x300 → 200 (24KB)   R500x500 → 200 (84KB)   R800x800 → 200 (245KB)
+  //   R1200x1200 → 200 (576KB)  而 R200/R400/R480/R600/R640/R700/R720/R1000 全部 404
+  // 所以必须按档位表挑一档，不能按需要的像素直接拼 —— 拼出 R540x540 的结果是
+  // "想要更清晰，结果没封面"。上限压到 800：再高一档翻一倍多字节，盘面用不上。
+  var QQ_LADDER = [300, 500, 800];
+  var QQ_COVER_RE = /^https:\/\/y\.qq\.com\/music\/photo_new\/T002R(\d+)x\1(?=M000)/;
+  // 460 = 舞台封面框的最大 CSS 边长（stage.css 的 --stage-w）。黑胶的圆盘只有
+  // 360，取大的是为了让同一个地址在两种布局下都不欠像素。
+  var STAGE_COVER_CSS_PX = 460;
+
+  function bigCoverUrl(url) {
+    if (!url) return null;
+    var s = String(url);
+    if (!QQ_COVER_RE.test(s)) return s;      // 网易云给的就是原图，其余音源也原样返回
+    var need = STAGE_COVER_CSS_PX * (window.devicePixelRatio || 1);
+    var want = QQ_LADDER[QQ_LADDER.length - 1];
+    for (var i = 0; i < QQ_LADDER.length; i += 1) {
+      if (QQ_LADDER[i] >= need) { want = QQ_LADDER[i]; break; }
+    }
+    return s.replace(QQ_COVER_RE, 'https://y.qq.com/music/photo_new/T002R' + want + 'x' + want);
+  }
+
   // 直接复用曲库行的 .track 栅格与子元素类名，在线结果因此和本地曲库长得一样。
   // activate 由调用方给：搜索结果页用「整盘入队」，歌单抽屉用「整盘详情入队」，
   // 标记/置灰/VIP 闸门在这里统一做，调用方只管激活后干什么。
@@ -1929,6 +1955,7 @@
     seedFromStore: seedMetaFromStore,
     safeCoverUrl: safeCoverUrl,
     rowCoverUrl: rowCoverUrl,
+    bigCoverUrl: bigCoverUrl,
     fetchCover: fetchOnlineCover,
     loadLyricDoc: loadOnlineLyricDoc,
     // 接力后的元数据迁移与出处（app.js 的 source_switched 分支调用）。

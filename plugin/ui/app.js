@@ -1121,7 +1121,7 @@ function handleEvent(msg) {
       // 在线音源失败交给在线面板错误条（可重试当前队列下标 / 跳下一首）；
       // 「已跳过」类是服务端已自行处置的告知，轻提示即可；本地播放失败仍走错误 toast。
       if (msg.source && window.Online && window.Online.showOnlineError) {
-        if (/已跳过/.test(msg.message)) {
+        if (/已跳过|已改播/.test(msg.message)) {
           toast(msg.message);
         } else {
           // 重试下标以事件携带的为准：快照反查会在自动跳曲/切歌后指错曲。
@@ -1956,13 +1956,25 @@ async function loadNowPlaying(id) {
   } else {
     url = window.Online.safeCoverUrl(track.cover);
   }
+  // 盘面按设备像素出图：QQ 服务端给的是列表够用的 300，铺到 150% 屏上的圆盘只有
+  // 0.55 倍密度，看着就是糊的。只给舞台这一路升档，列表行不动 —— 一屏 30 行从
+  // 30×24KB 变 30×245KB 不叫"更清晰"，叫"封面等半天出不来"。
+  const canonical = url;
+  const big = window.Online && isRemoteCoverUrl(canonical) ? window.Online.bigCoverUrl(canonical) : canonical;
   // 插件形态下远程封面必须先换成 data URL：一则沙箱 CSP 画不出 https 图，二则
   // 下面的 probeImage 探的是最终要画的那份——探远程地址在插件形态必然失败，封面
   // 会被当成坏图撤掉，表现正是「正在播放没有封面」。
-  const remote = isRemoteCoverUrl(url) ? url : null;
-  url = await resolveCover(url);
+  const remote = isRemoteCoverUrl(canonical) ? canonical : null;
+  url = await resolveCover(big);
   // 远程封面可能 404 / 防盗链：加载不出来就撤掉，用占位图而不是空白
-  if (url && !(await probeImage(url))) url = null;
+  let drawn = !!url && await probeImage(url);
+  if (!drawn && big !== canonical) {
+    // 升的那档 CDN 没有（QQ 只认 300/500/800/1200 几档，别的尺寸直接 404）：
+    // 退回原址再走一遍，宁可稍糊也不要没封面。
+    url = await resolveCover(canonical);
+    drawn = !!url && await probeImage(url);
+  }
+  if (url && !drawn) url = null;
   // 探测通过的封面回写进曲目元数据（base/byId/Online.meta 是同一个对象）：
   // pushStageQueue 重推时歌单架当前卡才能拿到封面，不用等下一次换曲。
   // 回写远程原址而不是 data URL：base64 塞进元数据会把内存与持久化一起撑爆。
@@ -2176,14 +2188,15 @@ function applyMotionSurfaces() {
 //     setView('settings') 把其它视图全藏掉、只留它；
 //   · liunian / qingfeng —— 把 #view-settings **搬进自己的浮层**
 //     （ln-set-pane / qf-set-pane），并把它的 hidden 置 true
-//     （浮层没开时不该露出来）。
+//     （浮层没开时不该露出来）；
+//   · classic / sheen / workbench / ios / chaoxi —— 设置走共享的清风同款
+//     浮层（skins/skin-settings-sheet.js），视图同样被搬走并隐藏，
+//     setView('settings') 被它的 MutationObserver 拦截成开浮层。
 //
 // 于是「设置页里切皮肤」这一步之后，state.view 仍是 'settings'，而：
 //
-//   · 切到流年/清风 → 设置视图被搬走且隐藏，中栏**一个可见视图都没有**
-//     → 首页整片空白（用户报「首页为空」）；
-//   · 切到 OS 风 → 设置视图还在中栏，于是直接停在设置页
-//     → 用户报「直接进入了设置页面」。
+//   · 切到流年/清风/共享浮层的皮肤 → 设置视图被搬走且隐藏，
+//     中栏**一个可见视图都没有** → 首页整片空白（用户报「首页为空」）。
 //
 // 症状一模一样，根因同一处：换肤没有重新对账视图。修法是让「换完肤一定落在
 // 一个能看见东西的视图上」成为**统一**规则，而不是让每个皮肤各自在 mount 里
@@ -2219,6 +2232,31 @@ function applyMotionSurfaces() {
 // 两个变量必须声明在 onSkinChangedForViews **之前**：函数体在启动早期就要执行
 // （Skins.init 的广播），那时若它们还在 TDZ 里，读 `pendingSkinViewHandoff`
 // 会抛 ReferenceError —— 正是这个 bug 最初「无报错」表现不出来的那类坑。
+// 默认视图：**所有皮肤**一致，都是在线曲库。
+// ---------------------------------------------------------------------------
+// 为什么不是本地曲库：本地库要用户先填一个音乐目录才有内容，新装/刚迁移的
+// 机器点开就是「曲库还是空的」大引导卡；在线曲库开机就有可听的东西。
+//
+// 边界（这条最容易做错）：只改「回首页」语义 —— 启动、换肤后回默认、
+// 当前视图被隐藏后的兜底。**不改显式导航**：用户点导航里的「曲库」仍然去
+// 本地曲库，那是他自己的选择，不是默认值该替他做的决定。
+// 把 rail 的点击也改掉的表现是「本地曲库再也回不去了」。
+var DEFAULT_VIEW = 'online';
+const DEFAULT_VIEW_KEY = 'vmusic.defaultView';
+
+function defaultView() {
+  try {
+    const saved = localStorage.getItem(DEFAULT_VIEW_KEY);
+    // 存过但不认识（视图被删/改名）就回落默认：setView 会把不匹配的视图
+    // 一起 hidden，落在一个不存在的 id 上 = 整页空白且不报错。
+    if (saved && ui.views && Object.prototype.hasOwnProperty.call(ui.views, saved)) return saved;
+  } catch (e) { /* 隐私模式 */ }
+  return DEFAULT_VIEW;
+}
+
+// 两个变量必须声明在 onSkinChangedForViews **之前**：函数体在启动早期就要执行
+// （Skins.init 的广播），那时若它们还在 TDZ 里，读 `pendingSkinViewHandoff`
+// 会抛 ReferenceError —— 正是这个 bug 最初「无报错」表现不出来的那类坑。
 var dailyStripBound = false;
 var pendingSkinViewHandoff = false;
 
@@ -2228,7 +2266,7 @@ function onSkinChangedForViews() {
     pendingSkinViewHandoff = true;
     return;
   }
-  setView('library');
+  setView(defaultView());
 }
 
 /// Daily.bind() 之后调用：若启动期攒下了换肤广播，这里补上对账。
@@ -2236,7 +2274,7 @@ function bindDailyStrip() {
   dailyStripBound = true;
   if (!pendingSkinViewHandoff) return;
   pendingSkinViewHandoff = false;
-  setView('library');
+  setView(defaultView());
 }
 
 function applyNavVisibility() {
@@ -2248,7 +2286,10 @@ function applyNavVisibility() {
     if (ui[uiKey]) ui[uiKey].checked = visible;
     if (!visible && state.view === view) hidCurrent = true;
   }
-  if (hidCurrent && state.view !== 'library') setView('library');
+  // 兜底的判据是"有没有东西被藏起来"，不是"是不是首页"：
+  // 默认视图自己被关掉时（nav_visible_online=false）也必须有地方去，
+  // 那时落回 library —— 它是唯一一定还在的视图。
+  if (hidCurrent) setView(ui.views[DEFAULT_VIEW] ? DEFAULT_VIEW : 'library');
   // 皮肤层（清风的胶囊主菜单等）跟着同步；没有监听方时是空投事件。
   document.dispatchEvent(new CustomEvent('nav:changed'));
 }
@@ -2568,6 +2609,7 @@ function renderQueue() {
     row.dataset.trackId = id;
     row.innerHTML = `
       <span class="q-grip" aria-hidden="true"></span>
+      <span class="q-art t-art" aria-hidden="true"></span>
       <span class="q-num">${index + 1}</span>
       <span class="q-main"><span class="q-title"></span><span class="q-sub"></span></span>
       <span class="q-dur"></span>
@@ -2577,6 +2619,11 @@ function renderQueue() {
     row.querySelector('.q-title').textContent = track.title;
     row.querySelector('.q-sub').textContent = track.artist || '未知艺术家';
     row.querySelector('.q-dur').textContent = fmt(track.duration_ms);
+    // 封面走与曲库行同一套 paintArt（懒加载 / 远程代理 / 稳定色占位）。
+    // 本地曲有 has_cover 才给 URL；在线曲的元数据自带远程封面地址；
+    // 都没有就画占位。行列表的轨道按无封面排的，.q-art 默认由 style.css
+    // 隐藏，黑胶的卡片几何显式放开它（skin.heijiao.css）。
+    paintArt(row, track.has_cover ? transport.coverUrl(track.id) : (track.cover || null));
     if (id.startsWith('online:') && window.Online) {
       // 与歌单详情同一套平台徽标：混合队列里一眼分清本地与在线。
       // 重启后内存快照没了（行退化为「未知曲目」），源仍能从虚拟 id 里解析出来。
@@ -2645,7 +2692,7 @@ function syncQueuePlaying(snap, locate) {
 // 都要读它，而 initShelf 要到启动时才赋值。
 let shelf = null;
 let plCovers = null;          // 共享封面解析实例（shelf 与列表行共用）
-let playlistMode = 'shelf';
+let playlistMode = 'grid';
 let detailPlaylistId = null;
 let detailTracks = [];        // 详情内完整曲目对象（按当前顺序）
 const rowArts = new Map();    // playlistId -> 列表行封面节点
@@ -2883,9 +2930,10 @@ async function deletePlaylist(p) {
 // ---------------------------------------------------------------------------
 
 // 歌单浏览方式的持久化键。键名沿用改造前那个（当时只有 shelf/list 两档），
-// 值是 'shelf' | 'grid' | 'list'；读到任何不认识的值都回落到 'shelf'，于是
-// 旧版本写下的 'list' 原样继续有效。
+// 值是 'shelf' | 'grid' | 'list'；读不到或读出不认识的值都落到默认档 'grid'。
 const PL_VIEW_KEY = 'vmusic.playlists.mode';
+// 默认档换成封面墙时的一次性迁移标记，理由见 migratePlaylistView()。
+const PL_VIEW_V2_KEY = 'vmusic.playlists.viewV2';
 
 // 在线歌单的架子卡 id 与在线曲目虚拟 id 同构，谁也不必猜第二套拼法。
 function onlineShelfId(source, refId) { return `online:${source}:${refId}`; }
@@ -2977,7 +3025,25 @@ function initPlaylistViews() {
   }
   let saved = null;
   try { saved = localStorage.getItem(PL_VIEW_KEY); } catch (err) { /* 隐私模式 */ }
-  setPlaylistMode(saved);
+  // 恢复一律 persist=false：开机那次写回会把「没选过」和「选过」压成同一个值，
+  // 于是默认档再也改不动（旧默认被自己钉死在存储里）。
+  setPlaylistMode(migratePlaylistView(saved), false);
+}
+
+// 默认档从歌单架换成封面墙，需要动一次已存的旧值。
+//
+// 改造前每次开机都会无条件把当时解析出的排布写回存储，所以老用户存的那条
+// 'shelf' 究竟是自己挑的还是开机钉上的，已经分不出来了。这里按「只动那个
+// 分不出来的值」处理：'list' 是明确的选择，原样保留；'shelf' 换成新默认档，
+// 并且只换一次（标记落定后用户再选歌单架就不会被改回去）。
+function migratePlaylistView(saved) {
+  if (saved !== 'shelf') return saved;
+  try {
+    if (localStorage.getItem(PL_VIEW_V2_KEY)) return saved;
+    localStorage.setItem(PL_VIEW_V2_KEY, '1');
+    localStorage.setItem(PL_VIEW_KEY, 'grid');
+  } catch (err) { /* 隐私模式：写不进标记，这次就当没迁移过 */ }
+  return 'grid';
 }
 
 // 对某个歌单执行一个动作，分派到本地 / 在线两条链路。
@@ -3010,8 +3076,8 @@ function dispatchPlaylistAction(id, action) {
 // 换排布只是把另外两个容器藏起来，架子索引、已取到的封面、列表滚动位置都还在，
 // 来回切不会重新拉一遍。persist=false 用于从详情返回时恢复显隐，不写 localStorage。
 function setPlaylistMode(next, persist) {
-  // 不认识的值（含旧版本可能写下的任何东西）一律回落到歌单架，不抛错。
-  const want = (next === 'grid' || next === 'list') ? next : 'shelf';
+  // 不认识的值（含旧版本可能写下的任何东西）一律回落到封面墙，不抛错。
+  const want = (next === 'shelf' || next === 'list') ? next : 'grid';
   playlistMode = want;
   if (ui.shelf) ui.shelf.classList.toggle('on', want === 'shelf');
   if (ui.playlistList) ui.playlistList.hidden = want !== 'list';
@@ -3116,14 +3182,20 @@ function renderPlaylistGrid() {
 
     if (it.badge) {
       const badge = document.createElement('span');
+      badge.className = 'pl-card-badge';
+      // 品牌色只服务字形方块；位图自带品牌底色，容器要让位（见 style.css）。
+      if (it.badgeColor) badge.style.setProperty('--badge', it.badgeColor);
       if (String(it.badge).charAt(0) === '/') {
         // 平台官方 PNG 徽标：与在线面板同款同位图，统一尺寸由 CSS 钉死。
-        badge.className = 'pl-card-badge is-img';
+        badge.classList.add('is-img');
         badge.innerHTML = '<img src="' + it.badge + '" alt="" aria-hidden="true">';
       } else {
-        badge.className = 'pl-card-badge';
-        badge.textContent = it.badge;
-        if (it.badgeColor) badge.style.color = it.badgeColor;
+        // sprite 字形徽标（咪咕 / 播客 / 未登记音源 / 本地）：badge 存的是
+        // `<symbol>` 的 id，不是要显示的文字。以前这里 textContent 直出，
+        // 墙上就印出字面量 "i-app-generic"；画法与 shelf.js 的 paintBadge、
+        // 在线面板的 .src-badge 同一条链路。
+        badge.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#'
+          + encodeURIComponent(it.badge) + '"/></svg>';
       }
       face.appendChild(badge);
     }
@@ -3542,6 +3614,10 @@ async function writeClipboard(text) {
   }
   await navigator.clipboard.writeText(text);
 }
+
+/// 挂给其它前端模块（在线登录弹窗要拷官网地址）。插件形态必须走宿主 copy 通道
+/// 这条约束只在这里记一份——各模块自己实现一遍，早晚漏掉它变成「按钮没反应」。
+window.HertzClipboard = { write: writeClipboard };
 
 /// 存一个文本文件到磁盘。
 ///
@@ -3975,7 +4051,8 @@ async function loadSettings() {
   if (ui.setScrobble) ui.setScrobble.checked = state.settings.scrobble_enabled !== false;
   if (ui.setRelay) ui.setRelay.checked = state.settings.online_auto_relay !== false;
   paintLyricSettings();
-  setCoverFollow(state.settings.cover_follow !== false, false);
+  // 封面取色会盖掉用户选的主题，默认不这么做：设置表里没有这项时按关闭回填。
+  setCoverFollow(state.settings.cover_follow === true, false);
   // 导航里「每日推荐」的可见性：关掉就把入口摘掉，其它菜单项不受影响。
   // 放在设置到手之后而不是启动时——早于这一步挂载的话，设置里是关的就白挂了。
   if (window.DailyView) window.DailyView.applySettings(state.settings);
@@ -4517,7 +4594,9 @@ function initHomeDashboard() {
   bindHomeCoverMenu();
   // 名言与播放无关，独立模块：自己读一次缓存画出来，再后台抓一次。
   // 必须在 HomeDashboard 之后 —— 它要等 #home-quote 已进 DOM。
-  if (window.HomeQuote) window.HomeQuote.load();
+  // 把 transport 交给它而不是让它自己 fetch：插件形态的 CSP 拦得住直连第三方，
+  // 取句必须走后端 `/v1/home/quote`（见 home-quote.js 的 fetchRemote）。
+  if (window.HomeQuote) window.HomeQuote.load(transport);
 }
 
 // 首页那一格右键：把曲库行上那对「让封面位有图」的动作搬过来，省得为了补一张
@@ -4666,11 +4745,24 @@ function positionThemeMenu() {
   positionAnchoredMenu(ui.themeBtn, ui.themeMenu, 232);
 }
 
+/// 顶栏弹层的互斥广播：三个入口（主题色 / 界面皮肤 / 更多工具）的按钮 onclick
+/// 都 stopPropagation，彼此那套「点外部就关」的 document 监听收不到对方的按钮
+/// 点击，两个面板会叠着开。约定 topbar:popup —— 谁开谁喊一声，其余弹层听见
+/// 不是自己开的就收起。skins.js 的 #skin-menu 监听并发出同一条事件。
+function broadcastTopbarPopup(id) {
+  try {
+    document.dispatchEvent(new CustomEvent('topbar:popup', { detail: { id: id } }));
+  } catch (e) { /* 老浏览器没有 CustomEvent 构造器 */ }
+}
+
 function setThemeMenuOpen(open) {
   if (!ui.themeMenu) return;
   ui.themeMenu.hidden = !open;
   if (ui.themeBtn) ui.themeBtn.setAttribute('aria-expanded', String(open));
-  if (open) positionThemeMenu();
+  if (open) {
+    positionThemeMenu();
+    broadcastTopbarPopup('theme');
+  }
 }
 
 function initTheme() {
@@ -4699,6 +4791,10 @@ function initTheme() {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeThemeMenu(); });
     // 窗口尺寸变化时菜单可能变得越界，跟随重算
     window.addEventListener('resize', () => { if (!ui.themeMenu.hidden) positionThemeMenu(); });
+    // 别的顶栏弹层开了就收起（见 broadcastTopbarPopup 上方注释）
+    document.addEventListener('topbar:popup', (e) => {
+      if (e.detail && e.detail.id !== 'theme' && !ui.themeMenu.hidden) closeThemeMenu();
+    });
   }
   if (ui.setTheme) ui.setTheme.onchange = () => applyTheme(ui.setTheme.value);
 }
@@ -4759,7 +4855,10 @@ function initTopMoreMenu() {
     menu.hidden = !open;
     btn.classList.toggle('active', open);
     btn.setAttribute('aria-expanded', String(open));
-    if (open) positionAnchoredMenu(btn, menu, 188);
+    if (open) {
+      positionAnchoredMenu(btn, menu, 188);
+      broadcastTopbarPopup('more');
+    }
   }
 
   btn.addEventListener('click', (e) => {
@@ -4782,6 +4881,11 @@ function initTopMoreMenu() {
 
   // 搬出按钮的 relative 盒之后，位置是开层那一刻算的：窗口一变就作废，直接收。
   window.addEventListener('resize', () => { if (open) setOpen(false); });
+
+  // 别的顶栏弹层开了就收起（见 broadcastTopbarPopup 上方注释）
+  document.addEventListener('topbar:popup', (e) => {
+    if (e.detail && e.detail.id !== 'more' && open) setOpen(false);
+  });
 
   menu.addEventListener('keydown', (e) => {
     const list = items();
@@ -5058,7 +5162,7 @@ function bindSeekRange(range) {
 let coverFollowWrite = Promise.resolve();
 
 function setCoverFollow(value, persist) {
-  const enabled = value !== false;
+  const enabled = value === true;
   state.settings.cover_follow = enabled;
   if (ui.setCoverFollow) ui.setCoverFollow.checked = enabled;
   if (Stage) Stage.setCoverFollow(enabled);
@@ -8023,7 +8127,9 @@ async function startApp() {
 
   bindMediaSession();
 
-  setView('library');
+  // 启动落在默认视图（在线曲库）—— 见 defaultView() 上方的边界说明：
+  // 这里只改"回首页"语义，rail 的显式点击仍去本地曲库。
+  setView(defaultView());
   // 先把封面票签好再拉列表：coverUrl() 是同步契约，票没到位就只能退回 ?token=，
   // 那第一屏封面又会把长期凭据带进 URL（正是这一步要消掉的东西）。
   await refreshCoverTicket();

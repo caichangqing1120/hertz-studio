@@ -123,6 +123,9 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
             axum::routing::delete(remove_from_playlist),
         )
         .route("/v1/settings", get(get_settings).put(put_settings))
+        // 每日一言：见 `home_quote`。放在设置之后是因为它跟播放状态无关，
+        // 前端只在启动与换分类时各打一次。
+        .route("/v1/home/quote", get(home_quote))
         // 开发者选项：播放诊断日志。开关单独走接口而不是 PUT /v1/settings，
         // 因为那条路只写库、不会让运行中的服务改变行为。
         .route(
@@ -1249,6 +1252,14 @@ async fn online_cover_proxy(
         "data": crate::rpc::encode_base64(&bytes),
         "content_type": content_type,
     })))
+}
+
+/// 每日一言：插件形态下界面不能直连第三方（宿主给插件文档注入的 CSP 是
+/// `connect-src 'none'`），所以取句挪到后端。分类白名单与字段归一在
+/// `online::quote`，HTTP 与 RPC 两个门面共用同一份，应答形状固定为
+/// `{hitokoto, from}`。
+async fn home_quote(Query(q): Query<online::QuoteQuery>) -> ApiResult<Json<serde_json::Value>> {
+    Ok(Json(online::daily_quote(&q).await?))
 }
 
 #[derive(Deserialize)]
@@ -2838,18 +2849,61 @@ pub(crate) fn pick_index(requested: Option<usize>, len: usize) -> usize {
 
 /// 取二维码会话并校验它属于请求的音源。
 ///
-/// 这一步不能省：票是不透明的随机串，但 Registry 里记着它的来源平台。
-/// 若 A 平台的票能投到 B 平台的 qr_check，confirmed 时平台模块会把 A 的
-/// 凭据写进 B 的保险库——属于跨源凭据污染。票过期/已取消则让前端重新扫码。
+/// 票没了回 `Ok(None)`，**不是错误**：前端对错误的处理是「请求失败，3s 后重试」，
+/// 对一枚不存在的票无限重问就永远到不了那个能点击刷新的过期分支。票会没是常态
+/// ——TTL 到点、服务重启把内存表清空、或这张票已在另一个窗口取消。
+///
+/// 跨源错配才是真错误（保持 400）：票是不透明的随机串，但 Registry 里记着它的
+/// 来源平台。若 A 平台的票能投到 B 平台的 qr_check，confirmed 时平台模块会把 A
+/// 的凭据写进 B 的保险库——属于跨源凭据污染。
 pub(crate) fn qr_session(
     source: &str,
     sess: Option<online::qr::Session>,
-) -> ApiResult<online::qr::Session> {
-    let sess = sess.ok_or_else(|| bad_request("二维码已过期，请重新扫码"))?;
+) -> ApiResult<Option<online::qr::Session>> {
+    let Some(sess) = sess else {
+        return Ok(None);
+    };
     if sess.source != source {
         return Err(bad_request("二维码会话与音源不匹配，请重新扫码"));
     }
-    Ok(sess)
+    Ok(Some(sess))
+}
+
+/// 轮询一次扫码结果。HTTP 与 RPC 两个门面共用这一份，只差回包类型——
+/// 只接一边就是「独立形态好、插件形态坏」那类分叉（这个函数原来在两处各有一份，
+/// 于是「票没了回 400」这一个 bug 同时挂在两个门上）。
+pub(crate) async fn qr_poll_body(
+    state: &Arc<AppState>,
+    q: &QrPollQuery,
+) -> ApiResult<online::QrPoll> {
+    let expired = || online::QrPoll {
+        state: "expired".to_string(),
+        account: None,
+    };
+    let Some(sess) = qr_session(&q.source, state.qr.take(&q.ticket).await)? else {
+        return Ok(expired());
+    };
+    // 终态直接回本地票态、不再打上游：confirmed/expired 不可回退，QQ 的
+    // check_sig 是一次性凭证，confirmed 后重放只会报错并可能逼票态降级。
+    // account 在首次 confirmed 响应里已带过，前端见终态即停止轮询。
+    if online::qr::is_terminal(&sess.state) {
+        return Ok(online::QrPoll {
+            state: sess.state,
+            account: None,
+        });
+    }
+    let (state_name, account) = tagged(
+        &q.source,
+        online::qr_poll(&online_ctx(state), &q.source, &sess.platform_ticket).await,
+    )?;
+    // 平台已确认时凭据由平台模块自己写入 cred 保险库；这里只同步票态。
+    // 上游调用失败时不更新票态，让前端按原节奏继续轮询；Registry 自身
+    // 再挡一道：终态不会被任何上游返回降级。
+    state.qr.update(&q.ticket, &state_name).await;
+    Ok(online::QrPoll {
+        state: state_name,
+        account,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -3596,28 +3650,7 @@ async fn online_qr_poll(
     State(state): State<Arc<AppState>>,
     Query(q): Query<QrPollQuery>,
 ) -> ApiResult<Json<online::QrPoll>> {
-    let sess = qr_session(&q.source, state.qr.take(&q.ticket).await)?;
-    // 终态直接回本地票态、不再打上游：confirmed/expired 不可回退，QQ 的
-    // check_sig 是一次性凭证，confirmed 后重放只会报错并可能逼票态降级。
-    // account 在首次 confirmed 响应里已带过，前端见终态即停止轮询。
-    if online::qr::is_terminal(&sess.state) {
-        return Ok(Json(online::QrPoll {
-            state: sess.state,
-            account: None,
-        }));
-    }
-    let (state_name, account) = tagged(
-        &q.source,
-        online::qr_poll(&online_ctx(&state), &q.source, &sess.platform_ticket).await,
-    )?;
-    // 平台已确认时凭据由平台模块自己写入 cred 保险库；这里只同步票态。
-    // 上游调用失败时不更新票态，让前端按原节奏继续轮询；Registry 自身
-    // 再挡一道：终态不会被任何上游返回降级。
-    state.qr.update(&q.ticket, &state_name).await;
-    Ok(Json(online::QrPoll {
-        state: state_name,
-        account,
-    }))
+    Ok(Json(qr_poll_body(&state, &q).await?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -3941,9 +3974,11 @@ mod tests {
     }
 
     #[test]
-    fn qr_session_rejects_missing_and_cross_source_tickets() {
-        // 过期/未知票：400 引导重新扫码。
-        assert_eq!(qr_session("netease", None).unwrap_err().status, 400);
+    fn qr_session_turns_a_missing_ticket_into_expired_not_an_error() {
+        // 票没了是常态：TTL 到点、服务重启清空内存表、或已在别的窗口取消。
+        // 曾经这里回 400，前端于是对一枚不存在的票无限刷「请求失败（3s 后重试）」，
+        // 永远到不了那个能点击刷新的 expired 分支。
+        assert!(qr_session("netease", None).unwrap().is_none());
 
         let sess = crate::online::qr::Session {
             source: "qq".into(),
@@ -3951,7 +3986,8 @@ mod tests {
             created_ms: 0,
             platform_ticket: "pt".into(),
         };
-        // A 平台的票不能投到 B 平台的 qr_check。
+        // 跨源错配不同：那是真错误，必须继续 400（A 平台的票不能投到 B 平台，
+        // 否则 confirmed 时会把 A 的凭据写进 B 的保险库）。
         assert_eq!(
             qr_session("netease", Some(sess.clone()))
                 .unwrap_err()
@@ -3959,7 +3995,7 @@ mod tests {
             400
         );
         // 同源放行，平台票原样可取。
-        let ok = qr_session("qq", Some(sess)).unwrap();
+        let ok = qr_session("qq", Some(sess)).unwrap().unwrap();
         assert_eq!(ok.platform_ticket, "pt");
     }
 

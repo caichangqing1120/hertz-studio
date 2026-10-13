@@ -21,6 +21,10 @@
   var KEY = 'vmusic.skin';
   var DEFAULT_ID = 'classic';
   var EVENT = 'skin:changed';
+  // 顶栏弹层互斥广播，与 app.js 的 broadcastTopbarPopup 同一条约定：谁开谁喊
+  // 一声，其余弹层（主题色 / 更多工具）听见不是自己开的就收起。按钮 onclick
+  // 都 stopPropagation，「点外部就关」的 document 监听帮不上忙，只能广播。
+  var POPUP_EVENT = 'topbar:popup';
 
   /// 皮肤目录。`classic` 是"没有皮肤"——也就是仓库原本那套布局，它不带 CSS
   /// 文件，其它皮肤都是在它的基础上做覆盖。
@@ -39,6 +43,10 @@
       id: 'workbench',
       name: '工作台',
       note: '固定窄侧栏 + 内容分栏，直角细线、高信息密度',
+      // 隐藏：界面上不给入口（设置页那组卡片、顶栏弹层、命令面板三处宿主都
+      // 按 visible() 渲染），但 CATALOG 里留着这份定义 —— 已经设成它的用户
+      // 不会被困住，apply() 也照旧能把它调出来排障。解除隐藏 = 删这一个字段。
+      hidden: true,
     },
     {
       id: 'liunian',
@@ -62,6 +70,11 @@
       id: 'chaoxi',
       name: '潮汐',
       note: '内容定宽居中的极低密度布局：竖轨图标导航、大留白大卡片、唱片聚焦舞台',
+    },
+    {
+      id: 'heijiao',
+      name: '黑胶',
+      note: '双卡片布局：左侧常驻可拖转的唱片卡（点击展开歌词）、右侧内容网格卡片',
     },
   ];
 
@@ -121,6 +134,15 @@
       if (CATALOG[i].id === id) return CATALOG[i];
     }
     return null;
+  }
+
+  /// 界面上给入口的那几套。`hidden` 的皮肤仍在 CATALOG 里（apply 能切过去、
+  /// 已设过它的用户不会被困住），只是不出现在任何选择器里。
+  ///
+  /// 三处宿主都从这里取——设置页那组卡片、顶栏弹层、命令面板——所以"隐藏一套
+  /// 皮肤"只动 CATALOG 一处，不存在漏改某个列表的可能。
+  function visible() {
+    return CATALOG.filter(function (d) { return !d.hidden; });
   }
 
   /// 皮肤那几份 CSS 在页面上的载体。
@@ -194,8 +216,16 @@
   function init() {
     var saved = null;
     try { saved = localStorage.getItem(KEY); } catch (e) { saved = null; }
-    // 存过但不认识（比如皮肤被删了）就回落 classic，而不是写个无效属性。
-    apply(saved && byId(saved) ? saved : DEFAULT_ID, { silent: true });
+    var def = saved ? byId(saved) : null;
+    // 存过但不认识（比如皮肤被删了）回落 classic；存的是**已隐藏**的皮肤同样
+    // 回落——界面上已经没有它的入口，继续停在里面等于把用户锁在一套换不回来
+    // 的布局里。
+    var start = def && !def.hidden ? saved : DEFAULT_ID;
+    apply(start, { silent: true });
+    if (def && def.hidden) {
+      // init 走 silent 不写盘，这里补一次：否则下次开页又读回那个没有入口的皮肤。
+      try { localStorage.setItem(KEY, start); } catch (e) { /* 隐私模式 */ }
+    }
     bindEntry();
     return current;
   }
@@ -212,7 +242,7 @@
   function renderInto(host, isMenu) {
     if (!host) return;
     host.innerHTML = '';
-    CATALOG.forEach(function (def) {
+    visible().forEach(function (def) {
       var on = def.id === current;
       var b = document.createElement('button');
       b.type = 'button';
@@ -268,6 +298,9 @@
     if (entryOpen) {
       renderMenu();
       positionEntryMenu();
+      try {
+        document.dispatchEvent(new CustomEvent(POPUP_EVENT, { detail: { id: 'skin' } }));
+      } catch (e) { /* 老浏览器没有 CustomEvent 构造器 */ }
       // 焦点直接落在当前皮肤那一行：开弹层的意图就是「看看现在是哪套」。
       var at = entryMenu.querySelector('.skin-option.is-on') || entryMenu.firstElementChild;
       if (at && at.focus) at.focus();
@@ -322,6 +355,11 @@
       }
     });
 
+    // 别的顶栏弹层（主题色 / 更多工具）开了就收起，见顶部 POPUP_EVENT 注释。
+    document.addEventListener(POPUP_EVENT, function (e) {
+      if (entryOpen && e.detail && e.detail.id !== 'skin') setEntryOpen(false, false);
+    });
+
     entryMenu.addEventListener('keydown', function (e) {
       var rows = entryRows();
       if (!rows.length) return;
@@ -355,6 +393,7 @@
       if (!def || typeof def.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(def.id) || byId(def.id)) return false;
       if (def.lifecycle && !validLifecycle(def.lifecycle)) return false;
       var entry = { id: def.id, name: def.name || def.id, note: def.note || '' };
+      if (def.hidden) entry.hidden = true;
       if (def.lifecycle) entry.lifecycle = { mount: def.lifecycle.mount, unmount: def.lifecycle.unmount };
       CATALOG.push(entry);
       return true;
@@ -372,8 +411,10 @@
       if (host) host(detail);
       return detail;
     },
+    /// 对外可见的皮肤清单。命令面板从这里建「皮肤：X」命令，所以隐藏一套皮肤
+    /// 也是自动生效的——搜不出来，也就切不过去。
     list: function () {
-      return CATALOG.map(function (d) { return { id: d.id, name: d.name, note: d.note }; });
+      return visible().map(function (d) { return { id: d.id, name: d.name, note: d.note }; });
     },
     apply: apply,
     current: function () { return byId(current); },
@@ -386,6 +427,7 @@
     init: init,
     render: renderList,
     /// 契约脚本与排障用：皮肤之间的差别必须体现在布局上，不是颜色。
+    /// 与 list() 的差别是它**包含隐藏的**皮肤——排障时要看得见全貌。
     catalog: function () { return CATALOG.slice(); },
   };
 })();

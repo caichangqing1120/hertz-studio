@@ -122,11 +122,33 @@ async function fixtures() {
           const settings = await rect(page, '.rail-item[data-view="settings"]');
           check(settings.x >= 0 && settings.x + settings.width <= width + 1, label + ' last navigation item scrolls into view');
         }
+        // 设置在所有皮肤里都是共享浮层（skins/skin-settings-sheet.js）：
+        // rail 点击被拦截成开浮层，#view-settings 住在 .skset-pane 里滚动。
+        const sheetModal = page.locator('.skset-modal');
+        check(await sheetModal.isVisible(), label + ' settings opens as the shared sheet');
         check(await page.locator('#view-settings').isVisible(), label + ' settings navigation works');
-        await page.locator('#view-settings').evaluate(el => { el.scrollTop = el.scrollHeight; });
-        check(await page.locator('#view-settings').evaluate(el => el.scrollTop > 0), label + ' settings can scroll to the end');
+        const pane = page.locator('.skset-pane');
+        // 右栏一次只显示一个分组：分组在小视口里可能整个放得下（没有滚动道），
+        // 「能滚到底」只在真的溢出时才有意义。
+        const overflows = await pane.evaluate(el => el.scrollHeight > el.clientHeight + 1);
+        await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        check(!overflows || await pane.evaluate(el => el.scrollTop > 0), label + ' settings can scroll to the end');
+        // 先切到 DOM 末尾那个分组再量，否则它还 hidden 着，boundingBox 是 null。
+        const lastTitle = (await page.locator('#view-settings .set-group .set-title').last().textContent()).trim();
+        await page.locator('.skset-nav .skset-link', { hasText: lastTitle }).click();
+        await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
         const lastGroup = await page.locator('#view-settings .set-group').last().boundingBox();
-        check(lastGroup && lastGroup.y < bar.y, label + ' final settings group is reachable');
+        const paneBox = await pane.boundingBox();
+        // 「可达」 = 滚到底后，最后一组的下缘落在右栏可视范围内（分组比右栏
+        // 高时，上缘超出视口是正常的，看它的下缘）。
+        check(lastGroup && paneBox
+          && lastGroup.y + lastGroup.height <= paneBox.y + paneBox.height + 1
+          && lastGroup.y + lastGroup.height >= paneBox.y + 1,
+          label + ' final settings group is reachable');
+        // 关掉浮层再继续：开着的浮层给 .app 加 pointer-events:none，不关的话
+        // 下一轮点 rail 会撞遮罩（actionability 超时，看起来像界面坏了）。
+        await page.locator('.skset-modal-close').click();
+        await page.waitForFunction(() => { const m = document.querySelector('.skset-modal'); return !m || m.hidden; });
       }
     }
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -195,7 +217,9 @@ async function fixtures() {
       check((await api('GET', '/v1/state')).track_id === tracks[1].id, 'next track preserves existing queue behavior');
       await api('POST', '/v1/player/pause');
       await page.locator('.rail-item[data-view="settings"]').click();
-      await page.locator('#view-settings').evaluate(el => { el.scrollTop = 0; });
+      await page.locator('.skset-modal').waitFor({ state: 'visible' });
+      await page.locator('.skset-modal-close').click();
+      await page.waitForFunction(() => { const m = document.querySelector('.skset-modal'); return !m || m.hidden; });
       // A temporary disabled state exercises styling, without invoking the button.
       const button = page.locator('#scan-toggle');
       await page.locator('.rail-item[data-view="library"]').click();

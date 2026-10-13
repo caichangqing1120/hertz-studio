@@ -242,10 +242,38 @@ ok(HTML.indexOf('href="stage3d.css"') < HTML.indexOf('href="stage-themes/ios.css
 ok(/include_str!\("[^"]*\/stage-themes\/ios\.css"\)/.test(MAIN_RS), 'ios.css 编进二进制');
 ok(/"\/stage-themes\/ios\.css"/.test(MAIN_RS), 'main.rs 注册了 /stage-themes/ios.css 路由');
 ok(/<option value="ios">/.test(HTML), '舞台设置的下拉里有 iOS 选项');
-// 白名单：stage3d.js 以前只认 starfall/classic，加选项而不改白名单的话
-// 选中 iOS 会被静默回落成 classic——页面不报错，只是「选了不起作用」。
-ok(/sel\.value === 'ios' \? 'ios'/.test(STAGE3D_JS), 'stage3d 的下拉处理认得 ios（不会被回落成 classic）');
+// 白名单：加一档而不改白名单的话，选中它会被静默回落成默认档——页面不报错，
+// 只是「选了不起作用」。默认档现在是星落（见下面那一节）。
+ok(/sel\.value === 'ios' \? 'ios'/.test(STAGE3D_JS), 'stage3d 的下拉处理认得 ios（不会被回落成默认档）');
 ok(/value\.stageTheme === 'ios'/.test(STAGE3D_JS), 'stage3d 的偏好恢复白名单包含 ios');
+
+section('「默认」档已删除：只剩星落与 iOS，默认星落');
+
+// 「默认 / classic」这一档就是没有主题层的裸样式，删掉它的直接原因见
+// starfall.css 与 ios.css 里那条吸顶标题栏：裸层的头部近不透明所以盖得住滚过的
+// 行，两档玻璃层各自把它改成 12% / 15% 透明，于是标题被透上来的行叠成乱码。
+// 与其修一个界面上已经不给入口的档，不如让它没有第二份观感要维护。
+// 只取这一个下拉的选项：'classic' 这个值在「歌词视觉」里也叫 classic（流光歌词），
+// 整份 HTML 上搜会误伤。
+const THEME_OPTIONS = (HTML.match(/<select id="s3d-stage-theme">([\s\S]*?)<\/select>/) || [, ''])[1];
+ok(!/value="classic"/.test(THEME_OPTIONS), '「设置风格」里不再给「默认」选项');
+ok(/<option value="starfall">星落<\/option><option value="ios">iOS<\/option>/.test(THEME_OPTIONS),
+  '下拉只剩两档，且星落排在第一位');
+ok(/var stageTheme = 'starfall'/.test(STAGE3D_JS), '默认档是星落');
+ok(!/value\.stageTheme === 'classic'/.test(STAGE3D_JS),
+  '恢复白名单不认 classic：存过它的偏好直接落回默认档，不做旧值映射');
+
+// 吸顶标题栏必须自己盖得住内容。半透明玻璃 + backdrop-filter 实测糊不住同一个
+// 滚动容器里滑过来的兄弟节点（星落 alpha=0.12、iOS 0.15，滚 149px 就有两行压在
+// 标题下透出来），所以底色要铺到不透明。
+for (const [name, css, glass] of [['星落', THEME, '--st-glass-strong'], ['iOS', THEME_IOS, '--io-glass-strong']]) {
+  const body = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const head = body.match(new RegExp('\\.s3d\\[data-stage-theme="[a-z]+"\\] \\.s3d-settings-heading \\{([^}]*)\\}'));
+  ok(head && /background:[^;]*color-mix\(in srgb, var\(--s3d-bg\)/.test(head[1]),
+    `${name} 的吸顶标题栏铺的是不透明底（由舞台底色提亮）`);
+  ok(head && !new RegExp('background:\\s*var\\(' + glass + '\\)').test(head[1]),
+    `${name} 的吸顶标题栏不再复用面板那层半透明玻璃`);
+}
 
 // ---------------------------------------------------------------------------
 
