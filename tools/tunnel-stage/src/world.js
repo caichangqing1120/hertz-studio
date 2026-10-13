@@ -715,13 +715,35 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
   };
   // 分镜槽位：沿周期 200 等距铺排，槽 0 初始就在黄金展示深度（进画即见实体）；
   // 体量按「近大远小」分配，近处母舰/空间站给足压迫感，远处行星/侦察机做点缀。
+  //
+  // 轨迹：天体不再沿 z 轴直冲，而是沿一条弧形航线掠过 —— 远端（fx,fy，画面里
+  // 很小）随逼近按缓动曲线扫到近端（nx,ny，屏幕边角出口），世界坐标里这是一条
+  // 真正的 3D 曲线。ex/easeX='quad' 时横向位移集中在近段（贴镜头才快速甩向
+  // 边角，冲击最强），纵向一律 smoothstep（提前压离歌词阅读带）。
+  //   amp/f/ph：逼近过程的垂直于航线摆动（随 u 增强、随低频轻微起伏）
+  //   bank：转弯压坡上限（弧度），由横向速度解析驱动，像载具压弯
+  // 所有量只依赖 (depth, sceneTime, motion)：seek 落点与顺播一致，reduced 冻结。
   const slotConfigs = [
-    { type: 'flagship', initialZ: -150, x: -44, y: -24, rotSpeed: 0.018, rotPhase: 0, scale: 0.85 },
-    { type: 'planet', initialZ: -320, x: 36, y: 19, rotSpeed: 0.042, rotPhase: 1.2, scale: 0.88 },
-    { type: 'rings', initialZ: -520, x: -40, y: 11, rotSpeed: 0.055, rotPhase: 2.4, scale: 0.84 },
-    { type: 'station', initialZ: -720, x: 31, y: -15, rotSpeed: 0.032, rotPhase: 3.1, scale: 1.2 },
-    { type: 'scout', initialZ: -920, x: -15, y: 19, rotSpeed: 0.075, rotPhase: 4.0, scale: 0.8 },
-    { type: 'planet', initialZ: -1120, x: 40, y: 23, rotSpeed: 0.034, rotPhase: 5.3, scale: 0.72 },
+    // 母舰：远端右上 → 全程贴下半区弧线压向左下角；压坡收敛、抬头偏置让尾焰
+    // 轴向下方收，金色拖焰始终不越过中央歌词阅读带，主力飞掠镜头
+    { type: 'flagship', initialZ: -150, rotSpeed: 0.018, rotPhase: 0, scale: 0.85,
+      fx: 16, fy: 10, nx: -48, ny: -30, easeX: 'quad', amp: 2.2, f: 0.32, ph: 0.0,
+      bank: 0.26, pitchBias: 0.16 },
+    // 行星：体量压迫为主，右侧缓慢抬移 + 小幅漂浮
+    { type: 'planet', initialZ: -320, rotSpeed: 0.042, rotPhase: 1.2, scale: 0.88,
+      fx: 48, fy: 27, nx: 40, ny: 21, easeX: 'smooth', amp: 2.0, f: 0.18, ph: 1.3, bank: 0.06 },
+    // 环带：大幅度慵懒横摆，倾斜的环面划过时最有看头
+    { type: 'rings', initialZ: -520, rotSpeed: 0.055, rotPhase: 2.4, scale: 0.84,
+      fx: -50, fy: 19, nx: -44, ny: 8, easeX: 'smooth', amp: 5.0, f: 0.24, ph: 2.1, bank: 0.12 },
+    // 空间站：右下沉降，结构稳、摆动小
+    { type: 'station', initialZ: -720, rotSpeed: 0.032, rotPhase: 3.1, scale: 1.2,
+      fx: 42, fy: -4, nx: 34, ny: -19, easeX: 'smooth', amp: 1.6, f: 0.22, ph: 3.0, bank: 0.08 },
+    // 侦察机：中央远端 → 高频蛇行甩向左上角出口，压坡最大，像战斗机掠袭
+    { type: 'scout', initialZ: -920, rotSpeed: 0.075, rotPhase: 4.0, scale: 0.8,
+      fx: 10, fy: 21, nx: -60, ny: 31, easeX: 'quad', amp: 3.2, f: 0.85, ph: 4.2, bank: 0.55 },
+    // 远行星：右上角缓慢漂移的小点缀
+    { type: 'planet', initialZ: -1120, rotSpeed: 0.034, rotPhase: 5.3, scale: 0.72,
+      fx: 52, fy: 25, nx: 45, ny: 27, easeX: 'smooth', amp: 1.6, f: 0.14, ph: 5.0, bank: 0.05 },
   ];
   // 环带预设倾角
   const slotTilt = [
@@ -740,7 +762,9 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
       const offset = s * POINTS_PER_ENTITY;
       for (let p = 0; p < POINTS_PER_ENTITY; p += 1) {
         const sh = tmpl.shade[p];
-        entityShade[offset + p] = sh;
+        // 旗舰尾焰改记 4：金色展示段保持完整长焰，贴镜头（depth<70）时整片
+        // 快速隐没，避免点透视把 67 单位的尾焰拉成糊满屏幕、与舰体脱节的亮斑。
+        entityShade[offset + p] = type === 'flagship' && sh === 3 ? 4 : sh;
         entitySizes[offset + p] =
           type === 'flagship' ? (sh === 3 ? 2.0 : sh === 2 ? 1.9 : 1.5) :
           type === 'planet' ? (sh === 2 ? 2.4 : sh === 0 ? 1.4 : 1.9) :
@@ -803,12 +827,17 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
             gl_Position = projectionMatrix * mv;
             float depth = max(0.1, -mv.z);
             gl_PointSize = clamp((aSize * 1.12 + cohesion * (1.0 + audioPulse * 0.26)) * pixelRatio * 370.0 / depth, 1.0, 40.0);
-            float nearFade = smoothstep(12.0, 50.0, depth);
+            // 近景淡出提前：黄金展示段（-140..-80）保持完整，冲入近景（-90..-24）
+            // 整体隐没，避免大型天体贴镜头时横糊整个屏幕
+            float nearFade = smoothstep(20.0, 84.0, depth);
             // 周期缩短到 1200，最远天体也落在远裁淡入之内
             float farFade = 1.0 - smoothstep(1500.0, 2400.0, depth);
+            // 旗舰尾焰（aShade=4，轴向朝镜头飞来、尾焰沿深度拖向舰后）：贴脸段
+            // 比舰体早一截隐没（96→42），伸向隧道深处的拖焰保留，像真实引擎流。
+            float tailFade = mix(1.0, smoothstep(42.0, 96.0, depth), step(3.5, aShade));
             // 按空间散布溶解，而不是整片淡出：离开剪影的粒子仍可见。
             vAlpha = nearFade * farFade * clamp(aSeed.z, 0.0, 1.0)
-                * (0.78 + cohesion * 0.30) * (1.0 + audioPulse * 0.12);
+                * (0.78 + cohesion * 0.30) * (1.0 + audioPulse * 0.12) * tailFade;
             vColor = aColor;
         }
     `,
@@ -1049,12 +1078,32 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
       if (depth < -260) cohesion = 0;
       else if (depth < -140) cohesion = easeOutCubic((depth + 260) / 120);
       else if (depth < -80) cohesion = 1.0;
-      else cohesion = smooth((-depth - 10) / 70);
+      // 出近景即解体：-80..-20 完成溶解，与 shader 近景淡出（90..24）合拍
+      else cohesion = smooth((-depth - 20) / 60);
+      // —— 弧形掠过轨迹（槽位级，每帧每槽只解算一次）——
+      // u：航线相位 0（-260 远）→ 1（贴镜头）。横向 quad：近段才快速甩向边角；
+      // 纵向 smoothstep：早早压离中央歌词带。
+      const u = clamp((260 + depth) / 260);
+      const ey = smooth(u), eyd = 6 * u * (1 - u);
+      let ex, exd;
+      if (slot.easeX === 'quad') { ex = u * u; exd = 2 * u; }
+      else { ex = ey; exd = eyd; }
+      // 垂直于航线的摆动：越接近越强，低频轻推一把；reduced 下 motion=0 归零。
+      const swayEnv = ctx.motion * (0.35 + 0.65 * u) * (1 + bassSmooth * 0.45);
+      const cx = slot.fx + (slot.nx - slot.fx) * ex
+        + Math.sin(time * slot.f + slot.ph) * slot.amp * swayEnv;
+      const cy = slot.fy + (slot.ny - slot.fy) * ey
+        + Math.cos(time * slot.f * 0.8 + slot.ph) * slot.amp * 0.5 * swayEnv;
+      // 压坡/俯仰：由航线横向、纵向速度的解析导数驱动 —— 载具像真的在压弯/爬升。
+      const bank = clamp(-(slot.nx - slot.fx) * exd * 0.0055, -slot.bank, slot.bank);
+      const pitch = clamp((slot.ny - slot.fy) * eyd * 0.0045, -0.12, 0.12);
+      const tiltX = tilt.x + pitch + (slot.pitchBias || 0);
+      const tiltZ = tilt.z + bank;
       // 自转只用时间：音频不摇整剪影。
       const rotA = time * slot.rotSpeed + slot.rotPhase;
       const cosY = Math.cos(rotA), sinY = Math.sin(rotA);
-      const cosX = Math.cos(tilt.x), sinX = Math.sin(tilt.x);
-      const cosZ = Math.cos(tilt.z), sinZ = Math.sin(tilt.z);
+      const cosX = Math.cos(tiltX), sinX = Math.sin(tiltX);
+      const cosZ = Math.cos(tiltZ), sinZ = Math.sin(tiltZ);
       const offset = s * POINTS_PER_ENTITY;
       for (let p = 0; p < POINTS_PER_ENTITY; p += 1) {
         const pi = (offset + p) * 3;
@@ -1070,8 +1119,8 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         ry = ry2;
         const rx2 = rx * cosZ - ry * sinZ;
         const ry3 = rx * sinZ + ry * cosZ;
-        const fx = slot.x + rx2;
-        const fy = slot.y + ry3;
+        const fx = cx + rx2;
+        const fy = cy + ry3;
         const fz = depth + rz;
         objNormals[pi] = rx2;
         objNormals[pi + 1] = ry3;
@@ -1081,9 +1130,9 @@ export function createWorld(THREE, scene, { quality = 'high' } = {}) {
         objTargets[pi + 2] = fz;
         const randSeed = (p * 0.23 + s * 0.71) % 1;
         const stationMist = slot.type === 'station' ? 1.35 : 1.0;
-        // 贴近镜头（-120..-40）逐步收束散雾：轮廓在眼前温柔解体而不是炸开糊屏；
-        // 远方成雾阶段（depth<-120）保持大散布，远远看着就是一团星云。
-        const nearTame = smooth(clamp((-depth - 40) / 80));
+        // 近景（-80..-20）解体段收束散雾，配合 shader 的近景淡出：
+        // 轮廓在眼前化成一小簇火花后隐没，不炸开糊屏；远方仍是大团星云。
+        const nearTame = smooth(clamp((-depth - 30) / 90));
         const scatterR = (1 - cohesion) * stationMist * (18.0 + randSeed * 44.0) * nearTame;
         const phase = time * (0.32 + randSeed * 0.24) + p * 0.071 + s * 1.7;
         const curl = Math.sin(phase) * 0.55 + Math.cos(phase * 0.63) * 0.35;
