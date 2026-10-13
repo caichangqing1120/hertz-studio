@@ -212,6 +212,7 @@
     quality = 'low';
     if (host) {
       TS().unmount();
+      if (canvas) { canvas.remove(); canvas = null; }
       mounted = mountInto(host);
     }
   });

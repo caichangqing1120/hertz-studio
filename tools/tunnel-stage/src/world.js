@@ -9,7 +9,7 @@
 // 不用 pow 处理可能为负的底数；GLSL 1 里 `wordProgress[wi]` 这类非常量下标
 // 数组取值必须落在 GLSL ES 3.0 语义内（本文件只用常量下标或分支钳制）。
 
-import { clamp, smooth, easeOutCubic, seededRandom } from './util.js';
+import { clamp, smooth, easeOutCubic, easeOutQuart, seededRandom } from './util.js';
 import { routeCenter } from './camera.js';
 
 export const TUNNEL_LENGTH = 3200;
@@ -222,15 +222,75 @@ function createTemplateFactory() {
   return { planet, rings, station, flagship, scout };
 }
 
-export function createWorld(THREE, scene) {
+export function createWorld(THREE, scene, { quality = 'high' } = {}) {
   const root = new THREE.Group();
   scene.add(root);
+  const low = quality === 'low';
   let viewportAspect = 1;
   const factories = createTemplateFactory();
 
+  /* ---------- 尽头辉光 + 暗角：单三角形全屏氛围层（1 draw call，无纹理） ----------
+   * 不透明、renderOrder 垫底，先于一切加色元素铺满：底色与场景清屏色严格一致，
+   * 只额外提供「隧道尽头的双色呼吸辉光」与四周暗角。中央阅读带压暗，
+   * 辉光随低频起伏、20s 级缓慢漂移；reduced/关星流时整片隐藏。 */
+  const backGeo = new THREE.BufferGeometry();
+  backGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    -1, -1, 0, 3, -1, 0, -1, 3, 0,
+  ]), 3));
+  const backMat = new THREE.ShaderMaterial({
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uPulse: { value: 0 },
+      uMotion: { value: 1 },
+      uAspect: { value: 1 },
+      uBg: { value: new THREE.Color('#05070a') },
+      uGlowA: { value: new THREE.Color('#76bfae') },
+      uGlowB: { value: new THREE.Color('#f2a900') },
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = position.xy * 0.5 + 0.5;
+            gl_Position = vec4(position.xy, 0.999, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform float uTime, uPulse, uMotion, uAspect;
+        uniform vec3 uBg, uGlowA, uGlowB;
+        varying vec2 vUv;
+        void main() {
+            vec2 p = vUv - 0.5;
+            vec2 pa = p * vec2(uAspect, 1.0);
+            float r = length(pa);
+            // 暗角：边缘最多再沉 62%，视线被收向灭点
+            float vig = 1.0 - smoothstep(0.5, 1.08, r) * 0.62;
+            // 尽头主晕（松石）+ 暖核（琥珀）：小而紧地挂在歌词上方，超慢漂移；
+            // 强度刻意压到峰值约 20/255，只点出「隧道尽头有光」，不洗灰黑场。
+            vec2 drift = vec2(sin(uTime * 0.05), cos(uTime * 0.043)) * 0.018 * uMotion;
+            vec2 cA = vec2(0.0, 0.14) + drift;
+            vec2 cB = cA + vec2(0.05, 0.04);
+            float breathe = 0.85 + uPulse * 0.8 * uMotion;
+            float glowA = exp(-dot(pa - cA, pa - cA) * 9.5) * 0.022 * breathe;
+            float glowB = exp(-dot(pa - cB, pa - cB) * 16.0) * 0.013 * breathe;
+            // 中央歌词阅读带：辉光最多保留 35%，不给歌词加底噪
+            float keep = mix(0.35, 1.0, smoothstep(0.0, 0.20, abs(p.y - 0.02)));
+            vec3 col = uBg * vig + (uGlowA * glowA + uGlowB * glowB) * keep;
+            gl_FragColor = vec4(col, 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+        }
+    `,
+  });
+  const backdrop = new THREE.Mesh(backGeo, backMat);
+  backdrop.frustumCulled = false;
+  backdrop.renderOrder = -10;
+  root.add(backdrop);
+
   /* ---------- 星场：双层视差 ---------- */
-  const STAR_FAR = 420;
-  const STAR_NEAR = 90;
+  const STAR_FAR = low ? 300 : 480;
+  const STAR_NEAR = low ? 60 : 110;
   const starCount = STAR_FAR + STAR_NEAR;
   const starBase = new Float32Array(starCount * 3);
   const starSizes = new Float32Array(starCount);
@@ -244,14 +304,15 @@ export function createWorld(THREE, scene) {
       starBase[i * 3] = Math.cos(angle) * radius;
       starBase[i * 3 + 1] = Math.sin(angle) * radius * (near ? 0.62 : 0.85);
       starBase[i * 3 + 2] = -rand() * TUNNEL_LENGTH;
-      starSizes[i] = near ? 1.8 + rand() * 2.6 : 0.7 + rand() * 1.4;
+      starSizes[i] = near ? 1.9 + rand() * 2.7 : 0.7 + rand() * 1.4;
       starSeeds[i * 3] = rand();
       starSeeds[i * 3 + 1] = rand();
-      starSeeds[i * 3 + 2] = rand();
+      // 远星视差再压慢（0.32→0.26）：远近层速度差更大，纵深一眼可读。
+      starSeeds[i * 3 + 2] = near ? 1.0 : 0.26;
     }
   }
   const starGeo = new THREE.BufferGeometry();
-  starGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(starBase), 3).setUsage(THREE.DynamicDrawUsage));
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starBase, 3));
   starGeo.setAttribute('aSize', new THREE.BufferAttribute(starSizes, 1));
   starGeo.setAttribute('aSeed', new THREE.BufferAttribute(starSeeds, 3));
   const starMat = new THREE.ShaderMaterial({
@@ -261,25 +322,30 @@ export function createWorld(THREE, scene) {
     uniforms: {
       tint: { value: new THREE.Color('#8fa4b3') },
       time: { value: 0 },
+      travel: { value: 0 },
       pixelRatio: { value: 1 },
     },
     vertexShader: `
         attribute float aSize;
         attribute vec3 aSeed;
         uniform float time;
+        uniform float travel;
         uniform float pixelRatio;
         varying float vAlpha;
         varying float vTwinkle;
         void main() {
-            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            vec3 p = position;
+            float parallax = aSeed.z;
+            p.z = -mod(-position.z - travel * parallax, ${TUNNEL_LENGTH.toFixed(1)});
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
             gl_Position = projectionMatrix * mv;
             float depth = max(0.1, -mv.z);
             gl_PointSize = clamp(aSize * pixelRatio * 300.0 / depth, 1.0, 26.0);
             float nearFade = smoothstep(14.0, 55.0, depth);
             float farFade = 1.0 - smoothstep(1600.0, 2500.0, depth);
-            // 每颗星独立节律的缓慢闪烁
-            vTwinkle = 0.72 + 0.28 * sin(time * (0.4 + aSeed.y * 1.2) + aSeed.x * 40.0);
-            vAlpha = nearFade * farFade * (0.18 + aSeed.x * 0.5) * vTwinkle;
+            // 每颗星独立节律的缓慢闪烁（振幅 0.12→0.18，星点有呼吸不喧闹）
+            vTwinkle = 0.82 + 0.18 * sin(time * (0.3 + aSeed.y * 0.5) + aSeed.x * 40.0);
+            vAlpha = nearFade * farFade * (0.15 + aSeed.x * 0.36) * vTwinkle;
         }
     `,
     fragmentShader: `
@@ -293,6 +359,8 @@ export function createWorld(THREE, scene) {
             float core = exp(-r * 7.0);
             float halo = exp(-r * 2.4) * 0.3 * vTwinkle;
             gl_FragColor = vec4(tint * (core * 1.4 + halo), (core + halo) * vAlpha);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
         }
     `,
   });
@@ -355,8 +423,8 @@ export function createWorld(THREE, scene) {
               cos(s*0.0077+lane)*3.5);
           return vec3(routeCenterAt(s)*motion+orbit,-(s-travel));
       }`;
-  const RAIL_SEGMENTS = 640;
-  const RAIL_STEP = 4;
+  const RAIL_SEGMENTS = low ? 320 : 640;
+  const RAIL_STEP = low ? 8 : 4;
   // 每段 6 顶点两个三角（左下/右下/左上 ×2），aRoute 记 (段地址, 股道, 横向侧)。
   const railAddress = new Float32Array(RAIL_SEGMENTS * 2 * 6 * 3);
   const railCorners = [[0, -1], [1, -1], [0, 1], [0, 1], [1, -1], [1, 1]];
@@ -394,8 +462,8 @@ export function createWorld(THREE, scene) {
         varying float vSide,vLane,vAlpha,vFlash;
         ${routeGLSL}
         void main() {
-            // 吸附到 4 单位空间格：旧样本不随镜头游动。
-            float s=(floor(travel/4.0)+aRoute.x)*4.0;
+            // 世界锚定采样；低档保持相同航道长度。
+            float s=(floor(travel/${RAIL_STEP.toFixed(1)})+aRoute.x)*${RAIL_STEP.toFixed(1)};
             vec3 p=wakeAt(s,aRoute.y,motion,travel);
             vec4 mv=modelViewMatrix*vec4(p,1.0);
             vec4 clip=projectionMatrix*mv;
@@ -403,24 +471,24 @@ export function createWorld(THREE, scene) {
             vec2 delta=(next.xy/max(next.w,0.1)-clip.xy/max(clip.w,0.1))*viewport;
             vec2 tangent=delta/max(length(delta),0.001);
             vec2 normal=vec2(-tangent.y,tangent.x);
-            float width=2.2+1.0*sin(s*0.013+aRoute.y*2.0);
+            float width=(2.8+0.6*sin(s*0.013+aRoute.y*2.0))*mix(0.5,1.0,1.0-smoothstep(180.0,1300.0,-mv.z));
             clip.xy+=normal*aRoute.z*width*2.0/viewport*clip.w;
             gl_Position=clip;
             vSide=aRoute.z;vLane=aRoute.y;
             float depth=max(0.0,-mv.z);
-            float cell=floor(s/42.0);
-            float h=fract(sin(cell*12.9898+aRoute.y*78.233)*43758.5453);
-            float gaps=smoothstep(0.10,0.28,h);
-            float flow=fract(s*0.0018-time*0.11+aRoute.y*0.37);
-            vFlash=exp(-pow((flow-0.5)*15.0,2.0));
+            float gaps=0.72+0.28*smoothstep(-0.4,0.5,sin(s*0.024+aRoute.y*2.0));
+            // 沿轨流光走得更快（0.11→0.14），两股错相，持续向前奔涌
+            float flow=fract(s*0.0018-time*0.14+aRoute.y*0.37);
+            float flashDistance=(flow-0.5)*15.0;
+            vFlash=exp(-flashDistance*flashDistance);
             float envelope=0.55+0.45*sin(s*0.007+aRoute.y*2.2);
             // 中央留给歌词阅读：尾迹框景而不是穿词。
             vec2 ndc=clip.xy/max(clip.w,0.1);
             float reading=smoothstep(0.35,0.75,length(ndc*vec2(1.0,1.5)));
             vAlpha=smoothstep(18.0,85.0,depth)
                 *(1.0-smoothstep(1700.0,2500.0,depth))
-                *gaps*(0.13+envelope*0.18+vFlash*0.38)
-                *(0.2+reading*0.8)*(1.0+pulse*0.25);
+                *gaps*(0.22+envelope*0.16+vFlash*0.52)
+                *(0.2+reading*0.8)*(1.0+pulse*0.35);
         }`,
     fragmentShader: `
         uniform vec3 tint,accent;
@@ -430,7 +498,7 @@ export function createWorld(THREE, scene) {
             float crossSection=exp(-vSide*vSide*5.0)
                 +exp(-vSide*vSide*1.5)*0.18*glow;
             vec3 color=mix(tint,accent,vLane);
-            gl_FragColor=vec4(color*(1.0+vFlash*0.55),
+            gl_FragColor=vec4(color*(1.0+vFlash*0.70),
                 crossSection*vAlpha);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
@@ -440,8 +508,80 @@ export function createWorld(THREE, scene) {
   railMesh.frustumCulled = false;
   root.add(railMesh);
 
+  /* ---------- 纵深轮廓：同一 draw call 的稀疏断弧 ---------- */
+  const DEPTH_GATES = low ? 8 : 14;
+  const GATE_STEPS = 128;
+  const gateAddresses = new Float32Array(DEPTH_GATES * GATE_STEPS * 6 * 3);
+  let gateVertex = 0;
+  for (let g = 0; g < DEPTH_GATES; g += 1) {
+    for (let a = 0; a < GATE_STEPS; a += 1) {
+      for (const [end, side] of railCorners) {
+        gateAddresses[gateVertex++] = g;
+        gateAddresses[gateVertex++] = (a + end) / GATE_STEPS * Math.PI * 2;
+        gateAddresses[gateVertex++] = side;
+      }
+    }
+  }
+  const depthGeo = new THREE.BufferGeometry();
+  depthGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(gateAddresses.length), 3));
+  depthGeo.setAttribute('aGate', new THREE.BufferAttribute(gateAddresses, 3));
+  const depthMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      travel: { value: 0 }, time: { value: 0 }, pulse: { value: 0 }, motion: { value: 1 },
+      tint: { value: new THREE.Color('#76bfae') }, accent: { value: new THREE.Color('#f2a900') },
+    },
+    vertexShader: `
+      attribute vec3 aGate;
+      uniform float travel,time,pulse,motion;
+      varying float vSide,vAlpha,vNear,vAngle,vHaze;
+      ${routeGLSL}
+      void main() {
+        float span=${(DEPTH_GATES * 110).toFixed(1)};
+        float depth=mod(aGate.x*110.0-travel,span);
+        float s=travel+depth;
+        // 呼吸 ±1.6%，低频额外 ±1.2%（原 1.2/0.8）
+        float breath=1.0+sin(time*0.75-s*0.004)*0.016*motion+pulse*0.012*motion;
+        // 螺旋扭转：门环随逼近缓慢旋转，整段隧道像被拧着吸入灭点
+        float angle=aGate.y+0.10*sin(s*0.0018)*motion+s*0.00042*motion;
+        // 强制透视：远端再收 10%，灭点更集中、推进感更强
+        float taper=1.0-0.10*smoothstep(200.0,span,depth);
+        vec2 radius=vec2(96.0,58.0)*breath*taper+vec2(aGate.z*0.42);
+        vec2 center=routeCenterAt(s)*motion;
+        vec3 p=vec3(center+vec2(cos(angle),sin(angle))*radius,-depth);
+        vec4 clip=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+        gl_Position=clip;
+        vec2 ndc=clip.xy/max(clip.w,0.1);
+        float reading=smoothstep(0.20,0.72,length(ndc*vec2(1.0,1.7)));
+        vSide=aGate.z;vAngle=aGate.y;
+        vNear=1.0-smoothstep(70.0,700.0,depth);
+        // 空气透视：远端门环沉进黑里，层次逐层分离
+        vHaze=1.0-smoothstep(640.0,span-60.0,depth);
+        vAlpha=smoothstep(24.0,100.0,depth)
+          *(1.0-smoothstep(${(DEPTH_GATES * 58).toFixed(1)},span,depth))
+          *(0.07+vNear*0.30)*(0.12+reading*0.88)*(1.0+pulse*0.12);
+      }`,
+    fragmentShader: `
+      uniform vec3 tint,accent;
+      varying float vSide,vAlpha,vNear,vAngle,vHaze;
+      void main() {
+        float arc=smoothstep(0.12,0.28,abs(sin(vAngle*2.0)));
+        float edge=exp(-vSide*vSide*3.4);
+        // 近处暖色占比 42%→56%，冷远暖近对比更强
+        vec3 color=mix(tint,accent,vNear*0.56);
+        color*=mix(0.35,1.0,vHaze);
+        gl_FragColor=vec4(color,edge*arc*vAlpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+  const depthMesh = new THREE.Mesh(depthGeo, depthMat);
+  depthMesh.frustumCulled = false;
+  root.add(depthMesh);
+
   /* ---------- 跃迁流光：静态端点 + 播放时钟回绕 ---------- */
-  const STREAK_COUNT = 220;
+  const STREAK_COUNT = low ? 110 : 220;
   const streakSeeds = new Float32Array(STREAK_COUNT * 2 * 3);
   const streakEnds = new Float32Array(STREAK_COUNT * 2);
   const streakPos = new Float32Array(STREAK_COUNT * 2 * 3);
@@ -487,7 +627,7 @@ export function createWorld(THREE, scene) {
             vec3 p = position;
             p.z = -mod(-position.z - travel, ${TUNNEL_LENGTH.toFixed(1)});
             // 双端共享同一回绕地址：回收缝上不拉出横跨画面的长线。
-            float len = 2.0 + stretch * (24.0 + aSeed.y * 100.0);
+            float len = 3.0 + stretch * (26.0 + aSeed.y * 72.0);
             float headDepth = -p.z;
             p.z -= aEnd * len;
             vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -495,6 +635,8 @@ export function createWorld(THREE, scene) {
             float depth = max(0.1, -mv.z);
             float fade = smoothstep(24.0, 85.0, headDepth)
                 * (1.0 - smoothstep(1400.0, 2400.0, depth));
+            vec2 ndc=gl_Position.xy/max(gl_Position.w,0.1);
+            fade *= 0.18+0.82*smoothstep(0.25,0.8,length(ndc*vec2(1.0,1.5)));
             vAlpha = fade * stretch * (0.12 + aSeed.x * 0.35)
                 * mix(1.0, 0.08, aEnd);
         }
@@ -515,8 +657,8 @@ export function createWorld(THREE, scene) {
   root.add(streakLines);
 
   /* ---------- 低频冲击波脉冲环 ---------- */
-  const PULSE_COUNT = 3;
-  const pulseGeo = new THREE.RingGeometry(0.96, 1.0, 96);
+  const PULSE_COUNT = 2;
+  const pulseGeo = new THREE.RingGeometry(0.989, 1.0, 96);
   const pulses = [];
   for (let i = 0; i < PULSE_COUNT; i += 1) {
     const m = new THREE.Mesh(pulseGeo, new THREE.MeshBasicMaterial({
@@ -529,14 +671,15 @@ export function createWorld(THREE, scene) {
     }));
     m.visible = false;
     root.add(m);
-    pulses.push({ mesh: m, age: 99, life: 1.4 });
+    pulses.push({ mesh: m, start: -Infinity, life: 1.2 });
   }
   let pulseCursor = 0;
-  let prevBass = 0;
+  let prevOnset = 0;
+  let lastPulseTime = -Infinity;
 
   /* ---------- 点阵天体槽位 ---------- */
   const ENTITY_SLOTS = 6;
-  const POINTS_PER_ENTITY = 2400;
+  const POINTS_PER_ENTITY = low ? 1200 : 2400;
   const totalEntityPoints = ENTITY_SLOTS * POINTS_PER_ENTITY;
   const entityTargets = new Float32Array(totalEntityPoints * 3);
   const entitySeeds = new Float32Array(totalEntityPoints * 3);
@@ -592,6 +735,7 @@ export function createWorld(THREE, scene) {
   entityGeo.setAttribute('aSeed', new THREE.BufferAttribute(entitySeeds, 3).setUsage(THREE.DynamicDrawUsage));
   entityGeo.setAttribute('aSize', new THREE.BufferAttribute(entitySizes, 1).setUsage(THREE.DynamicDrawUsage));
   entityGeo.setAttribute('aShade', new THREE.BufferAttribute(entityShade, 1).setUsage(THREE.DynamicDrawUsage));
+  entityGeo.setAttribute('aNormal', new THREE.BufferAttribute(new Float32Array(totalEntityPoints * 3), 3).setUsage(THREE.DynamicDrawUsage));
   const entityMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -606,6 +750,7 @@ export function createWorld(THREE, scene) {
         attribute vec3 aTarget;
         attribute vec3 aColor;
         attribute vec3 aSeed;
+        attribute vec3 aNormal;
         attribute float aSize;
         attribute float aShade;
         uniform float pixelRatio;
@@ -626,13 +771,12 @@ export function createWorld(THREE, scene) {
             currentPos += pulseDir * sin(time * 2.8 + aSeed.x * 31.0) * audioPulse * cohesion * 0.07;
             // 未凝聚时的缓慢漂浮
             currentPos.y += sin(time * 0.7 + aSeed.x * 12.0) * (1.0 - cohesion) * 0.8;
-            // 球面法线光照 + 边缘辉光：点阵天体保留体积感。
-            // aTarget 带整条航道的 z 深度；只取横截面构造稳定局部法线，
-            // 避免深度把光照压扁。
-            vec3 localNormal = normalize(vec3(aTarget.x * 0.08, aTarget.y * 0.08, 1.0));
-            float lambert = 0.5 + 0.5 * dot(localNormal, normalize(vec3(-0.55, 0.72, 0.85)));
-            float rim = pow(1.0 - max(0.0, dot(localNormal, vec3(0.0, 0.0, 1.0))), 2.4);
-            vLight = clamp(lambert * 0.82 + rim * 0.42 + (aShade < 0.5 ? 0.08 : 0.0), 0.22, 1.35);
+            // 随天体旋转的局部径向法线，不受槽位横移/航道深度污染。
+            vec3 localNormal = normalize(aNormal + vec3(0.0001));
+            float lambert = max(0.0, dot(localNormal, normalize(vec3(-0.55, 0.72, 0.85))));
+            // 环境光压低、漫反射与边缘光抬升：亮面更亮、暗面更沉，体积感更强
+            float rim = pow(1.0 - abs(localNormal.z), 2.8);
+            vLight = clamp(0.13 + lambert * 0.92 + rim * 0.34, 0.13, 1.25);
             vec4 mv = modelViewMatrix * vec4(currentPos, 1.0);
             gl_Position = projectionMatrix * mv;
             float depth = max(0.1, -mv.z);
@@ -654,9 +798,11 @@ export function createWorld(THREE, scene) {
             float r = dot(p, p);
             if (r > 1.0) discard;
             float core = exp(-r * 7.0);
-            float halo = exp(-r * 2.2) * 0.32;
-            float edge = smoothstep(1.0, 0.08, r);
-            gl_FragColor = vec4(vColor * (core * 1.75 + halo) * vLight, (core + halo) * vAlpha * edge);
+            float halo = exp(-r * 2.2) * 0.20;
+            float edge = 1.0 - smoothstep(0.08, 1.0, r);
+            gl_FragColor = vec4(vColor * (core * 1.4 + halo) * vLight, (core + halo) * vAlpha * edge);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
         }
     `,
   });
@@ -687,7 +833,7 @@ export function createWorld(THREE, scene) {
         let c;
         if (type === 'flagship') {
           if (sh === 3) c = accent;        // 尾焰：琥珀金渐消
-          else if (sh === 2) c = danger;   // 引擎喷口：朱砂红
+          else if (sh === 2) c = danger;   // 引擎喷口：主题暖色高光
           else if (sh === 1) c = secondary; // 舰桥/脊线：松石信号灯
           else c = ink;                    // 舰体：骨白
           const dim = sh === 3 ? 0.9 : 1.0;
@@ -701,7 +847,7 @@ export function createWorld(THREE, scene) {
           else if (sh === 1) { arr[pi] = accent.r; arr[pi + 1] = accent.g; arr[pi + 2] = accent.b; }
           else { arr[pi] = accent.r * 0.55; arr[pi + 1] = accent.g * 0.55; arr[pi + 2] = accent.b * 0.55; }
         } else if (type === 'station') {
-          if (sh === 2) c = danger;      // 航行灯：朱砂
+          if (sh === 2) c = danger;      // 航行灯：主题暖色高光
           else if (sh === 3) c = accent; // 中轴：琥珀
           else if (sh === 1) c = ink;    // 舱体：骨白
           else c = muted;                // 辐条骨架：金属灰
@@ -730,113 +876,129 @@ export function createWorld(THREE, scene) {
     paletteColors.ink.set(pick('ink', '#f2f0e9'));
     paletteColors.muted.set(pick('muted', '#a7afb1'));
     paletteColors.background.set(pick('background', '#0a0d11'));
+    paletteColors.danger.copy(paletteColors.accent).lerp(paletteColors.ink, 0.12);
     // 深空压暗背景，保证黑场
     const bgColor = paletteColors.background.clone().multiplyScalar(0.55);
+    bgColor.multiplyScalar(Math.min(1, 0.004 / Math.max(0.0001, bgColor.r, bgColor.g, bgColor.b)));
     if (scene.background && scene.background.copy) scene.background.copy(bgColor);
     else scene.background = bgColor;
     if (scene.fog && scene.fog.color) scene.fog.color.copy(bgColor);
-    starMat.uniforms.tint.value.copy(paletteColors.muted);
-    streakMat.uniforms.tint.value.copy(paletteColors.ink);
+    backMat.uniforms.uBg.value.copy(bgColor);
+    backMat.uniforms.uGlowA.value.copy(paletteColors.secondary);
+    backMat.uniforms.uGlowB.value.copy(paletteColors.accent);
+    starMat.uniforms.tint.value.copy(paletteColors.muted).lerp(paletteColors.secondary, 0.30);
+    streakMat.uniforms.tint.value.copy(paletteColors.ink).lerp(paletteColors.secondary, 0.22);
     railMat.uniforms.tint.value.copy(paletteColors.secondary);
     railMat.uniforms.accent.value.copy(paletteColors.accent);
-    gateArcMaterials.forEach((m, index) => m.color.copy(paletteColors.accent).offsetHSL(index * 0.015, 0, 0));
+    depthMat.uniforms.tint.value.copy(paletteColors.secondary);
+    depthMat.uniforms.accent.value.copy(paletteColors.accent);
+    gateArcMaterials.forEach((m) => m.color.copy(paletteColors.accent));
     pulses.forEach((p) => p.mesh.material.color.copy(paletteColors.accent));
     applyEntityPalette();
   }
 
   /* ---------- 逐帧更新 ---------- */
-  // ctx: { travel, travelAhead, travelBehind, motion, bass(已平滑), vocal, dt,
+  // ctx: { travel, travelAhead, travelBehind, motion, bass(已平滑), vocal, onset,
   //        playing, reduced, glow, warp, objects, roll,
   //        lineClock: { hasLine, progress, lineStart, vocalEnd, hold, pause, dissolve } }
-  // 低频包络由 main.js 统一平滑后传入；这里只维护「上一帧值」做增量检测。
-  const starPosArr = starGeo.attributes.position.array;
+  // 包络由 main.js 统一平滑；这里只检测起音上升沿，环的寿命用播放时间。
   const objPositions = entityGeo.attributes.position.array;
   const objTargets = entityGeo.attributes.aTarget.array;
   const objSeedsArr = entityGeo.attributes.aSeed.array;
+  const objNormals = entityGeo.attributes.aNormal.array;
 
   function update(time, ctx) {
-    const dt = ctx.dt;
     const bassSmooth = Number(ctx.bass) || 0;
     const reduced = ctx.reduced;
     const warpOn = ctx.warp !== false;
     const clock = ctx.lineClock || {};
 
-    // 冲击波检测：低频包络在 0.55 以上且仍在快速抬升时发射。
-    if (ctx.seek) { prevBass = 0; pulses.forEach((p) => { p.age = 99; p.mesh.visible = false; }); }
-    if (ctx.playing && !reduced && bassSmooth > 0.55 && bassSmooth - prevBass > 0.18) {
+    // 已有起音包络的上升沿；寿命跟播放时间，暂停不消耗节拍环。
+    const onset = Number(ctx.onset) || 0;
+    if (ctx.seek || reduced || !warpOn) {
+      prevOnset = onset;
+      lastPulseTime = -Infinity;
+      pulses.forEach((p) => { p.start = -Infinity; p.mesh.visible = false; });
+    }
+    if (ctx.playing && !ctx.seek && !reduced && warpOn && onset > 0.45 && prevOnset <= 0.45
+      && time - lastPulseTime >= 0.48) {
       const p = pulses[pulseCursor % PULSE_COUNT];
       pulseCursor += 1;
-      p.age = 0;
+      p.start = time;
+      lastPulseTime = time;
       p.mesh.visible = true;
     }
-    prevBass = bassSmooth;
+    prevOnset = onset;
     pulses.forEach((p) => {
       if (!p.mesh.visible) return;
-      p.age += dt;
-      const t = p.age / p.life;
+      const t = (time - p.start) / p.life;
       if (t >= 1) { p.mesh.visible = false; p.mesh.material.opacity = 0; return; }
-      const scale = 4 + easeOutCubic(t) * 90;
-      p.mesh.scale.set(scale, scale, 1);
-      p.mesh.position.set(0, 0, -50 - easeOutCubic(t) * 60);
-      p.mesh.material.opacity = (1 - t) * 0.32;
+      // 四次缓出：起音瞬间快速弹开（26→108），再沿隧道滑行消散
+      const grow = easeOutQuart(t);
+      const scale = 26 + grow * 82;
+      p.mesh.scale.set(scale, scale * 0.60, 1);
+      p.mesh.position.set(0, 0, -46 - grow * 70);
+      p.mesh.material.opacity = smooth(t / 0.10) * (1 - t) * 0.2;
     });
 
     // 门框：句内正弦 + 低频脉动；唱完按 hold/pause/dissolve 淡出。
     // 滚转补偿 0.35：机位侧滚时门框跟着转一点，歌词仍正对观众。
     heroGate.visible = warpOn;
-    heroGate.rotation.z = Math.sin(time * 0.16) * 0.018 + (Number(ctx.roll) || 0) * 0.35;
-    const gatePulse = 0.16 + bassSmooth * 0.22 + (clock.hasLine ? Math.sin(clamp(clock.progress) * Math.PI) * 0.16 : 0);
+    heroGate.rotation.z = reduced ? 0 : Math.sin(time * 0.16) * 0.010 + (Number(ctx.roll) || 0) * 0.35;
+    const gatePulse = 0.09 + bassSmooth * 0.12 + (clock.hasLine ? Math.sin(clamp(clock.progress) * Math.PI) * 0.10 : 0);
     gateArcMaterials.forEach((m, index) => {
       m.opacity = Math.max(0.03, gatePulse - index * 0.035);
     });
     const gateEnd = Math.max(Number(clock.lineStart) + 0.001 || 0.001, Number(clock.vocalEnd) || 0);
-    const gateProgress = clock.hasLine ? clamp((time - clock.lineStart) / Math.max(0.001, gateEnd - clock.lineStart)) : 0;
+    const lyricTime = Number(clock.time) || 0;
+    const gateProgress = clock.hasLine ? clamp((lyricTime - clock.lineStart) / Math.max(0.001, gateEnd - clock.lineStart)) : 0;
     const gateFadeStart = gateEnd + Math.min(0.8,
       clamp(Number(clock.hold), 0, 0.8) * 0.5 + clamp(Number(clock.pause), 0, 3) * 0.15);
-    const gateFade = 1 - smooth((time - gateFadeStart) / (0.45 + clamp(Number(clock.dissolve), 0, 1) * 0.55));
+    const gateFade = 1 - smooth((lyricTime - gateFadeStart) / (0.45 + clamp(Number(clock.dissolve), 0, 1) * 0.55));
     gateProgressLines.forEach((line, index) => {
       const fraction = clamp(gateProgress * 4 - index);
       const count = line.geometry.attributes.position.count;
       line.geometry.setDrawRange(0, fraction > 0 ? Math.max(2, Math.ceil(fraction * count)) : 0);
       line.material.color.copy(gateArcMaterials[index].color);
-      line.material.opacity = gateFade * (0.5 + bassSmooth * 0.2);
+      line.material.opacity = gateFade * (0.40 + bassSmooth * 0.15);
       line.visible = Boolean(clock.hasLine) && gateFade > 0;
     });
 
     // 星场流动：远星慢近星快，行程取模回绕。
     starMat.uniforms.time.value = time;
+    starMat.uniforms.travel.value = ctx.travel;
     starPoints.visible = warpOn;
     railMesh.visible = warpOn;
+    depthMesh.visible = warpOn;
     streakLines.visible = warpOn && !reduced;
-    if (warpOn) {
-      for (let i = 0; i < starCount; i += 1) {
-        const idx = i * 3;
-        const parallax = i >= STAR_FAR ? 1.0 : 0.45;
-        let z = (starBase[idx + 2] + ctx.travel * parallax) % TUNNEL_LENGTH;
-        if (z > 0) z -= TUNNEL_LENGTH;
-        starPosArr[idx + 2] = z;
-      }
-      starGeo.attributes.position.needsUpdate = true;
-    }
+    backdrop.visible = warpOn;
+    backMat.uniforms.uTime.value = time;
+    backMat.uniforms.uPulse.value = reduced ? 0 : bassSmooth;
+    backMat.uniforms.uMotion.value = ctx.motion;
     railMat.uniforms.time.value = reduced ? 0 : time;
     railMat.uniforms.travel.value = ctx.travel * ROUTE_SHARE;
     railMat.uniforms.motion.value = ctx.motion;
     railMat.uniforms.pulse.value = bassSmooth;
     railMat.uniforms.glow.value = clamp(Number(ctx.glow), 0, 2);
+    depthMat.uniforms.travel.value = ctx.travel * ROUTE_SHARE;
+    depthMat.uniforms.time.value = time;
+    depthMat.uniforms.pulse.value = reduced ? 0 : bassSmooth;
+    depthMat.uniforms.motion.value = ctx.motion;
 
     // 流光拉伸：行驶速度导数为主，低频只加成。
     const span = time < 0.025 ? time + 0.025 : 0.05;
     const travelVelocity = Math.max(0, (ctx.travelAhead - ctx.travelBehind) / span);
     streakMat.uniforms.travel.value = ctx.travel * 1.55;
     streakMat.uniforms.stretch.value = reduced ? 0
-      : clamp((travelVelocity / 18 - 0.65) * 0.42 + bassSmooth * 0.25) * Math.min(1, ctx.motion);
+      : clamp((travelVelocity / 18 - 0.55) * 0.5 + bassSmooth * 0.35) * Math.min(1, ctx.motion);
     streakMat.uniforms.glow.value = clamp(Number(ctx.glow), 0, 2);
 
     // 点阵天体：6 槽位独立循环回绕 + 凝聚生命周期。
     entityMat.uniforms.time.value = time;
-    entityMat.uniforms.breath.value = bassSmooth * 0.8;
-    entityMat.uniforms.audioPulse.value = clamp(bassSmooth * 1.25 + ctx.vocal * 0.22, 0, 1);
+    entityMat.uniforms.breath.value = reduced ? 0 : bassSmooth * 0.55;
+    entityMat.uniforms.audioPulse.value = reduced ? 0 : clamp(bassSmooth * 0.9 + ctx.vocal * 0.15, 0, 1);
     entityPoints.visible = ctx.objects !== false;
+    if (!entityPoints.visible) return;
     const entityTravel = ctx.travel * ENTITY_SHARE;
     for (let s = 0; s < ENTITY_SLOTS; s += 1) {
       const slot = slotConfigs[s];
@@ -858,12 +1020,6 @@ export function createWorld(THREE, scene) {
       const offset = s * POINTS_PER_ENTITY;
       for (let p = 0; p < POINTS_PER_ENTITY; p += 1) {
         const pi = (offset + p) * 3;
-        if (ctx.objects === false) {
-          objPositions[pi] = 0; objPositions[pi + 1] = 0; objPositions[pi + 2] = 99999;
-          objTargets[pi] = 0; objTargets[pi + 1] = 0; objTargets[pi + 2] = 99999;
-          objSeedsArr[pi + 1] = 0;
-          continue;
-        }
         const tx0 = tmpl.pos[p * 3] * slot.scale;
         const ty0 = tmpl.pos[p * 3 + 1] * slot.scale;
         const tz0 = tmpl.pos[p * 3 + 2] * slot.scale;
@@ -879,6 +1035,9 @@ export function createWorld(THREE, scene) {
         const fx = slot.x + rx2;
         const fy = slot.y + ry3;
         const fz = depth + rz;
+        objNormals[pi] = rx2;
+        objNormals[pi + 1] = ry3;
+        objNormals[pi + 2] = rz;
         objTargets[pi] = fx;
         objTargets[pi + 1] = fy;
         objTargets[pi + 2] = fz;
@@ -899,10 +1058,12 @@ export function createWorld(THREE, scene) {
     entityGeo.attributes.position.needsUpdate = true;
     entityGeo.attributes.aTarget.needsUpdate = true;
     entityGeo.attributes.aSeed.needsUpdate = true;
+    entityGeo.attributes.aNormal.needsUpdate = true;
   }
 
   function resize(w, h, ratio) {
     viewportAspect = Math.max(0.1, Number(w) / Math.max(1, Number(h)));
+    backMat.uniforms.uAspect.value = viewportAspect;
     starMat.uniforms.pixelRatio.value = ratio;
     railMat.uniforms.pixelRatio.value = ratio;
     railMat.uniforms.viewport.value.set(Math.max(1, w * ratio), Math.max(1, h * ratio));
@@ -911,13 +1072,16 @@ export function createWorld(THREE, scene) {
 
   function dispose() {
     scene.remove(root);
+    backGeo.dispose();
+    backMat.dispose();
     starGeo.dispose();
     railGeo.dispose();
+    depthGeo.dispose();
     streakGeo.dispose();
     entityGeo.dispose();
     pulseGeo.dispose();
     gateGeometries.forEach((g) => g.dispose());
-    [starMat, railMat, streakMat, entityMat].forEach((m) => m.dispose());
+    [starMat, railMat, depthMat, streakMat, entityMat].forEach((m) => m.dispose());
     gateArcMaterials.forEach((m) => m.dispose());
     gateProgressLines.forEach((l) => l.material.dispose());
     pulses.forEach((p) => p.mesh.material.dispose());
@@ -931,6 +1095,7 @@ export function createWorld(THREE, scene) {
     stats() {
       return {
         slots: ENTITY_SLOTS, stars: starCount, pulses: PULSE_COUNT,
+        depthGates: DEPTH_GATES, streaks: STREAK_COUNT, entityPoints: totalEntityPoints,
         warpVisible: starPoints.visible || railMesh.visible || streakLines.visible,
         entitiesVisible: entityPoints.visible,
         activePulses: pulses.filter((p) => p.mesh.visible).length,

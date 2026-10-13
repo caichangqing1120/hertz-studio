@@ -155,7 +155,9 @@ async function main() {
     await page.waitForFunction(() => TunnelStagePure.debug().bass < 0.05, undefined, { timeout: 15000 });
     const fovQuiet = await page.evaluate(() => TunnelStagePure.debug().fov);
     await page.evaluate(() => { Stage.spectrum = () => new Array(64).fill(0.9); });
-    await page.waitForFunction(() => TunnelStagePure.debug().bass > 0.5, undefined, { timeout: 15000 });
+    // FOV 现在有独立的 0.32s 阻尼，低频包络到达不代表镜头已完成呼吸。
+    await page.waitForFunction(quiet => TunnelStagePure.debug().bass > 0.5
+      && TunnelStagePure.debug().fov > quiet + 0.5, fovQuiet, { timeout: 15000 });
     const fovLoud = await page.evaluate(() => TunnelStagePure.debug().fov);
     assert.ok(fovLoud - fovQuiet > 0.5,
       '高电平应张开 FOV（速度/低频呼吸）：quiet=' + fovQuiet.toFixed(2) + ' loud=' + fovLoud.toFixed(2));
@@ -205,6 +207,16 @@ async function main() {
     assert.equal(statsAfter.geometries, statsBefore.geometries, '冻结时几何驻留数必须恒定');
     assert.equal(statsAfter.textures, statsBefore.textures, '冻结时纹理驻留数必须恒定');
     pass('冻结浸泡无泄漏：geometries=' + statsAfter.geometries + ' textures=' + statsAfter.textures);
+
+    // 降档真正减少点数且只保留一张活动画布。
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('stage:fps', { detail: { lowfx: true } })));
+    await page.waitForFunction(() => TunnelStagePure.stats().quality === 'low');
+    await page.waitForFunction(() => TunnelStagePure.stats().points > 0);
+    assert.equal(await page.locator('#s3d-tunnel .tunnel-canvas').count(), 1,
+      '降档重建不能遗留失去上下文的 canvas');
+    assert.ok((await page.evaluate(() => TunnelStagePure.stats().entityPoints)) <= Math.min(7200, statsAfter.entityPoints),
+      '低档应降低天体绘制点数');
+    pass('自动降档：单 canvas、点数减少、暂停歌词恢复');
 
     // ---- 回到沉浸声场：画布卸载、GL 资源释放、stanza 叠层回归 ----
     await wakeChrome();

@@ -40,7 +40,7 @@ const BASS_HI = 5;    // 低频 ≈ 低频带均值
 const VOCAL_HI = 15;  // 人声感 ≈ 中频带均值
 const PAUSE_RENDER_MS = 250; // 暂停时世界冻结，画面最多 4fps 兜底刷新
 const FOG_DENSITY = 0.00038;
-const CAMERA_DEFAULTS = { breath: 0.5, shake: 1, hold: 0.32, pause: 0.9, dissolve: 0.72 };
+const CAMERA_DEFAULTS = { breath: 0.5, shake: 0.2, hold: 0.32, pause: 0.9, dissolve: 0.72 };
 
 export function probe() {
   try {
@@ -67,7 +67,7 @@ export function mount(canvas, opts = {}) {
   if (!renderer.getContext()) return false;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.06;
+  renderer.toneMappingExposure = 1.10;
   renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
@@ -82,11 +82,12 @@ export function mount(canvas, opts = {}) {
     reduced: !!opts.reduced,
     palette: opts.palette || {},
   };
-  const world = createWorld(THREE, scene);
+  const world = createWorld(THREE, scene, { quality });
   const lyrics = createLyrics(THREE, scene);
   const audio = {
     raw: null, onset: false,
     bins: new Float32Array(BIN_COUNT),
+    target: new Float32Array(BIN_COUNT),
     energy: 0, vocal: 0, bass: 0,
   };
 
@@ -95,7 +96,7 @@ export function mount(canvas, opts = {}) {
     raf: 0, lastFrame: 0, lastTime: -1, time: 0, playing: false,
     width: 0, height: 0, pr: 1, lastRender: 0, dirty: true,
     lines: [], lastLineRef: null, lastTravel: 0,
-    fov: 56, cameraRoll: 0,
+    fov: 56, cameraRoll: 0, sceneTime: 0,
   };
   world.setPalette(prefs.palette);
   st.raf = requestAnimationFrame(tick);
@@ -143,16 +144,17 @@ export function resize(width, height) {
 
 export function setTime(frame = {}) {
   if (!st) return;
-  st.time = clamp(Number(frame.time) || 0, 0, 3600 * 4);
-  st.playing = !!frame.playing;
-  st.dirty = true;
+  const time = clamp(Number(frame.time) || 0, 0, 3600 * 4);
+  const playing = !!frame.playing;
+  if (time !== st.time || playing !== st.playing) st.dirty = true;
+  st.time = time;
+  st.playing = playing;
 }
 
 export function setAudio(frame = {}) {
   if (!st) return;
   st.audio.raw = frame.bands && frame.bands.length ? frame.bands : null;
   st.audio.onset = !!frame.onset;
-  st.dirty = true;
 }
 
 export function setLyrics(payload) {
@@ -218,7 +220,9 @@ export function lineWindowAt(lines, time, opts = {}) {
 function tick(now) {
   if (!st) return;
   st.raf = requestAnimationFrame(tick);
-  const dt = st.lastFrame ? Math.min((now - st.lastFrame) / 1000, 0.1) : 0.016;
+  // 同值宿主输入不打破空闲帧门；昂贵的天体更新也留在门内。
+  if (!st.playing && !st.dirty && now - st.lastRender < PAUSE_RENDER_MS) return;
+  const dt = st.lastFrame ? Math.min((now - st.lastFrame) / 1000, st.playing ? 0.1 : 0.25) : 0.016;
   st.lastFrame = now;
   const prefs = st.prefs;
   const time = st.time;
@@ -226,7 +230,7 @@ function tick(now) {
   st.lastTime = time;
 
   // 频带包络：seek 直接落位，否则快攻慢放；暂停时目标为零（世界静下来）。
-  const target = aggregateBands(st.playing ? st.audio.raw : null, BIN_COUNT);
+  const target = aggregateBands(st.playing ? st.audio.raw : null, BIN_COUNT, st.audio.target);
   if (seek) st.audio.bins.set(target);
   else envelopeBands(st.audio.bins, target, dt);
   let bsum = 0;
@@ -262,10 +266,13 @@ function tick(now) {
 
   // 行驶距离（确定性）：前后 0.025s 各求值一次给流光拉伸当速度导数。
   const travelOpts = { speed: prefs.speed, motion: prefs.motion };
-  const travel = deterministicTravel(time, lines, travelOpts);
+  // 减弱动效冻结背景，歌词依然消费真实播放时间；显式 seek 可直接落位。
+  if (!prefs.reduced || seek) st.sceneTime = time;
+  const sceneTime = st.sceneTime;
+  const travel = deterministicTravel(sceneTime, lines, travelOpts);
   st.lastTravel = travel;
-  const travelAhead = deterministicTravel(time + 0.025, lines, travelOpts);
-  const travelBehind = deterministicTravel(Math.max(0, time - 0.025), lines, travelOpts);
+  const travelAhead = deterministicTravel(sceneTime + 0.025, lines, travelOpts);
+  const travelBehind = deterministicTravel(Math.max(0, sceneTime - 0.025), lines, travelOpts);
 
   // 相机：路由跟随 + 呼吸漂移 + 低频抖动 + FOV 呼吸。
   const reduced = prefs.reduced;
@@ -273,39 +280,48 @@ function tick(now) {
   const bass = st.audio.bass;
   const breath = CAMERA_DEFAULTS.breath;
   const shake = CAMERA_DEFAULTS.shake;
-  const driftTime = time * 0.14;
+  const driftTime = sceneTime * 0.14;
   const driftX = (Math.sin(driftTime * 0.42) * 0.72 + Math.cos(driftTime * 0.23) * 0.35) * breath;
   const driftY = (Math.cos(driftTime * 0.34) * 0.48 + Math.sin(driftTime * 0.19) * 0.22) * breath;
-  const shakeX = Math.sin(time * 17.0) * bass * 0.22 * shake;
-  const shakeY = Math.cos(time * 19.0) * bass * 0.16 * shake;
+  const shakeX = Math.sin(sceneTime * 2.1) * bass * 0.22 * shake * motionPower;
+  const shakeY = Math.cos(sceneTime * 1.7) * bass * 0.16 * shake * motionPower;
   const routeDistance = travel * 0.42;
   const routeNow = routeCenter(routeDistance);
   const routeAhead = routeCenter(routeDistance + 180);
   const camera = st.camera;
   camera.position.x = routeNow.x * motionPower * 0.20 + driftX * motionPower + shakeX;
   camera.position.y = routeNow.y * motionPower * 0.18 + driftY * motionPower + shakeY;
-  camera.position.z = 0;
+  // 镜头推进：17s 级 ±0.35 的缓慢推拉巡航 + 低频最多 0.9 世界单位的轻推。
+  // 幅度刻意小（歌词平面在 z=-34，缩放 <3%），有「在飞」的体感但不打扰读词；
+  // reduced 下 motionPower=0，机位完全归零。
+  const dolly = (Math.sin(sceneTime * 0.39) * 0.35 + bass * 0.9) * motionPower;
+  camera.position.z = -dolly;
   // 适度侧移；注视前方但不把歌词拽出画面。
   const lookX = camera.position.x + clamp(routeAhead.x - routeNow.x, -6, 6) * motionPower * 0.55;
   const lookY = camera.position.y + clamp(routeAhead.y - routeNow.y, -4, 4) * motionPower * 0.45;
   camera.up.set(0, 1, 0);
   camera.lookAt(lookX, lookY, -300);
   st.cameraRoll = Math.sin(driftTime * 0.17) * 0.004 * breath * motionPower
-    + bass * 0.002 * Math.sin(time * 0.8);
+    + bass * 0.001 * Math.sin(sceneTime * 0.8) * motionPower;
   camera.rotation.z = st.cameraRoll;
 
   // FOV：速度与低频缓慢张开。逐句速度调制只进 FOV，不进行程（行程确定性）。
   const progress = active ? clamp((time - active.start) / Math.max(0.6, active.end - active.start)) : 0;
   const speedMod = speedModulator(progress, Boolean(active));
   const cruiseSpeed = prefs.speed * prefs.motion * speedMod * (reduced ? 0 : 1);
-  const fovTarget = 54 + clamp(cruiseSpeed - 0.8, 0, 1.3) * 5 * motionPower + bass * 2.5 * shake;
-  if (Math.abs(fovTarget - st.fov) > 0.01) {
-    st.fov = fovTarget;
-    camera.fov = fovTarget;
+  // 17s 周期 ±0.7° 的长呼吸：与 z 轴巡航推拉同频（0.39/0.37 rad/s），
+  // 镜头像在持续缓慢换气；单帧变化 <0.006°，帧率无关，30/60/120Hz 收敛一致。
+  const cruiseBreath = Math.sin(sceneTime * 0.37) * 0.7 * Math.min(1, motionPower);
+  const fovTarget = 56 + clamp(cruiseSpeed - 0.8, 0, 1) * 3 * Math.min(1, motionPower)
+    + bass * 1.6 * Math.min(1, motionPower) + cruiseBreath;
+  st.fov = seek || reduced ? fovTarget : damp(st.fov, fovTarget, 0.32, dt);
+  if (Math.abs(camera.fov - st.fov) > 0.001) {
+    camera.fov = st.fov;
     camera.updateProjectionMatrix();
   }
 
   const lineClock = {
+    time,
     hasLine: Boolean(active),
     progress,
     lineStart: active ? active.start : 0,
@@ -314,12 +330,12 @@ function tick(now) {
   };
   const ctx = {
     travel, travelAhead, travelBehind,
-    motion: motionPower, bass, vocal: st.audio.vocal,
+    motion: motionPower, bass, vocal: st.audio.vocal, onset: st.audio.onsetLevel,
     dt, playing: st.playing, seek, reduced,
     glow: prefs.glow, warp: prefs.warp, objects: prefs.objects,
     roll: st.cameraRoll, lineClock,
   };
-  st.world.update(time, ctx);
+  st.world.update(sceneTime, ctx);
   st.lyrics.update(time, {
     clock: lineClock, bass, motion: prefs.motion, reduced, glow: prefs.glow,
   });
