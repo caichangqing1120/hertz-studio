@@ -4,6 +4,17 @@
 
 本轮重画了四张 SVG，并修正真实舞台的自动镜头晃动。场景选择插画与真实舞台的 GLSL 绘画分别由原有注册表和着色器负责；本次没有用 SVG 替代舞台着色器。
 
+### 第三轮：《JOJO》日漫风重绘（2026-10-12）
+
+在方案 A（新增「动画绘景」SVG 舞台来源，见下节）落地之后，四张底稿又按《JOJO 的奇妙冒险》的日漫路子重做了一遍，目标是甩掉"廉价矢量插画"的观感。四件事，逐张落实：
+
+- **线条**：所有主体轮廓从"只有色块边界"改成上墨线（`stroke` + `stroke-linejoin: round`，宽度 1–4 按体量分档）；受光脊另走一路暖色边缘光（`#ffd9a8` / `#e8e0a8` / `#d8ecec`）。实现上全部写成既有路径的**属性**，不新增元素。
+- **色彩**：渐变提饱和、暖光上抬（例如天空 `#1565d8→#58bde8→#ffd9a0`，海岸 `#58479e→#f0629b→#ff8a5c→#ffe3a0`）。同时**刻意砍掉冗余渐变节点**——`stop` 也是 DOM 元素，扁平色阶既更像 cel 动画，也直接省了元素预算（海岸 −5、森林 −6）。
+- **光影**：一律"受光体 + 硬边暗部"两段平涂，不用柔边过渡。云是这套做法的样板：先画整块剪影（暗调），再把**同一条轮廓下移 34px 的反向路径**叠上去当受光带，两条线之间就是那条硬分界。
+- **造型**：桥墩分出受光面/背光面并给拱券加内圈阴影环（`A37 37 … A45 45 …` 同心弧带）；列车加车内暖光对地面的落影；石块、贝壳补接地阴影；森林的两根前景树干补树根投影，中景树影按空气透视重新配了远近两档浓度。
+
+元素预算（`svg *` 计数，上限 110）：晴空云海 76、黄昏海岸 100、月下列车 97、森间灯火 100。
+
 ## 画面描述与循环
 
 ### 1. 晴空云海
@@ -54,13 +65,13 @@
 
 | 文件 | 内容 | 大小 |
 | --- | --- | ---: |
-| output/orchestration-art/01-sky.svg | 晴空云海 SVG + 内嵌 CSS | 8,004 B |
-| output/orchestration-art/02-coast.svg | 黄昏海岸 SVG + 内嵌 CSS | 8,117 B |
-| output/orchestration-art/03-rail-rain.svg | 月下列车 · 细雨 SVG + 内嵌 CSS | 8,817 B |
-| output/orchestration-art/04-forest.svg | 森间灯火 SVG + 内嵌 CSS | 11,383 B |
+| output/orchestration-art/01-sky.svg | 晴空云海 SVG + 内嵌 CSS | 10,780 B |
+| output/orchestration-art/02-coast.svg | 黄昏海岸 SVG + 内嵌 CSS | 11,761 B |
+| output/orchestration-art/03-rail-rain.svg | 月下列车 · 细雨 SVG + 内嵌 CSS | 11,097 B |
+| output/orchestration-art/04-forest.svg | 森间灯火 SVG + 内嵌 CSS | 12,868 B |
 | output/orchestration-art/preview.html | 四图预览、提示词、循环说明、键盘/按钮控制与下载 | 单文件 HTML |
 
-四份 SVG 合计 36,321 B（约 35.5 KiB）。可直接在浏览器打开或通过 img 引用。相同 SVG 在同一文档多次内联时，需要为渐变和路径 ID 添加实例前缀。
+四份 SVG 合计 46,506 B（约 45.4 KiB）。可直接在浏览器打开或通过 img 引用。相同 SVG 在同一文档多次内联时，需要为渐变和路径 ID 添加实例前缀。
 
 ## 验证
 
@@ -74,3 +85,14 @@
 - 实际应用：隔离服务保留认证 HTML，以当前工作区 JS/CSS 验证。月下列车播放采样 12 帧，场景时间推进约 590ms，镜头/模型矩阵仅有一个值；选择、键盘控制、1440px/390px 布局通过。没有重建或替换用户正在运行的原生应用。
 
 截图与循环像素报告保存在 output/playwright/workshop-art/。原生应用使用内嵌资源，源码更新在下一次构建生效；本地 SVG/HTML 预览直接反映当前源码。
+
+## 验证（第三轮：JOJO 重绘，2026-10-12）
+
+改动只落在一个文件（`plugin/ui/creative-anime.js` 的四段画稿字串），但四份画稿被三处消费——卡片 SVG、`artStatic` 底纹理、导出产物——所以按下面顺序全跑了一遍。
+
+- **接缝契约** `check-workshop-art-loops.js`：33 条接缝（每个运动层一条）逐个比对换相前后 2ms 的像素，最大 RGB 平均差 **0.050/255**（阈值 0.35），每图六次采样（0/3/7/13/31/61s）互不相同。元素预算四条全部通过。
+- **性能**：四图同屏 + 6 倍 CPU 限速、150 帧采样，中位间隔 **12.1ms**、P95 **18.0ms**、超 50ms **0 次**。比调色前（18.4 / 36.6ms）反而更好——扁平渐变与元素瘦身省下的样式/绘制成本大于墨线带来的开销。
+- **浏览器**：`check-anime-scenes-browser.js` 全部通过，**但 `journey` 末尾一条"离开绘景后旧舞台材质回不来"失败**（`.s3d-head` 的 `background-image` 期望 `none`、实得线性渐变）。这条与画稿无关：把 `creative-anime.js` 回退到 HEAD 后重编译，**同一条断言照样失败**，根因在并行那条线的镜台（`stage-diorama.js` / `vendor/diorama-stage.js`）改动里，已由对方在自己那条线处理。单独核实过：受影响的只有 `check-anime-scenes-browser.js` 末段这一段旅程。
+- **SVG 舞台适配层** `check-stage-anime-svg-browser.js`：35 条通过（挂载、真实运动、镜像矩阵、GL 交接、持久化）。这条断言里还有一格是"服务端资源必须等于磁盘这一份"，用来挡住"改了源没重编译"——`plugin/ui/**` 走 `include_str!`，改完必须 `cargo build` 再跑浏览器脚本，否则验的是旧二进制。
+- **Node 契约**：`check-anime-scenes` 98/98、`check-creative` 425/425、`check-stage-anime-svg` 52/52、`check-scene-registry` 176、`check-assets` 836/836、`check-skins` 890/890。
+- **两侧同源**：舞台截图（`output/playwright/jojo-stage/`）与工坊小图同帧比对，同一份 `presentation.art`，镜像开启时整体 `scaleX(-1)`，构图一致。

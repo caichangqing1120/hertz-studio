@@ -870,6 +870,8 @@ void main() {
     <path d="m238 113 7 12-3 22 7 17m4-26 10 19 2 24 15 26m-63-78-12 25-4 17m-24 3-18 29-19 14m99-19-10 25-17 18m88-42 14 23 18 14m-39-9 3 14 19 15" fill="none" stroke="#f5d7c4" stroke-width="1.1" opacity=".7"/>
     <path d="m112 226 25-16 16-18m-50 48 20-5 30-25m-6 35 27-17 9-15m92 6 20 21 13 6m-62 6 30-4 33 20m-8-36 31 21 22 3" fill="none" stroke="#232a4a" stroke-width="1" opacity=".5"/>
     <path d="m52 118h40m-10 16h32m-46 34h30" fill="none" stroke="#ffffff" stroke-width="1" opacity=".32"/>` },
+    { svg: `
+    <path d="M0 258c88-9 152-7 232-11 76-4 148 4 220 0 68-4 130-2 188-6v24c-62 6-124 4-192 8-72 4-142-4-216 0-80 4-146 2-232 10Z" fill="#fbe3c4" opacity=".3"/>` },
     { motion: 'cx-sky-bank-far', svg: `
     <g class="cx-motion cx-sky-bank-far">
       <path d="M-54 265c12-16 29-22 45-17-7-19 15-32 33-25 3-19 31-23 42-7 12-8 30-5 37 8 21-8 42 1 44 15 14-7 33-5 44 5 20-22 46-23 66-10 13-23 48-22 59-2 16-8 33-5 41 8 23-20 59-16 69 6 18-9 35-7 45 8 27-13 46-6 55 8 16-21 43-24 58-10 17-28 59-26 71-1 20-7 37 0 45 18v86H-54Z" fill="url(#cx-sky-shadow)" stroke="#3c4c7e" stroke-width="2" stroke-linejoin="round"/>
@@ -887,10 +889,10 @@ void main() {
     </g>` },
     { motion: 'cx-sky-bank-near', svg: `
     <g class="cx-motion cx-sky-bank-near">
-      <path d="M195 415c-11-21 8-44 32-42-6-22 17-41 37-32 14-26 46-32 66-11 16-12 43-4 47 16 25-9 49 4 53 25 26-10 48 0 61 16 22-23 52-20 72-3 10-17 37-17 50-4 21-10 45-5 56 12v59H195Z" fill="url(#cx-sky-shadow)" stroke="#3c4c7e" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M433 399c-7-24 17-45 39-38-3-23 16-42 40-37 0-31 29-49 54-32 17-26 54-22 64 7 27-11 51 6 51 32 26 0 43 22 35 43l-1 52H433Z" fill="url(#cx-sky-cloud)" stroke="#3c4c7e" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M524 322c1-22 22-33 37-20-13-2-27 7-37 20Zm50 22c10-19 34-21 48-7-18-5-33 0-48 7Z" fill="#fff5de" opacity=".8"/>
-    </g>` },
+      <path d="M229 363C242 340 256 318 284 316C302 316 314 318 336 322C346 330 350 342 356 346C366 314 386 286 414 284C436 284 448 286 468 292C478 310 482 336 490 340C502 316 526 292 552 290C574 290 582 292 602 298C612 314 614 338 620 342C632 318 646 296 664 294C669 294 671 297 674 300V415Z" fill="#6a7fba" stroke="#3c4c7e" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M195 415C208 392 222 370 250 368C268 368 280 370 302 374C312 382 316 394 322 398C332 366 352 338 380 336C402 336 414 338 434 344C444 362 448 388 456 392C468 368 492 344 518 342C540 342 548 344 568 350C578 366 580 390 586 394C598 370 612 348 630 346C635 346 637 349 640 352V415Z" fill="#8b9ccc" stroke="#3c4c7e" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M195 415C208 392 222 370 250 368C268 368 280 370 302 374C312 382 316 394 322 398C332 366 352 338 380 336C402 336 414 338 434 344C444 362 448 388 456 392C468 368 492 344 518 342C540 342 548 344 568 350C578 366 580 390 586 394C598 370 612 348 630 346C635 346 637 349 640 352L640 386C637 383 635 380 630 380C612 382 598 404 586 428C580 424 578 400 568 384C548 378 540 376 518 376C492 378 468 402 456 426C448 422 444 396 434 378C414 372 402 370 380 370C352 372 332 400 322 432C316 428 312 416 302 408C280 404 268 402 250 402C222 404 208 426 195 449Z" fill="url(#cx-sky-cloud)"/>
+</g>` },
     { keep: true, svg: `
     <path d="M0 291 15 284 27 292 42 288 56 305 63 308 67 325 82 324 88 341 101 346 104 361 119 367 127 386 150 400H0Z" fill="url(#cx-sky-crag)" stroke="#0f1830" stroke-width="2.5" stroke-linejoin="round"/>
     <path d="M0 291 15 284 27 292 42 288 56 305 63 308 67 325 82 324 88 341 101 346 104 361 119 367 127 386 150 400L0 400Z" fill="#14203f"/>
@@ -911,11 +913,13 @@ void main() {
   var artCoast = celArt('coast', `
     <linearGradient id="cx-coast-sky" gradientUnits="userSpaceOnUse" x2="0" y2="186"><stop stop-color="#58479e"/><stop offset=".44" stop-color="#f0629b"/><stop offset=".76" stop-color="#ff8a5c"/><stop offset="1" stop-color="#ffe3a0"/></linearGradient>
     <radialGradient id="cx-coast-glow" cx=".72" cy=".41" r=".52"><stop stop-color="#ffd9a0" stop-opacity=".75"/><stop offset="1" stop-color="#ff8a5c" stop-opacity="0"/></radialGradient>
-    <linearGradient id="cx-coast-water" x2=".35" y2="1"><stop stop-color="#c98fa8"/><stop offset=".24" stop-color="#5f74b4"/><stop offset=".7" stop-color="#2c4f86"/><stop offset="1" stop-color="#123a5e"/></linearGradient>
-    <linearGradient id="cx-coast-sand" x1="0" y1="0" x2=".6" y2="1"><stop stop-color="#b98ac0"/><stop offset=".35" stop-color="#f0b088"/><stop offset="1" stop-color="#ffd9a0"/></linearGradient>
-    <linearGradient id="cx-coast-cliff" x1="1" y1="0" x2=".2" y2="1"><stop stop-color="#8a7fae"/><stop offset=".4" stop-color="#4a4470"/><stop offset="1" stop-color="#241d3a"/></linearGradient>
+    <linearGradient id="cx-coast-water" x2=".35" y2="1"><stop stop-color="#c98fa8"/><stop offset=".7" stop-color="#2c4f86"/><stop offset="1" stop-color="#123a5e"/></linearGradient>
+    <linearGradient id="cx-coast-sand" x1="0" y1="0" x2=".6" y2="1"><stop stop-color="#b98ac0"/><stop offset="1" stop-color="#ffd9a0"/></linearGradient>
+    <linearGradient id="cx-coast-cliff" x1="1" y1="0" x2=".2" y2="1"><stop stop-color="#8a7fae"/><stop offset="1" stop-color="#241d3a"/></linearGradient>
     <linearGradient id="cx-coast-sun" x2="0" y2="1"><stop stop-color="#fffbe8"/><stop offset="1" stop-color="#ffd76b"/></linearGradient>
-    <linearGradient id="cx-coast-wet" x2=".65" y2="1"><stop stop-color="#8a7fae"/><stop offset="1" stop-color="#f0b4b0"/></linearGradient>`, `
+    <linearGradient id="cx-coast-wet" x2=".65" y2="1"><stop stop-color="#6f5570"/><stop offset="1" stop-color="#cf937e"/></linearGradient>
+    <linearGradient id="cx-coast-shimmer" gradientUnits="userSpaceOnUse" x2="0" y2="366"><stop stop-color="#ffd76b" stop-opacity=".86"/><stop offset=".74" stop-color="#ff9f6b" stop-opacity=".5"/><stop offset="1" stop-color="#ff8a5c" stop-opacity="0"/></linearGradient>
+    <radialGradient id="cx-coast-beacon" cx=".5" cy=".5" r=".5"><stop stop-color="#fff2c6" stop-opacity=".62"/><stop offset="1" stop-color="#ffd76b" stop-opacity="0"/></radialGradient>`, `
     <path d="M0 0h640v400H0z" fill="url(#cx-coast-sky)"/>
     <path class="cx-motion cx-coast-glow" d="M0 0h640v300H0z" fill="url(#cx-coast-glow)"/>
     <path d="M-10 53c95-6 110 17 179 13 61-4 80 12 131 9-48 13-72 1-126 4-71 4-100-13-184-9Zm364-17c53-10 70-2 113-8 32-4 51-3 70 1-54 2-66 15-100 12-30-3-47-2-83-5Z" fill="#7a5fb0" opacity=".4"/>
@@ -924,16 +928,20 @@ void main() {
     <path d="M409 150c39-1 69 1 100-1l31 3-143 1Z" fill="#edbaa9" opacity=".58"/>
     <path d="m348 118 22-8m30 22 26-10m-14 34 24-6" fill="none" stroke="#fff3c0" stroke-width="1.6" opacity=".8"/>
     <path d="M0 181h640v219H0z" fill="url(#cx-coast-water)"/>
+    <path d="M0 186q80 3 160 0t160 0t160 0t160 1v12q-80 3-160 0t-160 0t-160 0T0 198Z" fill="#bb93b0" opacity=".42"/>
+    <path d="M0 236q80 4 160 1t160 0t160 1t160-1v17q-80 3-160 0t-160-1t-160 1T0 253Z" fill="#3f5490" opacity=".32"/>
     <path d="M198 181h442" stroke="#2b2140" stroke-width="1.4" opacity=".85"/>
     <path d="m539 179 16-4 9 1 21-5 16 4 15-2 24 5v4H527Z" fill="#6a5f9e" stroke="#2b2140" stroke-width="1.5" stroke-linejoin="round"/>
     <g class="cx-motion cx-coast-waves" fill="none" stroke-linecap="round">
-      <path d="M227 188h99m16 3h29m167-2h98m-465 11 64-2m25 7 43-1m234-1h59m-392 11 55-2m61 7 30-2m216 0 58 2m-491 11 71-6m264 5 43 1m54 7 74 3" stroke="#fff0ee" stroke-width="1.1" opacity=".7"/>
-      <path d="M124 244c43-8 72-8 100-11m48 4 44-1m229-3 75 4M-9 275c76-4 102-16 160-23m37-2 58-5m204 2 46 2m-482 43 56-4 51-9m25-3 35-6m-165 46 71-15 44-6m-116 41 49-13 60-12" stroke="#dce8f5" stroke-width="1.2" opacity=".55"/>
-      <path d="M291 198h29m55 5h20m105-5h25m-357 37 65-7m93-9 36-1m202 0 55 3m-455 42 74-10m76-14 48-3m-332 70 73-12m8 14 61-15m-129 47 58-16" stroke="#2c4f86" stroke-width="1.6" opacity=".45"/>
+      <path d="M227 188h99m16 3h29m167-2h98m-465 11 64-2m25 7 43-1m234-1h59m-392 11 55-2m61 7 30-2m216 0 58 2m-491 11 71-6m264 5 43 1m54 7 74 3" stroke="#fff0ee" stroke-width="1.1" opacity=".5"/>
+      <path d="M124 244c43-8 72-8 100-11m48 4 44-1m229-3 75 4M-9 275c76-4 102-16 160-23m37-2 58-5m204 2 46 2m-482 43 56-4 51-9m25-3 35-6m-165 46 71-15 44-6m-116 41 49-13 60-12" stroke="#dce8f5" stroke-width="1.2" opacity=".4"/>
+      <path d="M291 198h29m55 5h20m105-5h25m-357 37 65-7m93-9 36-1m202 0 55 3m-455 42 74-10m76-14 48-3m-332 70 73-12m8 14 61-15m-129 47 58-16" stroke="#2c4f86" stroke-width="1.6" opacity=".35"/>
     </g>
-    <g class="cx-motion cx-coast-reflection" fill="#ffd76b">
-      <path d="m435 184 37 1-8 2h-33Zm-8 7 57 1-18 2-45-1Zm13 9 30-1 18 2-4 2-56-1Zm-19 10 22-2 2 3-33 1Zm38-2 32 1-8 3-29-1Zm-33 11 50 1 12 3-30-1-23 2-20-2Zm-19 13 42-2-5 3-48 2Zm54-1 26 2-4 3-29-2Zm-45 14 54 1 8 3-36 1-44-2Z"/>
-      <path d="m389 259 44-2 11 3-45 2Zm68-1 28 2-7 3-32-2Zm-48 17 47-1 15 3-18 2-63-1Zm-35 18 52-2-6 4-34 1Zm70 0 38 3-10 3-40-2Zm-29 20 33-1 16 3-21 2-45-1Z" opacity=".62"/>
+    <g class="cx-motion cx-coast-reflection">
+      <path d="M446 185h20l30 76 20 66H402l34-66Z" fill="url(#cx-coast-shimmer)" opacity=".34"/>
+      <path d="M449 185h14l10 22h-34Z" fill="#fffbe0" opacity=".62"/>
+      <path d="M452 189h8M445 199h22M438 210h36M431 222h50M424 235h62M417 248h74M410 262h86M403 276h98M409 290h94M405 304h102M401 318h110M397 332h118M393 346h126" fill="none" stroke="#ffe9a8" stroke-width="2.6" opacity=".78" stroke-linecap="round"/>
+      <path d="M431 222h50M417 248h74M403 276h98M401 318h110M393 346h126" fill="none" stroke="#ffcf6e" stroke-width="2" opacity=".45" stroke-linecap="round"/>
     </g>
     <path d="M0 110 20 114 37 110 52 119 74 124 81 137 95 145 100 155 119 156 128 164 147 169 156 176 184 183 199 194 184 204 160 207 141 217 108 226 80 235 47 239 24 248 0 247Z" fill="url(#cx-coast-cliff)" stroke="#2b2140" stroke-width="3" stroke-linejoin="round"/>
     <path d="M0 109 20 112 38 107 52 116 73 121 83 134 92 143 80 148 59 141 42 136 28 133 0 137Z" fill="#9a8fb0"/>
@@ -942,6 +950,7 @@ void main() {
     <path d="m13 137 16-3m25 8 7 6m32 12 7 9m30 9 17 6m-34 21 12-4" fill="none" stroke="#ffd9b0" stroke-width="1" opacity=".7"/>
     <path d="M0 110 20 114 37 110 52 119 74 124 81 137 95 145 100 155 119 156 128 164 147 169 156 176 184 183L60 237 47 239 24 248 0 247Z" fill="#241d3a" opacity=".55"/>
     <path d="M100 155 119 156 128 164 147 169 156 176 184 183 199 194" fill="none" stroke="#ffd9a8" stroke-width="2.2" opacity=".9"/>
+    <circle cx="47" cy="74" r="30" fill="url(#cx-coast-beacon)"/>
     <path d="m39 113 3-37h10l4 43-10-2Z" fill="#faf0dc" stroke="#2b2140" stroke-width="2.5" stroke-linejoin="round"/>
     <path d="m48 77 4-1 4 43-7-2Z" fill="#8a7fae"/>
     <path d="M40 72h14v8H40z" fill="#3a2d55" stroke="#2b2140" stroke-width="1.5"/>
@@ -958,8 +967,10 @@ void main() {
       <path d="M-40 373c35-6 66-20 93-35 31-17 54-22 80-36 20-11 46-14 73-21 35-10 65-13 89-16" stroke-width="2.6"/>
       <path d="m-7 367 37-16m14-5 39-18m46-22 36-13m20-4 45-9" stroke-width="1" opacity=".7"/>
     </g>
+    <path d="M-20 358c62-16 116-9 172-23 38-10 80-7 120 7-50 4-94 19-138 25-54 8-106 2-154 6Z" fill="#10304f" opacity=".6"/>
+    <path d="M-20 358c62-16 116-9 172-23 38-10 80-7 120 7" fill="none" stroke="#ffe6c4" stroke-width="1.5" opacity=".38"/>
     <path d="M136 400c28-31 49-51 78-67 43-24 93-34 145-39 89-9 180-16 281-54v160Z" fill="url(#cx-coast-sand)"/>
-    <path d="M137 400c48-60 97-90 195-103 117-15 195-17 308-57v23c-115 39-186 38-290 52-96 12-143 36-180 85Z" fill="url(#cx-coast-wet)"/>
+    <path d="M137 400c48-60 97-90 195-103 117-15 195-17 308-57v15c-115 39-186 38-290 52-96 12-143 36-180 85Z" fill="url(#cx-coast-wet)"/>
     <g class="cx-motion cx-coast-wash" fill="none" stroke-linecap="round">
       <path d="M133 410c21-39 65-72 104-90 41-19 79-25 132-30 83-8 152-14 279-56" stroke="#f7e6db" stroke-width="3"/>
       <path d="M151 402c28-37 65-63 103-80 30-13 66-17 102-21m28-4c74-6 153-20 236-47" stroke="#fff1db" stroke-width="1"/>
@@ -973,7 +984,12 @@ void main() {
     <path d="m550 326 15-6 19 7 4 8-23 4-18-6Z" fill="#5f74b4" stroke="#2b2140" stroke-width="1.5" stroke-linejoin="round"/>
     <path d="m550 326 15-6 19 7-19 1Z" fill="#f0b4b0"/>
     <path d="m325 365 9-3 10 4-10 3Zm45-25 6-2 6 3-6 2Zm215 51 10-3 9 5-11 2Z" fill="#c98fa8"/>
-    <path d="m244 382 3-1m39-20 4-1m104 15 5 1m23-35 4-1m112 16 5 2m51 15 4-1m-244-30 3-1m-97 46 3-1" stroke="#2b2140" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M240 400c60-30 110-36 180-30 76 6 140 14 220 30Z" fill="#e0a67c" opacity=".38"/>
+    <path d="m296 358c8-6 17-2 21 4-8 3-17 1-21-4Zm146-32c8-6 17-2 21 4-8 3-17 1-21-4Zm62 46c7-5 15-2 19 3-7 3-15 1-19-3Z" fill="#ffffff" stroke="#2b2140" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="m244 382 3-1m39-20 4-1m104 15 5 1m23-35 4-1m112 16 5 2m51 15 4-1m-244-30 3-1m-97 46 3-1" stroke="#b8846a" stroke-width="2" stroke-linecap="round" opacity=".6"/>
+    <path d="M452 372c24-5 50-1 68 8-16 7-54 5-68-8ZM538 334c18-5 40 0 54 9-13 5-44 3-54-9ZM318 368c9-3 21 0 28 5-8 3-22 2-28-5Z" fill="#8a5f50" opacity=".34"/>
+    <path d="m466 364 16-9 16 2M550 326l15-6 19 7" fill="none" stroke="#ffd9a0" stroke-width="1.5" opacity=".5"/>
+    <path d="M172 392c34-24 74-40 118-48m-72 30c22-14 46-24 72-30m112-11c40-8 82-14 124-19m-96-2c32-4 64-8 96-9m-64 44c44-8 90-14 136-18M320 400c40-27 84-42 132-48m-46 34c30-12 62-20 96-24" fill="none" stroke="#c98a70" stroke-width="1.3" opacity=".38"/>
     <path class="cx-motion cx-coast-gulls" d="m265 104 5-2 5 2m30 13 4-2 4 1" fill="none" stroke="#2b2140" stroke-width="1.1" stroke-linecap="round"/>
   `);
 
@@ -1011,12 +1027,19 @@ void main() {
     <path d="M544 400V333a37 37 0 0 0 74 0v67Zm-104 0V333a37 37 0 0 0 74 0v67Zm-104 0V333a37 37 0 0 0 74 0v67Zm-104 0V333a37 37 0 0 0 74 0v67Zm-104 0V333a37 37 0 0 0 74 0v67Zm-104 0V333a37 37 0 0 0 74 0v67Z" fill="#0e1e38"/>
     <path d="M0 273h640v127h-22v-67a37 37 0 0 0-74 0v67h-30v-67a37 37 0 0 0-74 0v67h-30v-67a37 37 0 0 0-74 0v67h-30v-67a37 37 0 0 0-74 0v67h-30v-67a37 37 0 0 0-74 0v67H98v-67a37 37 0 0 0-74 0v67H0Z" fill="url(#cx-rail-stone)"/>
     <path d="M24 400v-67a37 37 0 0 1 74 0v67m30 0v-67a37 37 0 0 1 74 0v67m30 0v-67a37 37 0 0 1 74 0v67m30 0v-67a37 37 0 0 1 74 0v67m30 0v-67a37 37 0 0 1 74 0v67m30 0v-67a37 37 0 0 1 74 0v67" fill="none" stroke="#c9d6e8" stroke-width="2" opacity=".5"/>
+    <path d="M1 273h6v127h-6ZM99 273h7v127h-7ZM203 273h7v127h-7ZM307 273h7v127h-7ZM411 273h7v127h-7ZM515 273h7v127h-7ZM619 273h5v127h-5Z" fill="#d6e2f2" opacity=".28"/>
+    <path d="M15 273h8v127h-8ZM117 273h10v127h-10ZM221 273h10v127h-10ZM325 273h10v127h-10ZM429 273h10v127h-10ZM533 273h10v127h-10ZM632 273h7v127h-7Z" fill="#08131f" opacity=".38"/>
+    <path d="M24 333A37 37 0 0 1 98 333L106 333A45 45 0 0 0 16 333ZM128 333A37 37 0 0 1 202 333L210 333A45 45 0 0 0 120 333ZM232 333A37 37 0 0 1 306 333L314 333A45 45 0 0 0 224 333ZM336 333A37 37 0 0 1 410 333L418 333A45 45 0 0 0 328 333ZM440 333A37 37 0 0 1 514 333L522 333A45 45 0 0 0 432 333ZM544 333A37 37 0 0 1 618 333L626 333A45 45 0 0 0 536 333Z" fill="#0d1b30" opacity=".45"/>
     <path d="M29 400v-67c0-19 14-33 32-33m72 100v-67c0-19 14-33 32-33m72 100v-67c0-19 14-33 32-33m72 100v-67c0-19 14-33 32-33m72 100v-67c0-19 14-33 32-33m72 100v-67c0-19 14-33 32-33" fill="none" stroke="#0d1b30" stroke-width="4" opacity=".9"/>
     <path d="M0 284h640M0 290h640M0 357h23m76 0h28m76 0h28m76 0h28m76 0h28m76 0h28m76 0h22M0 384h23m76 0h28m76 0h28m76 0h28m76 0h28m76 0h28m76 0h22" fill="none" stroke="#10203a" stroke-width=".8" opacity=".7"/>
     <path d="m21 312-6-4m20-11-4-7m27 5v-9m28 14 4-8m13 22 7-3m20 3-7-4m20-12-4-8m27 4v-8m26 11 4-7m14 21 6-3m21 3-6-4m19-12-4-7m27 4v-8m26 11 4-7m14 21 7-3m20 3-6-4m19-12-4-7m27 4v-8m26 11 4-7m14 21 7-3m20 3-6-4m19-12-4-7m27 4v-8m26 11 4-7m14 21 7-3m20 3-6-4m19-12-4-7m27 4v-8m26 11 4-7m14 21 7-3" fill="none" stroke="#a3adba" stroke-width=".7" opacity=".35"/>
     <path d="M0 271h640v6H0z" fill="#24405f"/>
-    <path d="M0 271h640M0 279h640" stroke="#d8deee" stroke-width=".9" opacity=".95"/>
+    <path d="M0 277h640v11H0z" fill="#08131f" opacity=".42"/>
+    <path d="M0 271h640M0 279h640" stroke="#d8deee" stroke-width=".9" opacity=".6"/>
     <g class="cx-motion cx-rail-train">
+      <path d="M-6 262h366l18 20H-28Z" fill="#ffd76b" opacity=".1"/>
+      <path d="M8 260h352l12 8H-4Z" fill="#ffe9b8" opacity=".16"/>
+      <circle cx="4" cy="256" r="10" fill="#ff7a5c" opacity=".24"/>
       <path d="M9 240h340c13 0 22 7 31 16l10 10H3v-17q0-9 6-9Z" fill="url(#cx-rail-car)" stroke="#122438" stroke-width="2.5" stroke-linejoin="round"/>
       <path d="M11 239h334c14 0 20 4 28 13l-20-8H6Z" fill="#d8ecec"/>
       <path d="M4 262h381l5 4H3Z" fill="#10283f"/>
@@ -1054,30 +1077,34 @@ void main() {
   // JOJO 化处理：林冠整体墨线 + 叶缘下挂硬阴；两根前景树干上墨线与内侧边缘光；
   // 小径走暖金并压深色路缘；灯罩墨线 + 四道灯光射线。元素预算最紧（68→<80）。
   var artForest = celArt('forest', `
-    <linearGradient id="cx-forest-depth" x1=".2" y1="0" x2=".8" y2="1"><stop stop-color="#0b3f3e"/><stop offset=".44" stop-color="#1f8a6e"/><stop offset=".69" stop-color="#46a877"/><stop offset="1" stop-color="#0f4a38"/></linearGradient>
-    <radialGradient id="cx-forest-air" cx=".57" cy=".48" r=".53"><stop stop-color="#dfdda0" stop-opacity=".7"/><stop offset=".5" stop-color="#a9d1a0" stop-opacity=".21"/><stop offset="1" stop-color="#69ab8c" stop-opacity="0"/></radialGradient>
-    <linearGradient id="cx-forest-bark" x1="0" y1="0" x2="1" y2=".1"><stop stop-color="#0f3a34"/><stop offset=".6" stop-color="#2c6650"/><stop offset="1" stop-color="#58a37c"/></linearGradient>
-    <linearGradient id="cx-forest-path" x1=".6" y1="0" x2=".25" y2="1"><stop stop-color="#e8d9a0"/><stop offset=".42" stop-color="#c9a86a"/><stop offset="1" stop-color="#4e7a52"/></linearGradient>
+    <linearGradient id="cx-forest-depth" x1=".2" y1="0" x2=".8" y2="1"><stop stop-color="#0b3f3e"/><stop offset=".44" stop-color="#1f8a6e"/><stop offset="1" stop-color="#0f4a38"/></linearGradient>
+    <radialGradient id="cx-forest-air" cx=".57" cy=".48" r=".53"><stop stop-color="#dfdda0" stop-opacity=".7"/><stop offset="1" stop-color="#69ab8c" stop-opacity="0"/></radialGradient>
+    <linearGradient id="cx-forest-bark" x1="0" y1="0" x2="1" y2=".1"><stop stop-color="#0f3a34"/><stop offset="1" stop-color="#58a37c"/></linearGradient>
+    <linearGradient id="cx-forest-path" x1=".6" y1="0" x2=".25" y2="1"><stop stop-color="#e8d9a0"/><stop offset="1" stop-color="#4e7a52"/></linearGradient>
     <linearGradient id="cx-forest-light" x1=".8" y1="0" x2=".2" y2="1"><stop stop-color="#fff3c0" stop-opacity=".3"/><stop offset="1" stop-color="#e5dda4" stop-opacity="0"/></linearGradient>
-    <radialGradient id="cx-forest-halo"><stop stop-color="#fff0b8" stop-opacity=".5"/><stop offset=".4" stop-color="#ffdf9a" stop-opacity=".16"/><stop offset="1" stop-color="#ffcf6e" stop-opacity="0"/></radialGradient>
-    <linearGradient id="cx-forest-lamp" x2="1" y2=".2"><stop stop-color="#d69754"/><stop offset=".5" stop-color="#fff0b7"/><stop offset="1" stop-color="#e9b569"/></linearGradient>`, `
+    <radialGradient id="cx-forest-halo"><stop stop-color="#fff0b8" stop-opacity=".5"/><stop offset="1" stop-color="#ffcf6e" stop-opacity="0"/></radialGradient>
+    <linearGradient id="cx-forest-lamp" x2="1" y2=".2"><stop stop-color="#d69754"/><stop offset="1" stop-color="#e9b569"/></linearGradient>`, `
     <path d="M0 0h640v400H0z" fill="url(#cx-forest-depth)"/>
-    <g fill="#6aa88c" opacity=".4">
+    <g fill="#5aa08a" opacity=".3">
       <path d="m198-10 9 1-6 85 5 71-7 101h-9l9-114-5-57Zm79 0h7l-5 125 4 147h-9l2-128Zm81 0h6l6 120-5 147h-7l4-153Zm57 0h8l-10 155 5 128-9-2-2-137Zm60 0h8l7 118-9 172h-11l11-171Z"/>
       <path d="m199 110-30-46 2-3 29 38m76 51 32-41 3 1-34 49m86-52-25-40 2-3 23 30m48 36 29-34 3 1-33 44m69 47-26-31 2-3 27 27Z"/>
+      <path d="M498 40h10l-6 118 6 96-4 106h-11l5-108-6-92Zm58 34h8l-4 96 5 78-3 92h-9l4-96-5-74Z"/>
     </g>
-    <g fill="#2a6e5c">
+    <g fill="#1d5b4b" opacity=".62">
       <path d="M142-10h13l-5 96 9 106-4 112-15 5 7-133-6-83Zm178 0h9l-8 105 5 86-8 100-10 1 8-101-4-83Zm191 0h11l-7 102 3 93 12 116-15-1-7-117 1-103Z"/>
       <path d="m149 106-42-45 2-3 35 30m9 62 38-51 5-2-39 63m161-32-28-39 2-3 28 29m199 36 27-48 4 1-29 64Z"/>
     </g>
     <path d="M0 0h640v400H0z" fill="url(#cx-forest-air)"/>
-    <path d="M0 298c40-4 58-14 96-7 34 6 42-5 67-1 36 6 51-15 83-8 28 6 48-5 71-13 21-7 33 1 54-6 36-11 73 9 101 4 50-9 112 2 168-6v139H0Z" fill="#2f7355"/>
+    <path d="M0 298c40-4 58-14 96-7 34 6 42-5 67-1 36 6 51-15 83-8 28 6 48-5 71-13 21-7 33 1 54-6 36-11 73 9 101 4 50-9 112 2 168-6v139H0Z" fill="#1a5540"/>
+    <path d="M0 308c40-4 58-14 96-7 34 6 42-5 67-1 36 6 51-15 83-8 28 6 48-5 71-13 21-7 33 1 54-6 36-11 73 9 101 4 50-9 112 2 168-6v139H0Z" fill="#35855f"/>
     <path d="M356 263c-23 17-23 21-1 31 33 16 20 32-13 43-31 12-29 31 18 63H213c-9-31 24-54 83-70 55-16 54-25 28-34-19-6-16-18 32-33Z" fill="url(#cx-forest-path)" stroke="#3a2f1c" stroke-width="2" stroke-linejoin="round"/>
     <path d="M351 273c-18 11-9 16 4 23 20 12 10 23-20 34m-48 18c-27 13-37 29-26 46" fill="none" stroke="#d7ce97" stroke-width="1" opacity=".4"/>
     <path d="M0 336c61-24 105-20 139-18 49 2 74-9 117-2l45 10c-64 15-91 39-93 74H0Zm368 64c-43-33-43-45-9-60 30-14 79-16 103-10 70-16 112-13 178-20v90Z" fill="#174a38"/>
-    <path d="m191 340 19-12 30-1 17 6-28 3-23 11Zm218 1 32-13 26 7-16 6-31 5Zm-1 48 29-16 36 5 13 15-33 7Z" fill="#4e855c"/>
-    <path d="m208 329 11-10 20 1 12 10-26-3Zm202 7 22-16 12 3 16 10-21-4Zm33 46 14-11 17 7 6 8-21-5Z" fill="#85a777"/>
-    <path d="m254 357 8-2 11 2-9 3Zm43-17 6-2 8 1-7 3Zm27-23 5-1 5 2-5 1Zm-63 65 13-2 11 4-17 2Z" fill="#657e5c"/>
+    <path d="M392 196c14-22 44-28 62-12 12-20 44-24 60-6 16-14 44-12 54 6 18-10 42-4 48 14 16-6 34 2 38 18-70 10-118 4-166 8-46 4-72-6-96-28Z" fill="#2b7459" opacity=".55"/>
+    <path d="M432 214h12l-4 60 3 56h-12l3-60Zm96-8h11l-3 54 3 50h-12l3-54Z" fill="#2b7459" opacity=".5"/>
+    <path d="m191 340 19-12 30-1 17 6-28 3-23 11Zm218 1 32-13 26 7-16 6-31 5Zm-1 48 29-16 36 5 13 15-33 7Z" fill="#3d7350"/>
+    <path d="m208 329 11-10 20 1 12 10-26-3Zm202 7 22-16 12 3 16 10-21-4Zm33 46 14-11 17 7 6 8-21-5Z" fill="#6e9c68"/>
+    <path d="m254 357 8-2 11 2-9 3Zm43-17 6-2 8 1-7 3Zm27-23 5-1 5 2-5 1Zm-63 65 13-2 11 4-17 2Z" fill="#4f7550"/>
     <g class="cx-motion cx-forest-rays" fill="url(#cx-forest-light)">
       <path d="m386-10 23 0-144 371-55 29Z"/>
       <path d="m431-10 9 0-91 332-23 9Z" opacity=".65"/>
@@ -1115,6 +1142,7 @@ void main() {
       <g class="cx-motion cx-forest-drift-c"><g class="cx-motion cx-forest-rise-c"><g class="cx-motion cx-forest-glow-c"><circle cx="294" cy="346" r="3" opacity=".12"/><circle cx="294" cy="346" r=".95"/></g></g></g>
     </g>
     <path d="M0 370c43-16 73-3 103-4 28-1 48 13 65 34H0Zm454 30c31-34 62-29 85-40 27-13 58-4 101-9v49Z" fill="#173f33"/>
+    <path d="M0 398c36-13 72-15 100-4l8 6H0Zm640-4c-34-13-70-15-98-5l-8 9h106ZM186 352c22-6 48-3 72 8-18 8-56 5-72-8ZM404 366c22-6 48-4 68 8-17 6-52 4-68-8ZM404 402c26-8 56-4 78 9-19 8-60 6-78-9Z" fill="#0b3a2c" opacity=".48"/>
     <g class="cx-motion cx-forest-fern" fill="#3f7a52" stroke="#0c2b24" stroke-width="1.5" stroke-linejoin="round">
       <path d="M82 400c13-30 22-48 55-65-25 20-36 36-52 65Z"/>
       <path d="m94 377-21-5-15-18 20 9 16 11Zm5-11-19-9-8-16 17 11 11 11Zm9-12-12-10-3-13 12 11 6 10Zm13-11-5-11 4-11 4 12-1 8Zm-22 28 23-9 19 0-18 10-27 2Zm8-12 19-10 15 1-14 8-22 4Zm12-12 14-9 15 1-12 6-18 5Z"/>
