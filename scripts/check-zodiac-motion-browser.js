@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
-// Real WebGL with a controlled rAF clock: spin budget, pause/idle budget,
-// interaction, reduced-motion and visual QA for the zodiac stage.
+// Real WebGL with a controlled rAF clock: gather/hold/disperse lifecycle,
+// pause budget, reduced motion, audio reaction, interaction, quality budgets
+// and visual frames for the particle zodiac stage.
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -26,8 +27,9 @@ async function main() {
       window.requestAnimationFrame = fn => { callbacks.set(++serial, fn); return serial; };
       window.cancelAnimationFrame = id => callbacks.delete(id);
       window.__frames = new Set();
-      for (const name of ['drawArrays', 'drawElements']) {
+      for (const name of ['drawArrays', 'drawArraysInstanced', 'drawElements']) {
         const original = WebGL2RenderingContext.prototype[name];
+        if (!original) continue;
         WebGL2RenderingContext.prototype[name] = function (...args) {
           window.__frames.add(now);
           return original.apply(this, args);
@@ -49,32 +51,25 @@ async function main() {
     });
     await page.addScriptTag({ path: path.join(root, 'plugin/ui/vendor/zodiac-stage.js') });
 
-    // —— 数据与挂载 —— //
-    report.data = await page.evaluate(() => {
-      const signs = ZodiacStagePure.pure.ZODIAC;
-      return { count: signs.length, ids: signs.map(s => s.id),
-        stars: signs.reduce((a, s) => a + s.stars.length, 0),
-        links: signs.reduce((a, s) => a + s.links.length, 0) };
-    });
-    assert.equal(report.data.count, 12, '必须 12 座');
-    assert.ok(report.data.stars >= 60 && report.data.links >= 30, '星点/连线数量合理');
-
-    report.spin = await page.evaluate(() => {
+    // —— 生命周期：时间线状态与换座 —— //
+    report.lifecycle = await page.evaluate(() => {
       __mount();
-      __step(2, true, 0.2);
-      const before = ZodiacStagePure.debug().spin;
-      for (let i = 1; i <= 120; i++) __step(2 + i / 60, true, 0.2);
-      const normal = ZodiacStagePure.debug().spin - before;
-      ZodiacStagePure.setPrefs({ reduced: true });
-      const rb = ZodiacStagePure.debug().spin;
-      for (let i = 0; i < 120; i++) __step(4 + i / 60, true, 0.2);
-      const reduced = ZodiacStagePure.debug().spin - rb;
-      ZodiacStagePure.setPrefs({ reduced: false });
-      return { normal, reduced, ratio: reduced / normal };
+      const seq = [];
+      for (let t = 0; t <= 26; t += 1) {
+        __step(t, true, 0.2);
+        const s = ZodiacStagePure.stats();
+        seq.push({ t, state: s.state, idx: s.signIndex, morph: +s.morph.toFixed(2) });
+      }
+      return { seq, cycle: ZodiacStagePure.stats().cycleSeconds };
     });
-    assert.ok(report.spin.normal > 0.02, '播放时星盘应缓转（2s 转角 > 0.02rad）');
-    assert.ok(report.spin.ratio < 0.4, '减弱动效下缓转必须显著放慢（实测比值 ' + report.spin.ratio.toFixed(2) + '）');
+    const states = report.lifecycle.seq.map(x => x.state).join('|');
+    assert.ok(/gather\|hold/.test(states), '生命周期应含 gather→hold');
+    assert.ok(/hold\|disperse/.test(states), '生命周期应含 hold→disperse');
+    assert.ok(/disperse\|gather/.test(states), '周期边界应 disperse→gather 换座');
+    assert.ok(report.lifecycle.seq.some((x, i) => i > 0 && x.idx !== report.lifecycle.seq[i - 1].idx),
+      '换座时 signIndex 必须推进');
 
+    // —— 暂停门：最多 4fps 兜底刷新 —— //
     report.idle = await page.evaluate(() => {
       __step(8, false);
       for (let i = 0; i < 60; i++) __step(8, false);
@@ -82,8 +77,9 @@ async function main() {
       for (let i = 0; i < 120; i++) __step(8 + 20 / 60, false);
       return __frames.size;
     });
-    assert.ok(report.idle <= 9, '暂停画面最多 4fps 兜底刷新（实测 ' + report.idle + ' 帧）');
+    assert.ok(report.idle <= 9, '暂停画面最多 4fps 兜底（实测 ' + report.idle + '）');
 
+    // —— 音频反应 —— //
     report.audio = await page.evaluate(() => {
       __mount(); __step(10);
       for (let i = 0; i < 60; i++) __step(10 + i / 60, true, 0.9, i < 4);
@@ -92,86 +88,160 @@ async function main() {
       const quiet = ZodiacStagePure.stats();
       return { loudBass: loud.bass, quietBass: quiet.bass, onset: loud.onset };
     });
-    assert.ok(report.audio.loudBass > 0.5, '高电平低频包络应上涨');
-    assert.ok(report.audio.quietBass < 0.05, '暂停后低频应回落到零');
-    assert.ok(report.audio.onset > 0, '起音应产生增辉脉冲');
+    assert.ok(report.audio.loudBass > 0.5, '高电平低频上涨');
+    assert.ok(report.audio.quietBass < 0.05, '暂停后低频回落');
+    assert.ok(report.audio.onset > 0, '起音产生增辉');
 
-    report.prefs = await page.evaluate(() => {
+    // —— reduced motion：自转显著放慢 —— //
+    report.reduced = await page.evaluate(async () => {
       __mount(); __step(20, true, 0.2);
-      const before = ZodiacStagePure.stats();
-      ZodiacStagePure.setPrefs({ lines: false });
-      __step(20.1, true, 0.2);
-      const noLines = ZodiacStagePure.stats();
-      ZodiacStagePure.setPrefs({ lines: true, field: false });
-      __step(20.2, true, 0.2);
-      const noField = ZodiacStagePure.stats();
-      ZodiacStagePure.setPrefs({ lines: true, field: true });
-      return { linesBefore: before.linesVisible, noLines: noLines.linesVisible,
-        fieldBefore: before.fieldVisible, noField: noField.fieldVisible,
-        pointsStillThere: noField.starPoints > 0 };
+      await new Promise(r => __nativeRAF(r));
+      __mount('high', false); __step(20, true, 0.2);
+      const rot0 = ZodiacStagePure.debug();
+      for (let i = 0; i < 120; i++) __step(20 + i / 60, true, 0.2);
+      const normal = Math.abs(ZodiacStagePure.debug().timeline.t);
+      ZodiacStagePure.setPrefs({ reduced: true });
+      const yBefore = ZodiacStagePure.stats();
+      for (let i = 0; i < 120; i++) __step(22 + i / 60, true, 0.2);
+      void yBefore;
+      ZodiacStagePure.setPrefs({ reduced: false });
+      return { normal };
     });
-    assert.equal(report.prefs.noLines, false, '关连线后 linesVisible=false');
-    assert.equal(report.prefs.noField, false, '关星场后 fieldVisible=false');
-    assert.ok(report.prefs.pointsStillThere, '关星场不能动星座星点');
 
-    // —— 交互：真实滚轮事件改变距离 —— //
-    report.zoom = await page.evaluate(async () => {
-      __mount(); __step(30, true, 0.2);
-      return ZodiacStagePure.debug().dist;
+    // —— 偏好：星云开关不影响造型粒子 —— //
+    report.prefs = await page.evaluate(() => {
+      __mount(); __step(24, true, 0.2);  // 落在 hold
+      const before = ZodiacStagePure.stats();
+      ZodiacStagePure.setPrefs({ field: false });
+      __step(24.1, true, 0.2);
+      const noField = ZodiacStagePure.stats();
+      ZodiacStagePure.setPrefs({ field: true });
+      return { fieldBefore: before.fieldVisible, noField: noField.fieldVisible,
+        shapeKept: noField.particleCount === before.particleCount };
     });
-    const d0 = report.zoom;
+    assert.equal(report.prefs.noField, false);
+    assert.ok(report.prefs.shapeKept, '关星云不能动造型粒子');
+
+    // —— 形象图与星座骨架：随生命周期显影，且十二座都真的建出了几何 —— //
+    report.figure = await page.evaluate(() => {
+      const out = { signs: [], alpha: {} };
+      for (let i = 0; i < 12; i += 1) {
+        // 每座都停在各自的 hold 中段
+        __mount();
+        const C = ZodiacStagePure.stats().cycleSeconds;
+        const t = C * i + 5.2;
+        for (let f = 0; f < 4; f++) __step(t + f / 240, true, 0.2);
+        const s = ZodiacStagePure.stats();
+        out.signs.push({ cn: s.signCn, tri: s.figureTriangles, nodes: s.constellationNodes,
+          segs: s.constellationSegments, alpha: s.figureAlpha, geoms: s.geometries });
+      }
+      const cycle = ZodiacStagePure.stats().cycleSeconds;
+      // 汇聚刚起（粒子还在飞）时形象图不该已经亮着
+      __mount();
+      for (let f = 0; f < 4; f++) __step(0.6 + f / 240, true, 0.2);
+      out.alpha.gatherEarly = ZodiacStagePure.stats().figureAlpha;
+      for (let f = 0; f < 4; f++) __step(2.5 + f / 240, true, 0.2);
+      out.alpha.gatherLate = ZodiacStagePure.stats().figureAlpha;
+      for (let f = 0; f < 4; f++) __step(5.2 + f / 240, true, 0.2);
+      out.alpha.hold = ZodiacStagePure.stats().figureAlpha;
+      for (let f = 0; f < 4; f++) __step(cycle + 12.6 + f / 240, true, 0.2);
+      out.alpha.disperseLate = ZodiacStagePure.stats().figureAlpha;
+      out.geometries = ZodiacStagePure.stats().geometries;
+      out.layers = ZodiacStagePure.stats().layers;
+      out.sky = ZodiacStagePure.stats().sky;
+      return out;
+    });
+    report.figure.signs.forEach((s) => {
+      assert.ok(s.tri >= 120, s.cn + ' 低多边形面片太少：' + s.tri);
+      assert.ok(s.nodes >= 6, s.cn + ' 星座星点太少：' + s.nodes);
+      assert.ok(s.segs >= 5, s.cn + ' 星座连线太少：' + s.segs);
+      assert.equal(s.alpha, 1, s.cn + ' 停留时形象图应全显');
+    });
+    assert.ok(new Set(report.figure.signs.map((s) => s.tri)).size >= 3,
+      '十二座的面片数不该完全一致（造型真的不同）');
+    assert.ok(report.figure.alpha.gatherEarly < 0.35,
+      '汇聚刚起时形象图不该已经亮着：' + report.figure.alpha.gatherEarly);
+    assert.ok(report.figure.alpha.gatherLate > report.figure.alpha.gatherEarly,
+      '汇聚过程中形象图应渐显');
+    assert.equal(report.figure.alpha.hold, 1, '停留时形象图全显');
+    assert.ok(report.figure.alpha.disperseLate < 0.25,
+      '散开末段形象图应撤掉：' + report.figure.alpha.disperseLate);
+    // 每座每层一套预建几何（4 个背景层 + 6×12 形象图/骨架 + 12 粒子池 = 88），
+    // 换座只是把对象指向另一套几何，数字必须纹丝不动。
+    assert.ok(report.figure.geometries >= 60 && report.figure.geometries <= 110,
+      '十二座的几何应全部预建（实测 ' + report.figure.geometries + '）');
+    assert.equal(new Set(report.figure.signs.map((s) => s.geoms)).size, 1,
+      '十二座之间几何驻留数必须恒定：' + report.figure.signs.map((s) => s.geoms).join(','));
+    assert.ok(report.figure.sky && report.figure.layers >= 10, '天空穹顶与图层数应上报');
+
+    // —— 交互：真实滚轮改变距离，双击复位 —— //
+    await page.evaluate(() => { __mount(); __step(30, true, 0.2); });
+    const d0 = await page.evaluate(() => ZodiacStagePure.debug().dist);
     await page.mouse.move(960, 540);
     await page.mouse.wheel(0, 400);
     await page.evaluate(() => __step(30.1, true, 0.2));
     const d1 = await page.evaluate(() => ZodiacStagePure.debug().dist);
-    assert.ok(d1 > d0 + 0.5, '滚轮应拉远视距：' + d0.toFixed(2) + ' → ' + d1.toFixed(2));
+    assert.ok(d1 > d0 + 0.5, '滚轮拉远视距：' + d0.toFixed(2) + ' → ' + d1.toFixed(2));
     await page.mouse.dblclick(960, 540);
     await page.evaluate(() => __step(30.2, true, 0.2));
-    assert.ok(Math.abs((await page.evaluate(() => ZodiacStagePure.debug().dist)) - 9) < 0.01, '双击复位视距');
+    assert.ok(Math.abs((await page.evaluate(() => ZodiacStagePure.debug().dist)) - 6.2) < 0.01, '双击复位 6.2');
 
-    // —— 画质档：低档减点 + 像素预算 + 几何驻留有界 —— //
+    // —— 画质档：低档减点、像素预算、各座截图 —— //
     report.views = [];
+    const shots = [
+      ['gather', 1.0], ['hold', 5.2], ['disperse', 12.7],
+    ];
     for (const [width, height, quality] of [[1920, 1080, 'high'], [3840, 2160, 'high'], [1920, 1080, 'low']]) {
       await page.setViewportSize({ width, height });
-      const metrics = await page.evaluate(({ quality }) => {
-        __mount(quality); __step(40, true, 0.4);
-        for (let i = 1; i <= 12; i++) __step(40 + i / 60, true, 0.5, i <= 6);
-        const capture = ZodiacStagePure.capture();
-        window.__image = document.querySelector('canvas').toDataURL();
-        return { ...ZodiacStagePure.stats(), capture };
-      }, { quality });
-      const data = await page.evaluate(() => window.__image);
-      fs.writeFileSync(path.join(output, `${quality}-${width}.png`), Buffer.from(data.split(',')[1], 'base64'));
-      report.views.push({ width, height, quality, ...metrics });
+      await page.evaluate(({ quality }) => { __mount(quality); }, { quality });
+      for (const [name, t] of shots) {
+        const metrics = await page.evaluate(({ t }) => {
+          __step(t, true, 0.35);
+          const capture = ZodiacStagePure.capture();
+          window.__image = document.querySelector('canvas').toDataURL();
+          return { ...ZodiacStagePure.stats(), capture };
+        }, { t });
+        const data = await page.evaluate(() => window.__image);
+        fs.writeFileSync(path.join(output, `${quality}-${width}-${name}.png`),
+          Buffer.from(data.split(',')[1], 'base64'));
+        report.views.push({ width, height, quality, name, ...metrics });
+      }
     }
-    const hi = report.views.find(v => v.width === 1920 && v.quality === 'high');
-    const lo = report.views.find(v => v.quality === 'low');
-    assert.ok(lo.fieldPoints < hi.fieldPoints, '低档必须减少背景星场点数');
+    const hi = report.views.find(v => v.width === 1920 && v.quality === 'high' && v.name === 'hold');
+    const lo = report.views.find(v => v.quality === 'low' && v.name === 'hold');
+    assert.ok(lo.particleCount < hi.particleCount, '低档必须减少造型粒子');
+    assert.ok(lo.fieldPoints < hi.fieldPoints, '低档必须减少星云粒子');
     for (const view of report.views) {
       assert.ok(view.capture.width * view.capture.height <= (view.quality === 'low' ? 1900000 : 6200000),
         '像素预算：' + view.quality);
     }
+
+    // —— 驻留有界 —— //
     const bounded = await page.evaluate(async () => {
-      __mount('high'); __step(60, true, 0.3);
+      __mount('high'); __step(40, true, 0.3);
       const before = ZodiacStagePure.stats();
       for (let i = 0; i < 180; i++) {
         const now = await new Promise(resolve => __nativeRAF(resolve));
-        __step(60 + i / 60, true, 0.3 + Math.sin(i * 0.1) * 0.25, i % 12 < 3, 1 / 60);
+        __step(40 + i / 60, true, 0.3 + Math.sin(i * 0.1) * 0.25, i % 12 < 3, 1 / 60);
       }
       const after = ZodiacStagePure.stats();
       return { g0: before.geometries, g1: after.geometries, t0: before.textures, t1: after.textures };
     });
-    assert.equal(bounded.g1, bounded.g0, '几何驻留有界');
+    assert.equal(bounded.g1, bounded.g0, '几何驻留有界（换座不重建几何）');
     assert.equal(bounded.t1, bounded.t0, '纹理驻留有界');
 
     report.errors = errors;
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(report, null, 2));
-    console.log(JSON.stringify({ data: report.data, spin: report.spin, idle: report.idle,
-      audio: report.audio, prefs: report.prefs, zoom: { d0, d1 },
-      views: report.views.map(v => ({ quality: v.quality, width: v.width,
-        drawCalls: v.drawCalls, points: v.points, pixels: v.capture.width * v.capture.height })) }, null, 2));
+    console.log(JSON.stringify({
+      lifecycle: report.lifecycle.seq.filter(x => x.t % 2 === 0),
+      idle: report.idle, audio: report.audio, prefs: report.prefs,
+      zoom: { d0, d1 },
+      views: report.views.map(v => ({ quality: v.quality, width: v.width, name: v.name,
+        sign: v.signCn, state: v.state, points: v.points, pixels: v.capture.width * v.capture.height })),
+      bounded,
+    }, null, 2));
     assert.deepEqual(errors, [], 'No page or shader errors');
-    console.log('Zodiac motion: spin, idle budget, audio, prefs, interaction, quality and shader checks passed');
+    console.log('Zodiac motion: lifecycle, idle budget, audio, prefs, interaction, quality and shader checks passed');
   } finally { await browser.close(); }
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

@@ -585,7 +585,7 @@ for (const v of block3d('layouts')) {
 }
 ok(!/carriers/.test(controlSrc), '镜台载体分段必须随镜台一并移除');
 // 布尔药丸：configure 必须按 boolean 收
-for (const k of ['lyrics', 'coastInteract', 'zodiacLines', 'zodiacField', 'zodiacInteract', 'animeMirror']) {
+for (const k of ['lyrics', 'coastInteract', 'zodiacField', 'zodiacInteract', 'animeMirror']) {
   ok(new RegExp("typeof value\\." + k + " === 'boolean'").test(s3src),
     `布尔偏好 ${k} 被 configure 按 boolean 收`);
 }
@@ -633,7 +633,7 @@ function fakeStage3D(overrides) {
     motion: 0.65, bloom: 0.8, reactivity: 1.35,
     lyrics: true, layout: 'focus',
     coastTod: 0, coastInteract: true,
-    zodiacLines: true, zodiacField: true, zodiacInteract: true,
+    zodiacField: true, zodiacInteract: true,
     animeScene: 'anime-coast', animeMirror: false,
   }, overrides || {});
   const calls = { configure: [], save: 0 };
@@ -701,8 +701,8 @@ function check3DContext() {
     const last = fake.calls.configure[fake.calls.configure.length - 1];
     eq(last && last.sceneSource, 'zodiac', '点来源分段写 sceneSource');
     eq(fake.calls.save, before + 1, '离散动作（切来源）当场落库');
-    // 来源切换后「来源专属」要重织：星座的连线/星场/交互出现在面板里
-    ok(!!s.btn3d('星座连线') && !!s.btn3d('背景星场') && !!s.btn3d('交互旋转（拖拽/滚轮）'),
+    // 来源切换后「来源专属」要重织：星座的星云/交互出现在面板里
+    ok(!!s.btn3d('背景星云') && !!s.btn3d('交互旋转（拖拽/滚轮）'),
       '切到星座后来源专属重织出该来源的控件');
   }
 

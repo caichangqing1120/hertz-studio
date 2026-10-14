@@ -406,11 +406,7 @@
       });
       tunedGrid.appendChild(inter.node);
     } else if (src === 'zodiac') {
-      var zLines = pill3d('星座连线', p.zodiacLines !== false, function (on) {
-        write3D({ zodiacLines: on });
-        zLines.set(on);
-      });
-      var zField = pill3d('背景星场', p.zodiacField !== false, function (on) {
+      var zField = pill3d('背景星云', p.zodiacField !== false, function (on) {
         write3D({ zodiacField: on });
         zField.set(on);
       });
@@ -418,7 +414,6 @@
         write3D({ zodiacInteract: on });
         zInteract.set(on);
       });
-      tunedGrid.appendChild(zLines.node);
       tunedGrid.appendChild(zField.node);
       tunedGrid.appendChild(zInteract.node);
     } else if (src === 'anime-svg') {

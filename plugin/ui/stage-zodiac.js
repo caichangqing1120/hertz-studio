@@ -11,7 +11,7 @@
 // Stage3D 的调用面：
 //   StageZodiac.available()        入口置灰判断（探测 WebGL2，带缓存）
 //   StageZodiac.setHost(el|null)   挂进宿主层 / 卸载；返回是否成功
-//   StageZodiac.setPrefs(p)        { lines, field, interact, palette } 即时生效
+//   StageZodiac.setPrefs(p)        { field, interact, palette } 即时生效
 //   StageZodiac.degradedBecause()  最近一次挂载失败的原因，null 为可用
 (function () {
   'use strict';
@@ -187,7 +187,7 @@
     reason = null;
     ZS().resize(w, h);
     ZS().setPrefs({
-      lines: currentPrefs.lines, field: currentPrefs.field,
+      field: currentPrefs.field,
       interactive: currentPrefs.interactive, palette: currentPrefs.palette,
     });
     mounted = true;
@@ -195,7 +195,7 @@
     return true;
   }
 
-  var currentPrefs = { lines: true, field: true, interactive: true, palette: null };
+  var currentPrefs = { field: true, interactive: true, palette: null };
 
   function setHost(el) {
     if (el === host) return !el || mounted;
@@ -227,7 +227,6 @@
 
   function setPrefs(p) {
     if (!p) return;
-    if (typeof p.lines === 'boolean') currentPrefs.lines = p.lines;
     if (typeof p.field === 'boolean') currentPrefs.field = p.field;
     if (typeof p.interact === 'boolean') currentPrefs.interactive = p.interact;
     if (p.palette) {

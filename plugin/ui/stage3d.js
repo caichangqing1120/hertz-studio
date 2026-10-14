@@ -797,7 +797,7 @@
   var coastHost = null;
   // 「星座 · 十二星图」（sceneSource 'zodiac'）的专属偏好。星座不接管歌词，
   // 歌词由 stanza/s3d-reading 叠加层照常演出；无 GL 降级时叠层兜底。
-  var zodiacLines = true, zodiacField = true, zodiacInteract = true;
+  var zodiacField = true, zodiacInteract = true;
   var zodiacHost = null;
   // 「动画绘景」（sceneSource 'anime-svg'）的专属偏好：作品与镜像对称。
   var animeHost = null;
@@ -2183,7 +2183,7 @@
   function preferences() {
     return { scene: STAGES[stageIndex].id, sceneSource: sceneSource, motion: motion, bloom: bloom, reactivity: reactivity, lyrics: showLyrics, cruise: cam.cruise, layout: layout, lyricSize: lyricSize, lyricGlow: lyricGlow,
       coastTod: coastTod, coastInteract: coastInteract,
-      zodiacLines: zodiacLines, zodiacField: zodiacField, zodiacInteract: zodiacInteract,
+      zodiacField: zodiacField, zodiacInteract: zodiacInteract,
       shelfMode: shelfMode,
       animeScene: animeScene, animeMirror: animeMirror,
       stageTheme: stageTheme,
@@ -2243,7 +2243,6 @@
           || value.sceneSource === 'anime-svg') sceneSource = value.sceneSource;
       if (typeof value.coastTod === 'number') coastTod = clamp(value.coastTod, 0, 1);
       if (typeof value.coastInteract === 'boolean') coastInteract = value.coastInteract;
-      if (typeof value.zodiacLines === 'boolean') zodiacLines = value.zodiacLines;
       if (typeof value.zodiacField === 'boolean') zodiacField = value.zodiacField;
       if (typeof value.zodiacInteract === 'boolean') zodiacInteract = value.zodiacInteract;
       // 绘景作品按注册表校验：存下来的 id 若已被注册表删掉，恢复时保持默认而不是
@@ -2670,8 +2669,6 @@
     if (tuning) {
       tuning.hidden = !useZodiac;
       if (useZodiac) {
-        var linesInput = $('s3d-zodiac-lines');
-        if (linesInput) linesInput.checked = zodiacLines;
         var fieldInput = $('s3d-zodiac-field');
         if (fieldInput) fieldInput.checked = zodiacField;
         var interactInput = $('s3d-zodiac-interact');
@@ -2690,7 +2687,7 @@
     if (active && useZodiac) {
       var theme = baseLyricTheme();
       StageZodiac.setPrefs({
-        lines: zodiacLines, field: zodiacField, interact: zodiacInteract,
+        field: zodiacField, interact: zodiacInteract,
         palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
           backgroundColor: theme.backgroundColor, primaryColor: theme.primaryColor,
           tertiaryColor: theme.tertiaryColor } : null,
@@ -4092,7 +4089,7 @@
       if (global.StageCoast) StageCoast.setPrefs({ interact: coastInteract });
       savePreferences();
     });
-    [['s3d-zodiac-lines', 'zodiacLines'], ['s3d-zodiac-field', 'zodiacField'],
+    [['s3d-zodiac-field', 'zodiacField'],
       ['s3d-zodiac-interact', 'zodiacInteract']].forEach(function (pair) {
       var input = $(pair[0]);
       if (input) input.addEventListener('change', function () {

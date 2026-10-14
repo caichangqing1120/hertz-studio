@@ -29,7 +29,6 @@
     row('s3d-fl-bg-mode', !creative && !coast && !zodiac && !svgScene, zodiac ? '当前为星座粒子星图；切回沉浸声场后使用此设置' : coast ? '当前背景为「纯真3D」海岸公路；切回沉浸声场后使用此设置' : svgScene ? '当前背景由动画绘景舞台接管；切回沉浸声场后使用此设置' : '当前背景由创意工坊编排；切回沉浸声场后使用此设置');
     row('s3d-coast-tod', coast, '选择「海岸公路」背景后生效');
     row('s3d-coast-interact', coast, '选择「海岸公路」背景后生效');
-    row('s3d-zodiac-lines', zodiac, '选择「星座」背景后生效');
     row('s3d-zodiac-field', zodiac, '选择「星座」背景后生效');
     row('s3d-zodiac-interact', zodiac, '选择「星座」背景后生效');
     row('s3d-layout', !stanza, '当前歌词视觉使用独立排版；切回舞台 3D 歌词轨后生效');
@@ -48,7 +47,7 @@
       label: selected.kind === 'director' ? selected.label + ' · 当前演出：' + definition(effective).label : selected.label,
       backgroundNote: creative ? '创意编排正在大舞台演出；场景、背景与音乐响应在创意工坊中调整。' :
         coast ? '「纯真3D」海岸公路正在演出；时刻与交互在下方调整。' :
-        zodiac ? '「星座」正在演出：十二座粒子星图沿黄道环缓缓成环，连线、背景星场与交互在下方调整。' :
+        zodiac ? '「星座」正在演出：粒子逐座汇聚成星座造型、停留后散开换下一座，背景星云与交互在下方调整。' :
         svgScene ? '动画绘景正在大舞台演出；绘景作品与镜像对称在下方「动画绘景」中调整。' :
         covered ? '当前使用独立背景，已隐藏 3D 场景；原场景设置已保留。' :
         scene ? '3D 背景与歌词同时生效。' : '当前设备未启用 3D 渲染。' };
