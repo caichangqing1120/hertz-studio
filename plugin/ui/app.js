@@ -402,9 +402,9 @@ const ServerTransport = {
   async post(path, body, options) {
     return serializedPlaybackPost(path, body, request, options);
   },
-  async put(path, body) {
+  async put(path, body, options) {
     PlaybackIntent.command(path);
-    return request(path, { method: 'PUT', body: JSON.stringify(body || {}) });
+    return request(path, { ...options, method: 'PUT', body: JSON.stringify(body || {}) });
   },
   async del(path) { return request(path, { method: 'DELETE' }); },
   // 直接给出可以塞进 <img src> 的地址，不再自己 fetch + createObjectURL。
@@ -2384,7 +2384,8 @@ function onStageControl(e) {
       // 与 stage3d 分支同形状的整对象写回（§8：改任何一项都会把 sceneSource 一并落库）。
       markSettingsDirty();
       state.settings.space3d = d.value;
-      const writeSpace = stageSettingsWrite.then(() => transport.put('/v1/settings', { space3d: d.value }));
+      // 已发出的机位快照在 HTTP 页面离开后继续提交；仍按原队列排序，避免旧写覆盖新写。
+      const writeSpace = stageSettingsWrite.then(() => transport.put('/v1/settings', { space3d: d.value }, { keepalive: true }));
       stageSettingsWrite = writeSpace.catch(() => toast('空间设置暂未保存', 'error'));
       d.completion = writeSpace;
       break;

@@ -87,6 +87,40 @@ section('角度环绕：350°→10° 走短弧');
   sc3.setBaseline({ theta: 0, phi: 0, radius: 2.2, look: [0, 0, 0] });
   for (let i = 0; i < 200; i++) sc3.tick(16.667, {});
   near(sc3.pose().lookAt[2], 0, 0.01, 'look 归零收敛');
+  // 基线视场角：场机位要 52–68°（towers 54 / 频谱球 52 / 星云 54），FOV 冲击在它之上做减法。
+  const sc4 = fresh();
+  sc4.setCinema(true, 0);   // shake=0：FOV 冲击不混入，基线读数纯
+  sc4.setBaseline({ theta: 0, phi: 0.08, radius: 6.6, fov: 54 });
+  for (let i = 0; i < 200; i++) sc4.tick(16.667, {});
+  near(sc4.pose().fov, 54, 0.01, 'orbit fov 收敛到基线 54');
+  sc4.setBaseline({ theta: 0, phi: 0.08, radius: 6.6, fov: 100 });
+  for (let i = 0; i < 200; i++) sc4.tick(16.667, {});
+  near(sc4.pose().fov, 72, 0.01, 'fov 基线钳到 72（与自由镜头同界）');
+}
+
+section('场景机位与自由镜头连续性');
+{
+  const sc = fresh();
+  sc.setCinema(false, 0);
+  sc.setBaseline({theta: 0, phi: 0.2, radius: 23, fov: 54, look: [0, 1, 0], maxRadius: 80});
+  sc.snap();
+  near(sc.pose().radius, 23, 1e-9, '场景显式距离范围保留塔林 23 单位构图');
+  near(sc.pose().lookAt[1], 1, 1e-9, 'snap 同时应用注视点');
+  sc.freeToggle();
+  const p = sc.pose();
+  const dir = [-Math.sin(p.yaw) * Math.cos(p.pitch), Math.sin(p.pitch), -Math.cos(p.yaw) * Math.cos(p.pitch)];
+  const target = p.position.map((v, i) => v + dir[i] * 23);
+  near(target[0], 0, 1e-6, '自由镜头进入后仍看向注视点 x');
+  near(target[1], 1, 1e-6, '自由镜头进入后仍看向注视点 y');
+  near(target[2], 0, 1e-6, '自由镜头进入后仍看向注视点 z');
+  sc.freeLoad({locked:true, position:{x:0,y:0,z:0}, fov:54});
+  near(sc.pose().position[2], 0, 0, '自由机位 z=0 持久化不被默认值覆盖');
+  sc.setBaseline({theta:0,phi:0,radius:6.6});
+  sc.snap();
+  near(sc.internals().orbit.base[2], 6.6, 0, '切回普通场恢复默认范围');
+  sc.freeToggle(); sc.freeKey('KeyW', true); sc.tick(100, {}); sc.clearInput();
+  const stopped = sc.pose().position.slice(); sc.tick(100, {});
+  ok(sc.pose().position.every((n, i) => Math.abs(n - stopped[i]) < 1e-9), '失焦清输入后不继续移动');
 }
 
 // —— 2. 钳制 —— //

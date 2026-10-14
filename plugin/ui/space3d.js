@@ -79,6 +79,7 @@
     cinema: true,
     coastTod: 0, coastInteract: true,
     zodiacLines: true, zodiacField: true, zodiacInteract: true,
+    post: {}, layers: {},
     freeCam: null                  // SpaceCamera.freeSnapshot 的形状（§8）
   };
   var queue = [];
@@ -87,6 +88,7 @@
   var saveTimer = 0;
   var lyricView = null;
   var artHost = null;
+  var layers = null, extraControls = [], failedSources = {}, seeking = false;
   var stanza = { ready: false, bg: null, sub: null, instances: {} };
   // 沉浸粒子场的逐帧状态：音频全量（uBands 64 段 + 分带聚合）、指针场、
   // 转场脉冲与开合淡入淡出 —— 语义与 stage3d 的 updateAudio/pointerField/trans 同构。
@@ -123,6 +125,8 @@
       sceneSource: prefs.sceneSource, field: prefs.field, lyrics: prefs.lyrics, visual: prefs.visual,
       cinema: prefs.cinema, coastTod: prefs.coastTod, coastInteract: prefs.coastInteract,
       zodiacLines: prefs.zodiacLines, zodiacField: prefs.zodiacField, zodiacInteract: prefs.zodiacInteract,
+      post: global.SpacePost ? SpacePost.normalize(prefs.post) : {},
+      layers: global.SpaceLayers ? SpaceLayers.normalize(prefs.layers) : {},
       freeCam: free, space3dDefaultMigrated: 1
     }));
   }
@@ -130,8 +134,13 @@
     if (saveTimer) return;
     saveTimer = setTimeout(function () {
       saveTimer = 0;
-      control('space3d', preferences());
+      savePreferences();
     }, 240);
+  }
+  function savePreferences() {
+    var value = preferences();
+    prefs.freeCam = value.freeCam;
+    control('space3d', value);
   }
   // 「默认加载海岸公路」的一次性迁移：仅命中写回路径连带落库的旧默认 immersive；
   // 用户显式选过其它来源的不动。本层从未发布，这是防御性的（§8）。
@@ -147,9 +156,12 @@
   }
   function configure(value) {
     if (!value || typeof value !== 'object') return;
-    migrateDefaults(value);
+    var oldSource = prefs.sceneSource, oldField = prefs.field;
+    value = migrateDefaults(Object.assign({}, value));
     if (sourceById(value.sceneSource)) prefs.sceneSource = value.sceneSource;
-    if (typeof value.field === 'string') prefs.field = value.field;
+    if (typeof value.field === 'string' && global.SpaceFields && SpaceFields.stageBaseline(value.field)) prefs.field = value.field;
+    if (global.SpacePost && value.post) prefs.post = SpacePost.normalize(value.post);
+    if (global.SpaceLayers && value.layers) prefs.layers = SpaceLayers.normalize(value.layers);
     if (typeof value.lyrics === 'boolean') prefs.lyrics = value.lyrics;
     if (['stage', 'classic', 'cadenza', 'sonnet', 'tempera'].indexOf(value.visual) >= 0) prefs.visual = value.visual;
     if (typeof value.cinema === 'boolean') prefs.cinema = value.cinema;
@@ -158,22 +170,30 @@
     if (typeof value.zodiacLines === 'boolean') prefs.zodiacLines = value.zodiacLines;
     if (typeof value.zodiacField === 'boolean') prefs.zodiacField = value.zodiacField;
     if (typeof value.zodiacInteract === 'boolean') prefs.zodiacInteract = value.zodiacInteract;
-    if (camera && value.freeCam) camera.freeLoad(value.freeCam);
+    if (camera && value.freeCam) {
+      camera.freeLoad(value.freeCam);
+      prefs.freeCam = camera.freeSnapshot();
+    }
     if (camera) camera.setCinema(prefs.cinema, 1);
-    if (inited) { syncTune(); syncLyricVisual(); buildFxGrid(); }
+    if (inited) {
+      if (active) syncSource(oldSource !== prefs.sceneSource || oldField !== prefs.field);
+      if (layers) layers.configure(prefs.layers);
+      syncSheet(); syncLyricVisual(); buildFxGrid(); syncExtraControls();
+    }
   }
 
   // ---------------------------------------------------------------------------
   // 帧驱动
   // ---------------------------------------------------------------------------
   function reducedMotion() {
-    return !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    return !!(global.Stage && Stage.presentation && Stage.presentation().reduced) ||
+      !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
   // §6.3 硬规则：自转场景（coast/zodiac）挂载时相机门报 0 —— 场景引擎自己出画面，
   // 我们只留交互/自由镜头的临时窗口。歌词与 stanza 走独立的 space3d-lyrics 门。
   function targetFps() {
     if (!active || document.hidden) return 0;
-    if (camera && camera.isFreeEngaged()) return reducedMotion() ? 15 : 240;
+    if (camera && (camera.isFreeActive() || camera.isResetting())) return reducedMotion() ? 15 : 240;
     if (isSelfSpinning(prefs.sceneSource)) {
       return performance.now() < interactUntil ? 30 : 0;
     }
@@ -183,7 +203,7 @@
     return 240;
   }
   function lyricsFps() {
-    if (!active || document.hidden || !prefs.lyrics) return 0;
+    if (!active || document.hidden || !prefs.lyrics || ownsLyrics()) return 0;
     var present = global.Stage && Stage.presentation ? Stage.presentation() : null;
     if (!present || !present.playing) return 10;   // 暂停时低频兜底刷新
     return reducedMotion() ? 15 : 30;
@@ -239,7 +259,7 @@
     au.beat = (n && onset && onset.pulse != null) ? clamp(onset.pulse, 0, 1.35) : dampTo(au.beat, 0, 200, dtMs);
     if (au.beat > previousBeat + 0.08 && au.beat > 0.20 && spaceTime - lastBeatAt > 0.22) lastBeatAt = spaceTime;
     previousBeat = au.beat;
-    if (!reducedMotion()) spaceTime += dtMs / 1000;
+    if (playing && !reducedMotion()) spaceTime += dtMs / 1000;
     updateTransition(dtMs);
     fade = dampTo(fade, fadeTarget, 220, dtMs);
   }
@@ -267,15 +287,23 @@
     return null;
   }
   function setField(id) {
-    var c = fieldCam(id);
-    if (!c) return;
+    // 基线统一走 SpaceFields.stageBaseline：场来自效果目录 cam，scene:* 来自
+    // creative 面板度数机位（度→弧度 + fov 基线 + 注视高度）。
+    var base = (global.SpaceFields && SpaceFields.stageBaseline) ? SpaceFields.stageBaseline(id) : null;
+    if (!base) return;
+    if (active && prefs.sceneSource === 'immersive') {
+      if (!SpaceFields.setStage(id)) {
+        showFallback(SpaceFields.degradedBecause() || '此场景暂不可用'); return false;
+      }
+      hideFallback();
+    }
     prefs.field = id;
     if (camera) {
-      camera.setBaseline({ theta: c.theta, phi: c.phi, radius: c.dist, look: c.look });
+      camera.setBaseline(base);
       camera.snap();
     }
-    if (global.SpaceFields && SpaceFields.setStage) SpaceFields.setStage(id);
     startTransition();
+    syncLyricVisual();
     buildFxGrid();
     scheduleSave();
     markInteraction(900);
@@ -284,18 +312,12 @@
   // 的位置/朝向换算成球坐标后同样可画。
   function drawFields(dtMs) {
     if (!global.SpaceFields) return;
+    var present = global.Stage && Stage.presentation ? Stage.presentation() : null;
+    var playing = !!(present && present.playing);
     var pose = camera.pose();
     var envPose;
-    if (pose.free) {
-      var px = pose.position[0], py = pose.position[1], pz = pose.position[2];
-      var r = Math.max(0.001, Math.sqrt(px * px + py * py + pz * pz));
-      envPose = {
-        free: false,
-        theta: Math.atan2(px, pz),
-        phi: clamp(Math.asin(clamp(py / r, -1, 1)), -1.35, 1.35),
-        radius: r, fov: pose.fov, lookAt: [0, 0, 0]
-      };
-    } else {
+    if (pose.free) envPose = pose;
+    else {
       var world = pose.world || { x: 0, y: 0 };
       envPose = {
         free: false,
@@ -307,6 +329,12 @@
     SpaceFields.draw(dtMs, {
       pose: envPose,
       audio: { bass: au.bass, mid: au.mid, treble: au.treble, energy: au.energy, beat: au.beat, bands: audioBands },
+      rises: (onset.binRise && onset.binRise.length) ? onset.binRise : ZEROS,
+      agg: (onset.agg && onset.agg.length >= 4) ? onset.agg : [0, 0, 0, 0],
+      pulse: onset.pulse || 0,
+      playing: playing,
+      lyric: global.Stage && Stage.lyrics ? Stage.lyrics() : null,
+      lyrics: prefs.lyrics, post: prefs.post,
       pointer: { x: pointerField.x, y: pointerField.y, active: pointerField.active,
         clickX: pointerField.clickX, clickY: pointerField.clickY, clickAge: spaceTime - pointerField.clickAt },
       transition: { scatter: trans.scatter, burst: trans.burst },
@@ -323,11 +351,10 @@
     var playing = !!(present && present.playing);
     var posSec = present ? (present.position || 0) / 1000 : 0;
     var sp = (global.Stage && Stage.spectrum && Stage.spectrum()) || null;
-    onset.step(dtMs, sp && sp.length ? sp : ZEROS, t0);
-    updateAudioLive(dtMs, sp, playing);
+    if (!isSelfSpinning(prefs.sceneSource)) updateSignal(dtMs);
     if (camera) {
       camera.tick(dtMs, {
-        playing: playing,
+        playing: playing && !reducedMotion(), reduced: reducedMotion(),
         audioTime: posSec,
         energy: au.energy,
         low: au.bass
@@ -338,6 +365,13 @@
     // 世界拖拽期间也算交互，帧门别在拖到一半停机。
     if (dragging) interactUntil = Math.max(interactUntil, t0 + 400);
     sampleCost(performance.now() - t0);
+  }
+  function updateSignal(dtMs) {
+    if (!active || document.hidden) return;
+    var present = global.Stage && Stage.presentation ? Stage.presentation() : {};
+    var sp = global.Stage && Stage.spectrum ? Stage.spectrum() : ZEROS;
+    if (present.playing && !reducedMotion()) onset.step(dtMs, sp || ZEROS, performance.now());
+    updateAudioLive(dtMs, present.playing && !reducedMotion() ? sp : ZEROS, !!present.playing);
   }
   var cost = { samples: [], avg: 0 };
   function sampleCost(ms) {
@@ -356,6 +390,7 @@
     if (lyricView && prefs.visual === 'stage') {
       lyricView.update({ position: pos, reduced: reducedMotion(), track: present ? present.track : null });
       lyricView.paint(pos);
+      if (global.HandDrawn && HandDrawn.refreshAnnotation) HandDrawn.refreshAnnotation();
     }
     if (stanza.ready && prefs.visual !== 'stage') {
       var inst = stanza.instances[prefs.visual];
@@ -370,23 +405,26 @@
   // 8fps 元数据档：主题、可见性、暂停态、字号这些低频量。
   function uiTick() {
     if (!active) return;
+    updateLayers(100);
     if (stanza.ready) {
       var theme = lyricTheme();
       Object.keys(stanza.instances).forEach(function (id) {
         var inst = stanza.instances[id];
-        var on = id === prefs.visual;
+        var on = prefs.lyrics && !ownsLyrics() && id === prefs.visual;
         if (inst.setVisible) inst.setVisible(on);
         if (on && inst.setTheme) inst.setTheme(theme);
       });
-      if (stanza.bg && stanza.bg.setVisible) stanza.bg.setVisible(prefs.visual !== 'stage');
+      if (stanza.bg && stanza.bg.setVisible) stanza.bg.setVisible(prefs.lyrics && !ownsLyrics() && prefs.visual !== 'stage');
       if (stanza.sub && stanza.sub.update) stanza.sub.update();
     }
-    if (lyricView && lyricView.configure) lyricView.configure(prefs.lyrics && prefs.visual === 'stage');
+    if (lyricView && lyricView.configure) lyricView.configure(prefs.lyrics && !ownsLyrics() && prefs.visual === 'stage');
     var reading = hosts.reading;
-    if (reading) reading.hidden = !prefs.lyrics || prefs.visual !== 'stage';
+    if (reading) reading.hidden = !prefs.lyrics || ownsLyrics() || prefs.visual !== 'stage';
     var st = hosts.stanza;
-    if (st) st.hidden = !prefs.lyrics || prefs.visual === 'stage';
+    if (st) st.hidden = !prefs.lyrics || ownsLyrics() || prefs.visual === 'stage';
+    if (global.HandDrawn && HandDrawn.refreshAnnotation) HandDrawn.refreshAnnotation();
     syncPlayBtn();
+    syncProgress();
   }
   function lyricTheme() {
     if (global.StanzaTheme && StanzaTheme.resolve) {
@@ -395,44 +433,135 @@
     return null;
   }
 
+  function updateLayers(dtMs) {
+    if (!layers || !global.Stage) return;
+    var present = Stage.presentation();
+    layers.update(dtMs, { pose: camera.pose(), bands: Stage.spectrum() || ZEROS,
+      energy: Stage.energy(), beat: au.beat, playing: present.playing,
+      reduced: reducedMotion(), hidden: document.hidden,
+      timeSec: present.position / 1000 });
+  }
+  function buildExtraControls() {
+    var host = $('sp-extra-controls');
+    if (!host) return;
+    function group(title, name, specs, read, write) {
+      var section = document.createElement('details');
+      section.id = 'sp-controls-' + name;
+      var summary = document.createElement('summary'); summary.textContent = title;
+      section.appendChild(summary); host.appendChild(section);
+      specs.forEach(function (spec) {
+        var label = document.createElement('label'); label.htmlFor = 'sp-' + name + '-' + spec.key;
+        label.textContent = spec.label;
+        var input = document.createElement(spec.type === 'select' ? 'select' : 'input');
+        input.id = label.htmlFor;
+        if (spec.type === 'select') spec.options.forEach(function (opt) {
+          var option = document.createElement('option'); option.value = opt[0]; option.textContent = opt[1]; input.appendChild(option);
+        });
+        else if (spec.type === 'toggle') input.type = 'checkbox';
+        else { input.type = 'range'; input.min = spec.min; input.max = spec.max; input.step = spec.step || 1; }
+        var output = document.createElement('output'); output.htmlFor = input.id;
+        section.appendChild(label); section.appendChild(input); section.appendChild(output);
+        function sync() {
+          var value = read()[spec.key];
+          if (input.type === 'checkbox') input.checked = !!value;
+          else input.value = value == null ? spec.def || 0 : value;
+          output.textContent = input.type === 'range' ? input.value + (spec.unit || '') : '';
+        }
+        input.addEventListener(input.type === 'range' ? 'input' : 'change', function () {
+          var value = input.type === 'checkbox' ? input.checked : input.tagName === 'SELECT' ? input.value : Number(input.value);
+          var next = Object.assign({}, read()); next[spec.key] = value;
+          write(next); sync(); markInteraction(700);
+        });
+        extraControls.push(sync); sync();
+      });
+      return section;
+    }
+    if (global.SpaceLayers) {
+      prefs.layers = SpaceLayers.normalize(prefs.layers);
+      group('空间装饰与排版', 'layer', SpaceLayers.catalog(), function () { return prefs.layers; }, function (next) {
+        prefs.layers = SpaceLayers.normalize(next); if (layers) layers.configure(prefs.layers); scheduleSave();
+      });
+      group('背景', 'background', SpaceLayers.backgroundCatalog(), function () { return global.Backgrounds ? Backgrounds.values() : {}; }, function (next) {
+        if (layers) layers.setBackground(next);
+        if (global.CreativeStage && CreativeStage.setBackground) CreativeStage.setBackground(next);
+      });
+      var file = document.createElement('input'); file.type = 'file'; file.accept = 'image/*,video/*'; file.id = 'sp-background-file';
+      file.setAttribute('aria-label', '选择背景图片或视频'); $('sp-controls-background').appendChild(file);
+      file.addEventListener('change', function () {
+        if (layers && file.files[0]) Promise.resolve(layers.setLocalFile(file.files[0])).then(function () { syncExtraControls(); }).catch(function () { showFallback('背景文件无法读取，请换一张图片或视频。'); });
+      });
+    }
+    if (global.SpacePost) {
+      prefs.post = SpacePost.normalize(prefs.post);
+      group('粒子与频谱场景 · 画面滤镜', 'post', SpacePost.catalog(), function () { return prefs.post; }, function (next) {
+        prefs.post = SpacePost.normalize(next); scheduleSave();
+      });
+    }
+    if (global.HandDrawn) {
+      group('手绘风格', 'hand', [
+        {key:'on',label:'开启手绘',type:'toggle'},
+        {key:'style',label:'画风',type:'select',options:HandDrawn.presets().map(function (p) { return [p.id,p.label]; })},
+        {key:'frame',label:'手绘边框',type:'toggle'}, {key:'wave',label:'音浪笔触',type:'toggle'},
+        {key:'annot',label:'歌词圈注',type:'toggle'}, {key:'paper',label:'纸张纹理',type:'toggle'},
+        {key:'jitter',label:'笔触抖动',min:0,max:200,unit:'%'}, {key:'speed',label:'笔触速度',min:25,max:200,unit:'%'}
+      ], HandDrawn.values, function (next) {
+        if (global.CreativeStage && CreativeStage.setHandDrawn) CreativeStage.setHandDrawn(next);
+        else HandDrawn.apply(next);
+      });
+    }
+  }
+  function syncExtraControls() {
+    extraControls.forEach(function (sync) { sync(); });
+    var post = $('sp-controls-post');
+    if (post) {
+      var status = global.SpaceFields && SpaceFields.postStatus ? SpaceFields.postStatus() : { available: false };
+      var available = prefs.sceneSource === 'immersive' && status.available;
+      post.querySelectorAll('input').forEach(function (input) { input.disabled = !available; });
+      post.title = prefs.sceneSource !== 'immersive' ? '选择沉浸粒子场或频谱场景后调节' : status.reason || '';
+      var notice = $('sp-post-status');
+      if (!notice) { notice = document.createElement('p'); notice.id = 'sp-post-status'; notice.setAttribute('role', 'status'); post.appendChild(notice); }
+      notice.textContent = prefs.sceneSource === 'immersive' ? status.reason || '' : '';
+      notice.hidden = !notice.textContent;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // 机位下发：每个适配器交出机位所有权（§6.5）
   // ---------------------------------------------------------------------------
   function rigFromPose() {
     var pose = camera.pose();
     if (pose.free) {
-      // 自由镜头：位置/朝向直接换算成 rig 球坐标（引擎内部仍保留贴地钳制）。
-      var px = pose.position[0], py = pose.position[1], pz = pose.position[2];
-      var r = Math.max(0.001, Math.sqrt(px * px + py * py + pz * pz));
-      return {
-        yaw: Math.atan2(px, pz),
-        pitch: clamp(Math.asin(clamp(py / r, -1, 1)), 0.08, 1.25),
-        dist: clamp(r, 2.4, 15),
-        external: true
-      };
+      return { position: pose.position, yaw: pose.yaw, pitch: pose.pitch,
+        roll: pose.roll, fov: pose.fov, external: true };
     }
     var world = pose.world || { x: 0, y: 0 };
     // 转台语义：拖拽转的是世界。rig 类场景把世界角折进 yaw/pitch，视觉等效。
     return {
       yaw: pose.theta + world.y,
-      pitch: clamp(pose.phi + world.x, 0.08, 1.25),
-      dist: clamp(pose.radius, 2.4, 15),
+      pitch: clamp(pose.phi + world.x, -1.35, 1.35),
+      dist: pose.radius,
+      tx: pose.lookAt[0], ty: pose.lookAt[1], tz: pose.lookAt[2],
       fov: pose.fov,
       external: !!pose.free
     };
   }
+  var creativePoseKey = null;
   function pushCameraToScene(present) {
     var src = prefs.sceneSource;
     if (src === 'coast' && global.StageCoast && StageCoast.setRig) {
       StageCoast.setRig(rigFromPose(), { external: !!(camera.isFreeEngaged()) });
     } else if (src === 'zodiac') {
-      // 星座引擎的机位出口在 tools/zodiac-stage 的在飞重写里，本批先以
-      // 「引擎暂缺」降级：只交还指针，位姿写入是 no-op（§6.5 待办）。
-      warnOnce('zodiac-rig', '星座舞台暂未接出机位出口，环绕/节拍镜头在星座上降级为事件位姿');
       if (global.StageZodiac && StageZodiac.setRig) StageZodiac.setRig(rigFromPose());
     } else if (src === 'creative') {
-      // 相机经 CreativeStage.addCamLayer 的优先级总线接管（priority 40 即赢），
-      // 位姿在 creative 自己的帧循环里读 —— 不在这里每帧推。
+      var pose = camera.pose(), world = pose.world || { x: 0, y: 0 }, p = pose.position || [];
+      var key = [!!pose.free, p[0] || 0, p[1] || 0, p[2] || 0, pose.yaw || 0, pose.pitch || 0,
+        pose.theta || 0, pose.phi || 0, world.x, world.y, pose.radius || 0, pose.roll || 0,
+        pose.fov, (pose.lookAt || [])[0] || 0, (pose.lookAt || [])[1] || 0, (pose.lookAt || [])[2] || 0]
+        .map(function (value) { return Math.round(Number(value) * 100000); }).join(',');
+      if (key !== creativePoseKey) {
+        creativePoseKey = key;
+        if (global.CreativeStage && CreativeStage.requestCameraFrame) CreativeStage.requestCameraFrame();
+      }
     }
   }
   function warnOnce(key, msg) {
@@ -447,19 +576,19 @@
     var pose = camera.pose();
     var world = pose.world || { x: 0, y: 0 };
     if (pose.free) {
-      var px = pose.position[0], py = pose.position[1], pz = pose.position[2];
-      var r = Math.max(0.001, Math.sqrt(px * px + py * py + pz * pz));
-      ctx.yawDeg = Math.atan2(px, pz) * 180 / Math.PI;
-      ctx.pitchDeg = Math.asin(clamp(py / r, -1, 1)) * 180 / Math.PI;
-      ctx.dist = r;
+      ctx.position = pose.position;
+      ctx.yawDeg = pose.yaw * 180 / Math.PI;
+      ctx.pitchDeg = pose.pitch * 180 / Math.PI;
       ctx.fov = pose.fov;
     } else {
       ctx.yawDeg = (pose.theta + world.y) * 180 / Math.PI;
       ctx.pitchDeg = clamp(pose.phi + world.x, -1.35, 1.35) * 180 / Math.PI;
       ctx.dist = pose.radius;
       ctx.fov = pose.fov;
+      ctx.tx = pose.lookAt[0]; ctx.ty = pose.lookAt[1]; ctx.tz = pose.lookAt[2];
     }
-    ctx.rollDeg = 0;
+    ctx.rollDeg = (pose.roll || 0) * 180 / Math.PI;
+    ctx.absolute = true;
     ctx.driftMul = 0;   // 空间相机的漂移由 SpaceCamera 负责，创意自己的漂移归零
   }
 
@@ -477,22 +606,29 @@
     }
     return el;
   }
-  function syncSource() {
+  function syncSource(resetCamera) {
     var src = prefs.sceneSource;
+    if (src !== 'creative' || !active) creativePoseKey = null;
     var use = function (id) { return active && src === id; };
     var def = sourceById(src);
     // 基线切换（§12.4：注册表 → SpaceCamera）。
-    if (camera && def) {
+    if (active && camera && def && resetCamera !== false) {
       camera.setBaseline(baselineOf(def.preset));
       camera.snap();
     }
+    // 先卸载旧来源再挂新来源；切换方向不决定上下文的存活顺序。
+    if (!use('coast') && global.StageCoast) StageCoast.setHost(null);
+    if (!use('zodiac') && global.StageZodiac) StageZodiac.setHost(null);
+    if (!use('creative') && global.CreativeStage) CreativeStage.attachStage(null);
+    if (!use('immersive') && global.SpaceFields) SpaceFields.setHost(null);
+    if (!use('anime-svg') && global.StageAnimeSvg) StageAnimeSvg.setHost(null);
     // —— 海岸 —— //
     var coastOk = true;
     if (global.StageCoast && StageCoast.setHost) {
       coastOk = StageCoast.setHost(use('coast') ? ensureHost('coast') : null);
       if (use('coast')) {
         if (!coastOk) showFallback(StageCoast.degradedBecause() || '海岸舞台暂不可用，请切回沉浸声场');
-        else StageCoast.setPrefs({ tod: prefs.coastTod, interact: prefs.coastInteract });
+        else StageCoast.setPrefs({ tod: prefs.coastTod, interact: false });
       }
     } else if (use('coast')) coastOk = false;
     // —— 星座 —— //
@@ -504,7 +640,7 @@
         else {
           var theme = lyricTheme();
           StageZodiac.setPrefs({
-            lines: prefs.zodiacLines, field: prefs.zodiacField, interact: prefs.zodiacInteract,
+            lines: prefs.zodiacLines, field: prefs.zodiacField, interact: false,
             palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
               backgroundColor: theme.backgroundColor, primaryColor: theme.primaryColor,
               tertiaryColor: theme.tertiaryColor } : null
@@ -515,11 +651,16 @@
     // —— 创意 —— //
     var creativeOk = true;
     if (global.CreativeStage && CreativeStage.attachStage) {
+      if (use('creative')) CreativeStage.addCamLayer(creativeCamLayer, 40, {manual:true});
+      else {
+        CreativeStage.removeCamLayer(creativeCamLayer);
+        CreativeStage.setInteractionBlocker(null);
+      }
       creativeOk = CreativeStage.attachStage(use('creative') ? ensureHost('creative') : null);
       if (use('creative') && !creativeOk) showFallback(CreativeStage.degradedBecause() || '创意舞台暂不可用，请切回沉浸声场');
       if (use('creative') && CreativeStage.setInteractionBlocker) {
         // 空间相机接管后，创意自己的自由镜头静默（§6.5）。
-        CreativeStage.setInteractionBlocker(function () { return !!(camera && camera.isFreeEngaged()); });
+        CreativeStage.setInteractionBlocker(function () { return active; });
       }
     } else if (use('creative')) creativeOk = false;
     // —— 沉浸粒子场（第二批）：GL 宿主与后处理链在 SpaceFields —— //
@@ -535,13 +676,13 @@
             else hideFallback();
           });
           // 入场基线取当前场的机位描述符（θ/φ/dist/look）。
-          var fc = fieldCam(prefs.field);
-          if (camera && fc) {
-            camera.setBaseline({ theta: fc.theta, phi: fc.phi, radius: fc.dist, look: fc.look });
+          var fc = SpaceFields.stageBaseline(prefs.field);
+          if (camera && fc && resetCamera !== false) {
+            camera.setBaseline(fc);
             camera.snap();
           }
-          SpaceFields.setStage(prefs.field);
-          hideFallback();
+          fieldsOk = SpaceFields.setStage(prefs.field);
+          if (fieldsOk) hideFallback();
         }
       }
     } else if (use('immersive')) fieldsOk = false;
@@ -559,6 +700,15 @@
     if (zodiacOk && use('zodiac')) hideFallback();
     if (creativeOk && use('creative')) hideFallback();
     if (fieldsOk && use('immersive')) hideFallback();
+    var sourceOk = src === 'coast' ? coastOk : src === 'zodiac' ? zodiacOk :
+      src === 'creative' ? creativeOk : src === 'immersive' ? fieldsOk : animeOk;
+    if (active && !sourceOk) {
+      failedSources[src] = true;
+      showFallback('此舞台暂不可用，请选择其它场景或按 Esc 返回。');
+    }
+    if (active && sourceOk) pushCameraToScene();
+    var creativeHost = $('sp-host-creative');
+    if (creativeHost) creativeHost.dataset.lyrics = prefs.lyrics ? 'true' : 'false';
     // 手绘叠加层（第三批·叠加层）：与 stage3d 的 #s3d-art-overlay 同构 ——
     // HandDrawn 自己管理 on/style/笔触参数与帧门，这里只交宿主；关层时收回。
     if (global.HandDrawn && HandDrawn.setStageHost) {
@@ -569,7 +719,10 @@
         artHost.setAttribute('aria-hidden', 'true');
         root.insertBefore(artHost, hosts.bar);
       }
-      HandDrawn.setStageHost(active ? artHost : null);
+      HandDrawn.setStageHost(active ? artHost : null, {
+        lyricsRoot: hosts.reading,
+        visible: function () { return active && !document.hidden; }
+      });
     }
   }
 
@@ -580,6 +733,7 @@
     syncSource();
     buildFxGrid();
     syncSheet();
+    syncLyricVisual(); syncExtraControls();
     scheduleSave();
     markInteraction(900);
   }
@@ -634,6 +788,12 @@
     if (prefs.visual !== 'stage' && !stanza.ready) ensureStanza();
     uiTick();
   }
+  function ownsLyrics() {
+    if (prefs.sceneSource === 'creative') return !!(global.CreativeStage && CreativeStage.ownsLyrics && CreativeStage.ownsLyrics());
+    if (prefs.sceneSource !== 'immersive' || prefs.field.indexOf('scene:') !== 0 || !global.CreativeGL) return false;
+    var rig = CreativeGL.sceneRig(prefs.field.slice(6));
+    return !!(rig && rig.ownsLyrics);
+  }
 
   // ---------------------------------------------------------------------------
   // chrome
@@ -650,12 +810,13 @@
     interactUntil = Math.max(interactUntil, performance.now() + (ms || 900));
     if (global.Stage && Stage.kick) Stage.kick();
     pokeChrome();
+    if (active) scheduleSave();
   }
   function pokeChrome() {
     root.classList.remove('sp-idle');
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (active && !sheetOpen && !playlistOpen && !fxShow) root.classList.add('sp-idle');
+      if (active && !sheetOpen && !playlistOpen && !fxShow && !controlTarget({target:document.activeElement})) root.classList.add('sp-idle');
     }, CHROME_HIDE_MS);
   }
   function syncPlayBtn() {
@@ -670,6 +831,21 @@
       btn.dataset.icon = useP;
       btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="' + useP + '"/></svg>';
     }
+  }
+  function formatTime(ms) {
+    var s = Math.floor(Math.max(0, num(ms, 0)) / 1000);
+    return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2);
+  }
+  function syncProgress() {
+    var present = global.Stage && Stage.presentation ? Stage.presentation() : {};
+    var seek = $('sp-seek');
+    if (!seek) return;
+    seek.max = Math.max(1, present.duration || 0);
+    seek.disabled = !present.track || !present.duration;
+    if (!seeking) seek.value = Math.min(present.duration || 0, present.position || 0);
+    $('sp-time').textContent = formatTime(Number(seek.value)) + ' / ' + formatTime(present.duration);
+    $('sp-track-title').textContent = present.track ? present.track.title || present.track.name || '正在播放' : '选择一首歌';
+    seek.setAttribute('aria-valuetext', formatTime(Number(seek.value)));
   }
   function buildFxGrid() {
     if (!hosts.fxGrid) return;
@@ -701,6 +877,9 @@
       var available = true;
       if (s.id === 'coast' && global.StageCoast) available = StageCoast.available();
       if (s.id === 'zodiac' && global.StageZodiac) available = StageZodiac.available();
+      if (s.id === 'creative') available = !!(global.CreativeStage && CreativeStage.attachStage);
+      if (s.id === 'immersive') available = !!(global.SpaceFields && SpaceFields.available());
+      if (failedSources[s.id]) available = false;
       card(s.label, s.desc, {
         active: prefs.sceneSource === s.id,
         disabled: !available,
@@ -737,6 +916,28 @@
         } : null
       });
     });
+    // 创意场景（towers/nebula）：着色器与场景语义是 creative-gl 的（sceneRig
+    // 只读出口），运行时编排在 SpaceFields；「创意编排」之外的第二条到达路径。
+    var sceneStages = (fieldsLive && global.SpaceFields && SpaceFields.scenes) ? SpaceFields.scenes() : [];
+    if (sceneStages.length) {
+      var t3 = document.createElement('p');
+      t3.className = 'sp-fx-title';
+      t3.textContent = '频谱场景';
+      hosts.fxGrid.appendChild(t3);
+      sceneStages.forEach(function (s) {
+        var active = prefs.sceneSource === 'immersive' && prefs.field === s.id;
+        card(s.label, '随音乐起伏的空间画面', {
+          active: active,
+          disabled: false,
+          badge: active ? '当前' : null,
+          onClick: function () {
+            setSource('immersive');
+            setField(s.id);
+            fxToggle(false);
+          }
+        });
+      });
+    }
   }
   function fxToggle(on) {
     fxShow = on == null ? !fxShow : !!on;
@@ -806,14 +1007,18 @@
       e.target.closest('button, a, input, select, textarea, [contenteditable], [role="button"], .sp-bar, .sp-fx, .sp-sheet, .sp-playlist, .sp-fab, .sp-head, #sp-reading, #sp-stanza');
   }
   function bindGestures() {
+    function canInteract() {
+      return prefs.sceneSource !== 'coast' && prefs.sceneSource !== 'zodiac' ||
+        (prefs.sceneSource === 'coast' ? prefs.coastInteract : prefs.zodiacInteract);
+    }
     root.addEventListener('pointerdown', function (e) {
-      if (!active || (e.button != null && e.button !== 0) || controlTarget(e)) return;
+      if (!active || !canInteract() || (e.button != null && e.button !== 0) || controlTarget(e)) return;
       pointerField.clickX = (e.clientX - root.getBoundingClientRect().left) / Math.max(1, root.clientWidth) * 2 - 1;
       pointerField.clickY = 1 - (e.clientY - root.getBoundingClientRect().top) / Math.max(1, root.clientHeight) * 2;
       pointerField.clickAt = spaceTime;
       if (camera && camera.isFreeActive()) {
         // 自由镜头：点击画布抢指针锁定，转向走 mousemove。
-        if (root.requestPointerLock) { try { root.requestPointerLock(); } catch (_) { /* 拒绝时静默 */ } }
+        requestFreePointerLock();
         e.preventDefault();
         return;
       }
@@ -822,6 +1027,7 @@
       lastPt = { x: e.clientX, y: e.clientY, t: performance.now() };
       root.classList.add('sp-dragging');
       if (camera) camera.setRotating(true);
+      if (root.setPointerCapture) root.setPointerCapture(e.pointerId);
       markInteraction(1200);
     });
     root.addEventListener('pointermove', function (e) {
@@ -853,9 +1059,10 @@
     }
     root.addEventListener('pointerup', endDrag);
     root.addEventListener('pointercancel', endDrag);
+    root.addEventListener('lostpointercapture', endDrag);
     root.addEventListener('pointerleave', function () { pointerField.active = 0; pointerField.x = -9; pointerField.y = -9; });
     root.addEventListener('wheel', function (e) {
-      if (!active || controlTarget(e)) return;
+      if (!active || !canInteract() || controlTarget(e)) return;
       e.preventDefault();
       markInteraction(900);
       if (camera) camera.wheel(e.deltaY, { free: camera.isFreeActive() });
@@ -880,14 +1087,20 @@
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!(t && t.isContentEditable);
   }
   function onKeyDown(e) {
-    if (!active || isTyping(e.target)) return;
+    if (!active) return;
+    pokeChrome();
+    if (e.code === 'Escape') {
+      e.preventDefault(); e.stopImmediatePropagation(); close(); return;
+    }
+    if (isTyping(e.target)) return;
     if (e.code === 'KeyR') {
       e.preventDefault();
       e.stopImmediatePropagation();
       if (!e.repeat && camera) {
         var on = camera.freeToggle();
         hosts.hint.classList.toggle('show', on);
-        if (on && root.requestPointerLock) { try { root.requestPointerLock(); } catch (_) { /* ignore */ } }
+        if (on) requestFreePointerLock();
+        else pointerLockRequest++;
         if (!on && document.pointerLockElement === root && document.exitPointerLock) document.exitPointerLock();
         markInteraction(900);
       }
@@ -911,12 +1124,6 @@
       scheduleSave();
       return;
     }
-    if (e.code === 'Escape') {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      close();
-      return;
-    }
     if (camera && camera.isFreeActive() && new RegExp(FREE_CODES).test(e.code)) {
       // 自由镜头进行中，移动键归它（含空格——§6.4 的让路纪律）。
       e.preventDefault();
@@ -932,18 +1139,43 @@
       toggleFullscreen();
       return;
     }
+    if (e.code === 'KeyQ') {
+      e.preventDefault(); e.stopImmediatePropagation(); playlistToggle(); return;
+    }
+    if (/^Digit[1-8]$/.test(e.code)) {
+      var fields = global.Stage3D ? Stage3D.effectCatalog() : [];
+      var item = fields[Number(e.code.slice(-1)) - 1];
+      if (item) { e.preventDefault(); e.stopImmediatePropagation(); setSource('immersive'); setField(item.id); }
+    }
   }
   function onKeyUp(e) {
     if (!active) return;
     if (camera && new RegExp(FREE_CODES).test(e.code)) camera.freeKey(e.code, false);
+    scheduleSave();
   }
 
-  function toggleFullscreen() {
-    if (document.fullscreenElement) {
-      if (document.exitFullscreen) document.exitFullscreen();
-    } else if (root.requestFullscreen) {
-      try { root.requestFullscreen(); } catch (_) { /* 用户手势外申请会拒绝 */ }
+  var pointerLockRequest = 0;
+  function requestFreePointerLock() {
+    var request = ++pointerLockRequest;
+    function denied() {
+      if (request !== pointerLockRequest || !active) return;
+      if (camera && camera.isFreeActive()) { camera.clearInput(); camera.freeToggle(); }
+      hosts.hint.classList.remove('show');
+      showFallback('无法锁定指针，请允许浏览器锁定后重新开启自由镜头。');
+      scheduleSave();
     }
+    if (!root.requestPointerLock) return;
+    try { Promise.resolve(root.requestPointerLock()).catch(denied); } catch (_) { denied(); }
+  }
+  function toggleFullscreen() {
+    function denied() { if (active) showFallback('无法切换全屏，请检查浏览器的全屏权限。'); }
+    try {
+      if (document.fullscreenElement) {
+        if (document.exitFullscreen) Promise.resolve(document.exitFullscreen()).catch(denied);
+      } else if (root.requestFullscreen) {
+        Promise.resolve(root.requestFullscreen()).catch(denied);
+      }
+    } catch (_) { denied(); }
   }
 
   // ---------------------------------------------------------------------------
@@ -956,6 +1188,10 @@
       // 排他：开空间先关声场（Stage3D.close 会经 sync* 把各适配器卸干净）。
       if (global.Stage3D && Stage3D.isActive && Stage3D.isActive()) Stage3D.close();
       returnFocus = document.activeElement;
+      if (global.SkinSettingsSheet && SkinSettingsSheet.isOpen()) {
+        returnFocus = $('space3d-entry');
+        SkinSettingsSheet.close({ immediate: true, focusTarget: root });
+      }
       backgroundNodes = [];
       Array.prototype.forEach.call(document.body.children, function (node) {
         if (node === root || /^(SCRIPT|STYLE|SVG)$/.test(node.tagName)) return;
@@ -964,6 +1200,8 @@
       });
     }
     active = true;
+    document.body.classList.add('space3d-open');
+    if (!layers && global.SpaceLayers) { layers = SpaceLayers.create(root); layers.configure(prefs.layers); }
     fadeTarget = 1;
     root.classList.add('sp-open');
     root.setAttribute('aria-hidden', 'false');
@@ -980,6 +1218,7 @@
     syncLyricVisual();
     buildFxGrid();
     syncSheet();
+    syncExtraControls();
     markInteraction(700);
     if (global.Stage && Stage.kick) Stage.kick();
     return true;
@@ -987,6 +1226,8 @@
   function close(fromStage3d) {
     if (!root || !active) return;
     active = false;
+    document.body.classList.remove('space3d-open');
+    pointerLockRequest++;
     fadeTarget = 0;
     fxShow = false; sheetOpen = false; playlistOpen = false;
     hosts.fx.classList.remove('sp-show');
@@ -996,6 +1237,8 @@
     if (document.pointerLockElement === root && document.exitPointerLock) document.exitPointerLock();
     // 卸载所有场景宿主（适配器内部取消各自 rAF 与 GL 资源）。
     syncSource();
+    if (layers) { layers.dispose(); layers = null; }
+    disposeStanza();
     if (lyricView) lyricView.reset();
     root.classList.remove('sp-open');
     root.setAttribute('aria-hidden', 'true');
@@ -1005,9 +1248,13 @@
     if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
     returnFocus = null;
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
-    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; control('space3d', preferences()); }
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
+    savePreferences();
     // 自由镜头退出后回 orbit（锁定位姿留给下次进入）。
     if (camera && camera.isFreeActive()) camera.freeToggle();
+    if (camera) { camera.setRotating(false); camera.dispose(); }
+    dragging = false; pointerId = null; lastPt = null;
+    root.classList.remove('sp-dragging');
     if (global.Stage && Stage.kick) Stage.kick();
     void fromStage3d;
   }
@@ -1052,15 +1299,48 @@
     }
     bindGestures();
     bindChrome();
+    buildExtraControls();
+    if (global.SpaceFields && SpaceFields.onPost) SpaceFields.onPost(syncExtraControls);
     document.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('keyup', onKeyUp, true);
+    root.addEventListener('focusin', pokeChrome);
+    function pauseInput() {
+      if (!active) return;
+      camera.clearInput();
+      dragging = false; pointerId = null; lastPt = null; root.classList.remove('sp-dragging');
+      savePreferences();
+    }
+    window.addEventListener('blur', pauseInput);
+    window.addEventListener('beforeunload', function () {
+      if (!active && !saveTimer) return;
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
+      savePreferences();
+    });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) pauseInput(); });
+    document.addEventListener('pointerlockchange', function () {
+      if (active && document.pointerLockElement !== root) {
+        pauseInput();
+        if (camera.isFreeActive()) camera.freeToggle();
+        hosts.hint.classList.remove('show');
+      }
+    });
+    document.addEventListener('stage:scene-context', function (e) {
+      var detail = e.detail;
+      if (!active || !detail || detail.source !== prefs.sceneSource) return;
+      if (detail.state === 'recovered') { delete failedSources[detail.source]; hideFallback(); }
+      else {
+        showFallback(detail.state === 'lost' ? '图形上下文已中断，正在恢复…' : '此舞台暂不可用，请切换场景或按 Esc 返回。');
+        if (detail.state === 'failed') failedSources[detail.source] = true;
+      }
+      buildFxGrid();
+    });
     document.addEventListener('stage:playing-changed', function () { if (active) syncPlayBtn(); });
     if (global.Onset && Onset.create && onset.onBeat) {
       onset.onBeat(function (t, score) {
         if (!camera || !active) return;
         // Onset 的分带聚合（agg: 低/军鼓体/人声/高频）映射到 beatCam 的 low/body/snap。
         var agg = onset.agg;
-        camera.beat(onset.pulse, {
+        var event = camera.beat(onset.pulse, {
           time: (global.Stage && Stage.presentation ? (Stage.presentation().position || 0) / 1000 : t / 1000),
           strength: clamp(0.35 + (score || 0) * 1.2, 0.1, 1),
           confidence: clamp(0.35 + (score || 0) * 1.2, 0.1, 1),
@@ -1069,11 +1349,18 @@
           snap: agg && agg.length > 3 ? agg[3] : 0.15,
           count: onset.beats
         });
+        if (event && isSelfSpinning(prefs.sceneSource) && !camera.isFreeEngaged() && targetFps() === 0) {
+          camera.tick(1000 / 30, {playing:true,audioTime:event.hit,energy:au.energy,low:au.bass});
+          pushCameraToScene();
+        }
       });
     }
     // 帧门（§6.3）：相机门在自转场景上报 0；歌词门/UI 门独立。
     if (global.Stage && Stage.gate) {
       Stage.gate(GATE, targetFps, tick);
+      Stage.gate('space3d-signal', function () {
+        return active && !document.hidden && isSelfSpinning(prefs.sceneSource) ? 30 : 0;
+      }, updateSignal);
       Stage.gate('space3d-lyrics', lyricsFps, lyricsTick);
       Stage.gate('space3d-ui', uiFps, uiTick);
     }
@@ -1081,6 +1368,19 @@
     return true;
   }
   function bindChrome() {
+    var seek = $('sp-seek'), sparks = $('sp-seek-particles');
+    for (var i = 0; i < 8; i += 1) {
+      var dot = document.createElement('i'); dot.style.setProperty('--spark-i', i); sparks.appendChild(dot);
+    }
+    seek.addEventListener('input', function () {
+      seeking = true; syncProgress();
+      sparks.style.left = (Number(seek.value) / Math.max(1, Number(seek.max)) * 100) + '%';
+      sparks.classList.toggle('sp-seeking', !reducedMotion());
+    });
+    seek.addEventListener('change', function () {
+      control('seek', Number(seek.value)); seeking = false; sparks.classList.remove('sp-seeking');
+    });
+    seek.addEventListener('blur', function () { seeking = false; sparks.classList.remove('sp-seeking'); });
     hosts.close.addEventListener('click', function () { close(); });
     hosts.btnPrev.addEventListener('click', function () { control('prev'); });
     hosts.btnNext.addEventListener('click', function () { control('next'); });
@@ -1109,7 +1409,6 @@
     });
     hosts.coastInteract.addEventListener('change', function () {
       prefs.coastInteract = hosts.coastInteract.checked;
-      if (global.StageCoast && StageCoast.setPrefs) StageCoast.setPrefs({ interact: prefs.coastInteract });
       scheduleSave();
     });
     hosts.zodiacLines.addEventListener('change', function () { prefs.zodiacLines = hosts.zodiacLines.checked; pushZodiac(); });
@@ -1127,6 +1426,11 @@
       prefs.sceneSource = 'coast'; prefs.lyrics = true; prefs.visual = 'stage'; prefs.cinema = true;
       prefs.coastTod = 0; prefs.coastInteract = true;
       prefs.zodiacLines = true; prefs.zodiacField = true; prefs.zodiacInteract = true;
+      prefs.post = global.SpacePost ? SpacePost.defaults() : {};
+      prefs.layers = global.SpaceLayers ? SpaceLayers.defaults() : {};
+      prefs.field = 'silk'; prefs.freeCam = null;
+      if (layers) layers.configure(prefs.layers);
+      syncExtraControls();
       if (camera) {
         if (camera.isFreeActive()) camera.freeToggle();
         if (camera.isFreeEngaged()) camera.freeReset();
@@ -1137,12 +1441,18 @@
       syncSource(); syncLyricVisual(); buildFxGrid(); syncSheet();
       scheduleSave(); markInteraction(700);
     });
+    $('sp-focus').addEventListener('click', function () {
+      var pose = camera.pose();
+      if (pose.free) camera.freeReset();
+      else camera.focus({theta:pose.theta,phi:pose.phi,radius:pose.radius * 0.72},0);
+      markInteraction(1800);
+    });
   }
   function pushZodiac() {
     if (global.StageZodiac && StageZodiac.setPrefs && active && prefs.sceneSource === 'zodiac') {
       var theme = lyricTheme();
       StageZodiac.setPrefs({
-        lines: prefs.zodiacLines, field: prefs.zodiacField, interact: prefs.zodiacInteract,
+        lines: prefs.zodiacLines, field: prefs.zodiacField, interact: false,
         palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
           backgroundColor: theme.backgroundColor, primaryColor: theme.primaryColor,
           tertiaryColor: theme.tertiaryColor } : null
@@ -1173,7 +1483,8 @@
         fields: global.SpaceFields ? SpaceFields.stats() : null,
         camera: camera ? camera.pose() : null,
         gateCostMs: Math.round(cost.avg * 10) / 10,
-        freeCam: camera ? camera.isFreeEngaged() : false
+        freeCam: camera ? camera.isFreeEngaged() : false,
+        layers: layers ? layers.stats() : null, timeSec: spaceTime
       };
     }
   };

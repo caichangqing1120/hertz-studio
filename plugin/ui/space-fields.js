@@ -26,16 +26,27 @@
   var reason = null;
   var probeCache = null;
   var host = null, canvas = null, gl = null;
-  var mounted = false, raf = 0;
+  var mounted = false, observer = null;
   // —— GL 资源 —— //
-  var programs = {};        // field/star/prism/post.* —— 从 shaderCatalog 编译
   var built = {};           // id -> { draw, dispose, count, kind }
   var stageId = null, curBuilt = null;
   var fsTri = null;
   var post = null;
   var bw = 1, bh = 1, dpr = 1, sizeDirty = true;
+  var cssW = 1, cssH = 1;   // CSS 尺寸（场景着色器的 uRes 用它，不是 drawing buffer）
   var cat = null;           // shaderCatalog 快照（含 stage 描述符）
   var onCtx = null;         // 状态回调 (state) → space3d 的降级横幅
+  var onPost = null, postReason = null, lastPostState = '';
+
+  function postStatus() {
+    return { available: !!(post && post.scene && post.effects && !post.effectsFailed && !ctxLost), reason: postReason };
+  }
+  function emitPost() {
+    var state = postStatus(), key = JSON.stringify(state);
+    if (key === lastPostState) return;
+    lastPostState = key;
+    if (onPost) { try { onPost(state); } catch (_) { /* UI callback must not interrupt drawing. */ } }
+  }
 
   // —— 上下文丢失恢复（与 stage-coast.js 同一条预算语义）—— //
   var RECOVERY_GRACE_MS = 1500;
@@ -49,7 +60,6 @@
   // —— 色调（跟主题走，500ms 节流重读）—— //
   var tint = [1, 1, 1], tint2 = [0, 0.96, 0.83], tint3 = [0.96, 0.82, 0.54], tintAt = 0;
 
-  function CS() { return gl; }
   function emitCtx(state) {
     if (onCtx) { try { onCtx(state); } catch (_) { /* 回调异常不影响渲染 */ } }
   }
@@ -64,12 +74,14 @@
     recoveryAt = recoveryAt.filter(function (t) { return now - t < RECOVERY_WINDOW_MS; });
     if (recoveryAt.length >= RECOVERY_MAX) {
       ctxLost = true;
+      emitPost();
       reason = '粒子场的图形上下文反复丢失，已停止自动恢复';
       emitCtx('failed');
       return;
     }
     recoveryAt.push(now);
     ctxLost = true;
+    emitPost();
     retries = 0;
     reason = '粒子场的图形上下文丢失，正在自动恢复';
     emitCtx('lost');
@@ -77,22 +89,29 @@
   }
   function onContextRestored() {
     if (!ctxLost) return;
-    ctxLost = false;
     clearRecoveryTimers();
+    disposeAll(true);
+    resize();
+    if (!buildPost() || !setStage(stageId || 'silk')) {
+      reason = '图形资源未能恢复，请重新打开空间'; emitCtx('failed'); return;
+    }
+    observer = new ResizeObserver(function () { sizeDirty = true; }); observer.observe(host);
+    ctxLost = false;
+    emitPost();
     retries = 0;
     reason = null;
     emitCtx('recovered');
   }
   function rebuildAfterLoss() {
     graceTimer = 0;
-    if (!ctxLost || !mounted || !host) return;
+    if (!ctxLost || !host) return;
     var ok = false;
-    try { disposeAll(); } catch (_) { /* 死上下文上释放：three/GL 会静默 */ }
-    detachWatch();
-    if (canvas) { canvas.remove(); canvas = null; }
+    releaseContext();
     ok = mountInto(host);
+    if (ok) ok = setStage(stageId || 'silk');
     if (ok) {
       ctxLost = false; retries = 0; reason = null;
+      emitPost();
       emitCtx('recovered');
       return;
     }
@@ -191,16 +210,20 @@
     var fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    var rb = null;
+    var depth = null;
     if (withDepth) {
-      rb = gl.createRenderbuffer();
-      gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
-      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
-      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+      depth = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, depth);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, w, h, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth, 0);
     }
     var complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    var target = { fbo: fbo, tex: tex, rb: rb, w: w, h: h };
+    var target = { fbo: fbo, tex: tex, depth: depth, w: w, h: h };
     if (!complete) { freeRT(target); return null; }
     return target;
   }
@@ -208,7 +231,7 @@
     if (!rt) return;
     if (rt.fbo) gl.deleteFramebuffer(rt.fbo);
     if (rt.tex) gl.deleteTexture(rt.tex);
-    if (rt.rb) gl.deleteRenderbuffer(rt.rb);
+    if (rt.depth) gl.deleteTexture(rt.depth);
   }
 
   // —— mat4（最小集：perspective + lookAt；本层 roll 恒 0 不需要 rollView）—— //
@@ -273,6 +296,7 @@
   function rebuildAll() {
     if (!gl) return;
     disposeStages();
+    disposePost();
     buildPost();
     if (stageId) { var want = stageId; stageId = null; setStage(want); }
     sizeDirty = true;
@@ -304,6 +328,9 @@
     var disposed = false;
     art.tex = art.tex || makeArtTex();
     return {
+      kind: 'field',
+      writesDepth: def.field === 0,
+      def: def,
       count: count,
       draw: function (env) {
         syncArt(def, count);
@@ -354,6 +381,8 @@
       { loc: prog.a('aLane'), buffer: s.lane, size: 1 }
     ]);
     return {
+      kind: 'field',
+      def: def,
       count: s.count,
       draw: function (env) {
         gl.useProgram(prog.p);
@@ -368,8 +397,176 @@
     };
   }
   function buildBlankStage() {
-    return { count: 0, draw: function () {}, dispose: function () {} };
+    return { kind: 'blank', def: null, count: 0, draw: function () {}, dispose: function () {} };
   }
+
+  // -------------------------------------------------------------------------
+  // 创意场景路径（towers/nebula…，第二批 §7.2）
+  // 着色器与场景语义都是 creative-gl 的（sceneSource/sceneRig 只读出口）；
+  // 这里只做：程序装配、64×2 R8 频谱纹理、相机映射与绘制编排。
+  // -------------------------------------------------------------------------
+  function buildSceneStage(id) {
+    var baseId = id.slice(6);
+    var src = global.CreativeGL && CreativeGL.sceneSource ? CreativeGL.sceneSource(baseId) : null;
+    var rig = global.CreativeGL && CreativeGL.sceneRig ? CreativeGL.sceneRig(baseId) : null;
+    if (!src || !rig) return null;
+    var cache = {};
+    function programFor(q) {
+      if (cache[q]) return cache[q];
+      var qualityDefs = rig.qualityDefs ? rig.qualityDefs(q) : '';
+      // 装配式与 creative-gl sceneProgram 逐字同构：decl 同时前置到两个阶段。
+      var e = buildProgram(
+        '#version 300 es\n' + qualityDefs + src.common + src.decl + src.vert,
+        '#version 300 es\n' + src.common + src.decl + src.frag);
+      if (!e) throw new Error('scene program 编译失败 ' + baseId);
+      cache[q] = e;
+      return e;
+    }
+    var identity = mat4(); identity[0] = identity[5] = identity[10] = identity[15] = 1;
+    var mirrorMat = mat4(); mirrorMat[0] = 1; mirrorMat[5] = -1; mirrorMat[10] = 1; mirrorMat[15] = 1;
+    var eng = { mirrorMat: mirrorMat, identity: identity };
+    var S = { p: rig.defaults, quality: level() };
+    // 首编就在构建期完成：编译失败在这里变成挂载失败（降级横幅），而不是
+    // 一帧一场地往共享帧门里抛异常。
+    try { programFor(S.quality); } catch (e) {
+      reason = '场景着色器编译失败：' + String(e.message || e);
+      return null;
+    }
+    var drawFailed = false;
+    var sceneVao = gl.createVertexArray();
+    return {
+      kind: 'scene',
+      writesDepth: !!rig.depth && rig.blend === 'surface',
+      def: null,
+      rig: rig,
+      count: rig.geom.instances,
+      draw: function (env) {
+        if (drawFailed) return false;
+        try {
+          var q = level();
+          S.quality = q;
+        var g = rig.geometry(q);
+        gl.depthFunc(gl.LEQUAL);
+        if (rig.depth) { gl.enable(gl.DEPTH_TEST); } else { gl.disable(gl.DEPTH_TEST); }
+        gl.clearColor(0, 0, 0, 0);
+        gl.depthMask(true);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        var e = programFor(q);
+        gl.useProgram(e.p);
+        gl.bindVertexArray(sceneVao);
+        var U = e.u;
+        bindSceneCommon(U, env);
+        if (rig.ownsLyrics) {
+          uploadLyric(env.lyric);
+          if (!env.lyrics) return;
+        }
+        if (rig.setup) rig.setup(gl, U, S);
+        // 实体表面正常遮挡；光点做加性混合（creative render 同一约定）。
+        var surface = rig.blend === 'surface';
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, surface ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+        gl.depthMask(surface);
+        var mode = gl[g.mode];
+        function drawIt() {
+          if (g.instances > 1) gl.drawArraysInstanced(mode, 0, g.verts, g.instances);
+          else gl.drawArrays(mode, 0, g.verts);
+        }
+        drawIt();
+        if (rig.extraPasses) rig.extraPasses(gl, U, S, eng, drawIt);
+        gl.depthMask(true);
+        gl.disable(gl.DEPTH_TEST);
+        } catch (e) {
+          // 单帧失败不许穿进共享帧门：记一次原因、本场景停画（stats.frames 停摆可见）。
+          drawFailed = true;
+          reason = '场景渲染失败：' + String(e.message || e);
+          emitCtx('failed');
+          try { console.warn('[space-fields]', reason); } catch (_) { /* ignore */ }
+          gl.depthMask(true);
+          gl.disable(gl.DEPTH_TEST);
+          return false;
+        }
+      },
+      dispose: function () {
+        Object.keys(cache).forEach(function (k) { gl.deleteProgram(cache[k].p); });
+        gl.deleteVertexArray(sceneVao);
+      }
+    };
+  }
+  // 64×2 R8 频谱纹理：v=0.25 平滑带、v=0.75 起音差（creative-gl 的约定）。
+  var specTex = null, specPixels = null;
+  function ensureSpecTex() {
+    if (specTex) return;
+    specTex = gl.createTexture();
+    specPixels = new Uint8Array(128);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, specTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 64, 2, 0, gl.RED, gl.UNSIGNED_BYTE, specPixels);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+  function uploadSpectrum(bands, rises) {
+    ensureSpecTex();
+    for (var i = 0; i < 64; i += 1) {
+      specPixels[i] = Math.max(0, Math.min(255, (bands[i] || 0) * 255)) | 0;
+      specPixels[64 + i] = Math.max(0, Math.min(255, (rises[i] || 0) * 255)) | 0;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, specTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 64, 2, gl.RED, gl.UNSIGNED_BYTE, specPixels);
+  }
+  var lyricTex = null, lyricSig = null, atlasW = 0, atlasH = 0;
+  function uploadLyric(lyric) {
+    if (!global.Lyric3D) return;
+    Lyric3D.setQuality(level());
+    var size = Lyric3D.size(), sig = Lyric3D.sig(lyric);
+    var resized = size.w !== atlasW || size.h !== atlasH;
+    var changed = resized || sig !== lyricSig || !lyricTex;
+    if (!lyricTex) lyricTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, lyricTex);
+    if (changed) {
+      Lyric3D.frame(lyric, true);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, Lyric3D.canvas);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      atlasW = size.w; atlasH = size.h; lyricSig = sig;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+  var viewProj = mat4();
+  function mul(out, a, b) {
+    for (var c = 0; c < 4; c += 1) {
+      var b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+      out[c * 4] = a[0] * b0 + a[4] * b1 + a[8] * b2 + a[12] * b3;
+      out[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9] * b2 + a[13] * b3;
+      out[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+      out[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+    }
+    return out;
+  }
+  function bindSceneCommon(U, env) {
+    uploadSpectrum(env.audio.bands, env.rises);
+    setM4(U, 'uViewProj', viewProj);
+    setM4(U, 'uModel', identityM);
+    setV3(U, 'uCamPos', camPos);
+    setF(U, 'uTime', env.timeSec);
+    setF(U, 'uSeed', 0.37);
+    setI(U, 'uSpec', 0);
+    if (U.uAgg) gl.uniform4f(U.uAgg, env.agg[0], env.agg[1], env.agg[2], env.agg[3]);
+    setF(U, 'uPulse', env.pulse);
+    setF(U, 'uEnergy', env.audio.energy);
+    setF(U, 'uPlay', env.playing ? 1 : 0);
+    setF(U, 'uToon', 0);
+    setV2(U, 'uRes', cssW, cssH);
+    setV3(U, 'uColorA', tint2);
+    setV3(U, 'uColorB', tint3);
+  }
+  var identityM = (function () { var m = mat4(); m[0] = m[5] = m[10] = m[15] = 1; return m; })();
   function makeArtTex() {
     var t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
@@ -430,18 +627,23 @@
       texType: hdr ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE,
       bright: bright, blur: blur, comp: comp
     };
+    if (global.SpacePost) post.effects = buildProgram(SpacePost.vertex, SpacePost.fragment);
+    postReason = post.effects ? null : '画面滤镜着色器不可用';
     // 全屏大三角形
     var tri = buffer(new Float32Array([-1, -1, 3, -1, -1, 3]));
     fsTri = makeVAO([{ loc: bright.a('aPos'), buffer: tri, size: 2 }]);
     post.tri = tri;
     resizeTargets();
+    emitPost();
     return !!post.scene;
   }
   function resizeTargets() {
     if (!post) return;
     var hw = Math.max(1, bw >> 1), hh = Math.max(1, bh >> 1);
     if (post.scene && post.scene.w === bw && post.scene.h === bh) return;
-    freeRT(post.scene); freeRT(post.a); freeRT(post.b);
+    freeRT(post.scene); freeRT(post.a); freeRT(post.b); freeRT(post.composed);
+    post.composed = null; post.effectsFailed = false;
+    if (post.effects) postReason = null;
     post.scene = makeRT(bw, bh, true);
     post.a = makeRT(hw, hh, false);
     post.b = makeRT(hw, hh, false);
@@ -455,6 +657,7 @@
         resizeTargets();
       } else { reason = '当前设备无法分配粒子场画面'; }
     }
+    emitPost();
   }
   function drawFullscreen(prog) {
     gl.useProgram(prog.p);
@@ -489,7 +692,13 @@
       setV2(post.blur.u, 'uStep', 0, spread / hh);
       drawFullscreen(post.blur);
     }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    var effects = !post.effectsFailed && post.effects && global.SpacePost && SpacePost.active(env.post);
+    if (effects && !post.composed) {
+      post.composed = makeRT(bw, bh, false);
+      if (!post.composed) { post.effectsFailed = true; postReason = '画面滤镜暂不可用'; emitPost(); }
+    }
+    effects = effects && !!post.composed;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, effects ? post.composed.fbo : null);
     gl.viewport(0, 0, bw, bh);
     gl.useProgram(post.comp.p);
     gl.activeTexture(gl.TEXTURE0);
@@ -508,6 +717,19 @@
     setF(post.comp.u, 'uExposure', post.hdr ? 1.18 : 1.42);
     setF(post.comp.u, 'uFade', env.fade);
     drawFullscreen(post.comp);
+    if (effects) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(post.effects.p);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, post.composed.tex);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, post.scene.depth);
+      SpacePost.bind(gl, post.effects.u, env.post, {
+        width: bw, height: bh, timeSec: env.timeSec, quality: lv,
+        reducedMotion: env.reduced, hasDepth: !!post.scene.depth && !!curBuilt.writesDepth,
+        near: 0.1, far: curBuilt.kind === 'scene' ? 400 : 220,
+        focusDistance: env.pose.radius || 8, focusRange: 6
+      });
+      drawFullscreen(post.effects);
+    }
     gl.activeTexture(gl.TEXTURE0);
   }
 
@@ -565,6 +787,7 @@
     if (!gl || !host) return;
     var w = Math.max(1, Math.round(host.clientWidth || window.innerWidth));
     var h = Math.max(1, Math.round(host.clientHeight || window.innerHeight));
+    cssW = w; cssH = h;
     dpr = computeDpr(w, h);
     var nw = Math.max(1, Math.floor(w * dpr));
     var nh = Math.max(1, Math.floor(h * dpr));
@@ -575,18 +798,49 @@
   }
 
   var lastStats = { stage: null, count: 0, frames: 0 };
+  var lastEnv = null;
   function draw(dtMs, env) {
-    if (!gl || ctxLost || !curBuilt) return;
+    if (!gl || ctxLost || !curBuilt) return false;
     void dtMs;
+    lastEnv = env;
     readTint(performance.now());
     if (sizeDirty) resize();
     var pose = env.pose;
     var look = pose.lookAt || [0, 0, 0];
     var aspect = bw / Math.max(1, bh);
-    var def = defById(stageId);
-    var framed = def && def.framed;
-    var fit = framed ? Math.max(1, Math.min(2.6, 1.05 / aspect)) : 1;
-    var radius = pose.radius * fit;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, post && post.scene ? post.scene.fbo : null);
+    gl.viewport(0, 0, bw, bh);
+    if (curBuilt.kind === 'blank') {
+      gl.clearColor(0.004, 0.005, 0.009, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    } else if (curBuilt.kind === 'scene') {
+      // 创意场景：深度/混合/清屏由场景自己的描述符管（creative render 同构）。
+      if (pose.free) freeCamera(pose, aspect, 400);
+      else sceneCamera(pose, aspect);
+      if (curBuilt.draw(env) === false) return false;
+    } else {
+      // 场路径：blend/depth 来自场描述符（stage3d drawStage 同构）——丝滑星球
+      // 之前靠自己的内部分支侥幸正确，其它加性场在这里统一设态。
+      var fdef = curBuilt.def;
+      if (fdef && fdef.additive) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE); }
+      else { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+      if (fdef && fdef.depth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(true); }
+      else { gl.disable(gl.DEPTH_TEST); gl.depthMask(false); }
+      var fit = fdef && fdef.framed ? Math.max(1, Math.min(2.6, 1.05 / aspect)) : 1;
+      if (pose.free) freeCamera(pose, aspect, 220);
+      else orbitCamera(pose, look, pose.radius * fit, aspect);
+      gl.clearColor(0.004, 0.005, 0.009, 1);
+      gl.depthMask(true);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      if (!fdef || !fdef.depth) gl.depthMask(false);
+      curBuilt.draw(env);
+    }
+    runPost(env);
+    lastStats.frames += 1;
+    return true;
+  }
+  // orbit 相机：球坐标 → 看向注视点（stage3d updateCamera 的几何段）。
+  function orbitCamera(pose, look, radius, aspect) {
     var cp = Math.cos(pose.phi), sp = Math.sin(pose.phi);
     var ct = Math.cos(pose.theta), st = Math.sin(pose.theta);
     camPos = [
@@ -596,51 +850,61 @@
     ];
     perspective(proj, pose.fov * Math.PI / 180, aspect, 0.1, 220);
     lookAt(view, camPos[0], camPos[1], camPos[2], look[0], look[1], look[2]);
-    // 场面画进 HDR 场景 RT；blend/depth 由场描述符决定（在 draw 内部切）。
-    gl.bindFramebuffer(gl.FRAMEBUFFER, post && post.scene ? post.scene.fbo : null);
-    gl.viewport(0, 0, bw, bh);
-    if (def && def.blank) {
-      gl.clearColor(0.004, 0.005, 0.009, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-    } else {
-      gl.clearColor(0.004, 0.005, 0.009, 1);
-      gl.depthMask(true);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      curBuilt.draw(env);
+  }
+  // 创意场景相机：creative-gl render 的装配式（framedDist 1.25/aspect、far 400、
+  // yaw/pitch 弧度、注视点 t）。uViewProj 供 bindSceneCommon 上传。
+  function sceneCamera(pose, aspect) {
+    var yaw = pose.theta, pitch = pose.phi, t = pose.lookAt || [0, 0, 0];
+    var framedDist = pose.radius * Math.max(1, 1.25 / aspect);
+    var cp = Math.cos(pitch), sp = Math.sin(pitch);
+    camPos = [
+      t[0] + Math.sin(yaw) * cp * framedDist,
+      t[1] + sp * framedDist,
+      t[2] + Math.cos(yaw) * cp * framedDist
+    ];
+    perspective(proj, pose.fov * Math.PI / 180, aspect, 0.1, 400);
+    lookAt(view, camPos[0], camPos[1], camPos[2], t[0], t[1], t[2]);
+    mul(viewProj, proj, view);
+  }
+
+  function freeCamera(pose, aspect, far) {
+    camPos = pose.position.slice();
+    var cy = Math.cos(pose.yaw), sy = Math.sin(pose.yaw);
+    var cp = Math.cos(pose.pitch), sp = Math.sin(pose.pitch);
+    lookAt(view, camPos[0], camPos[1], camPos[2], camPos[0] - sy * cp,
+      camPos[1] + sp, camPos[2] - cy * cp);
+    var cr = Math.cos(pose.roll || 0), sr = Math.sin(pose.roll || 0);
+    for (var i = 0; i < 4; i += 1) {
+      var x = view[i * 4], y = view[i * 4 + 1];
+      view[i * 4] = cr * x + sr * y;
+      view[i * 4 + 1] = -sr * x + cr * y;
     }
-    runPost(env);
-    lastStats.frames += 1;
+    perspective(proj, pose.fov * Math.PI / 180, aspect, 0.1, far);
+    mul(viewProj, proj, view);
   }
 
   // 检查口：同步渲一帧并返回上/下分区像素均值（readPixels 与渲染同任务）。
   function capture() {
-    if (!gl || !curBuilt) return null;
-    draw(16, lastEnv || fakeEnv());
+    if (!gl || ctxLost || gl.isContextLost() || !curBuilt || !lastEnv) return null;
+    if (!draw(0, lastEnv)) return null;
     var w = Math.min(bw, 256), h = Math.min(bh, 256);
     var px = new Uint8Array(w * h * 4);
     gl.readPixels((bw - w) >> 1, (bh - h) >> 1, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    var top = 0, bottom = 0, n = w * h;
+    var top = 0, bottom = 0, litCount = 0, n = w * h;
     for (var y = 0; y < h; y += 1) {
       var row = 0;
       for (var x = 0; x < w; x += 1) {
         var i = (y * w + x) * 4;
-        row += (px[i] + px[i + 1] + px[i + 2]) / 3;
+        var lum = (px[i] + px[i + 1] + px[i + 2]) / 3;
+        row += lum;
+        if (lum > 8) litCount += 1;
       }
       if (y < h / 2) top += row / w; else bottom += row / w;
     }
     return {
       top: top / (h / 2), bottom: bottom / (h / 2),
+      lit: litCount, err: gl.getError(),
       stage: stageId, count: lastStats.count, buffers: bw + 'x' + bh
-    };
-  }
-  var lastEnv = null;
-  function fakeEnv() {
-    return {
-      pose: { free: false, theta: 0, phi: 0, radius: 8.4, fov: 45, lookAt: [0, 0, 0] },
-      audio: { bass: 0, mid: 0, treble: 0, energy: 0, beat: 0, bands: new Float32Array(64) },
-      pointer: { x: -9, y: -9, active: 0, clickX: 0, clickY: 0, clickAge: 100 },
-      transition: { scatter: 0, burst: 0 }, fade: 1, timeSec: 0, beatAge: 100,
-      motion: 0.65, bloom: 0.8, reduced: false
     };
   }
 
@@ -651,7 +915,10 @@
     if (probeCache === null) {
       try {
         var c = document.createElement('canvas');
-        probeCache = !!(c.getContext && c.getContext('webgl2'));
+        var context = c.getContext && c.getContext('webgl2');
+        probeCache = !!context;
+        var ext = context && context.getExtension('WEBGL_lose_context');
+        if (ext) ext.loseContext();
       } catch (_) { probeCache = false; }
     }
     return probeCache;
@@ -677,8 +944,14 @@
     reason = null;
     sizeDirty = true;
     resize();
-    buildPost();
+    if (!buildPost()) {
+      releaseContext();
+      reason = '当前设备无法创建场景画面'; return false;
+    }
     attachWatch();
+    observer = new ResizeObserver(function () { sizeDirty = true; });
+    observer.observe(el);
+    sizeDirty = true;
     mounted = true;
     return true;
   }
@@ -689,32 +962,51 @@
     });
     curBuilt = null;
   }
-  function disposeAll() {
-    disposeStages();
+  function disposePost() {
     if (post) {
-      freeRT(post.scene); freeRT(post.a); freeRT(post.b);
+      freeRT(post.scene); freeRT(post.a); freeRT(post.b); freeRT(post.composed);
       if (post.bright) gl.deleteProgram(post.bright.p);
       if (post.blur) gl.deleteProgram(post.blur.p);
       if (post.comp) gl.deleteProgram(post.comp.p);
+      if (post.effects) gl.deleteProgram(post.effects.p);
       if (post.tri) gl.deleteBuffer(post.tri);
     }
     if (fsTri && gl) gl.deleteVertexArray(fsTri);
-    if (art.tex && gl) gl.deleteTexture(art.tex);
-    post = null; fsTri = null; art.tex = null;
+    post = null; fsTri = null;
+  }
+  function disposeAll(lostGeneration) {
+    if (lostGeneration) {
+      // restored 后旧句柄已由浏览器销毁，不能送回新上下文执行 delete。
+      built = {}; curBuilt = null; post = null; fsTri = null;
+    } else {
+      disposeStages(); disposePost();
+      if (art.tex && gl) gl.deleteTexture(art.tex);
+      if (specTex && gl) gl.deleteTexture(specTex);
+      if (lyricTex && gl) gl.deleteTexture(lyricTex);
+    }
+    if (observer) observer.disconnect();
+    observer = null;
+    if (art.img) { art.img.onload = null; art.img.onerror = null; }
+    art = { tex: null, url: '', ready: false, sx: 1, sy: 1, lod: 0, img: null };
+    specTex = specPixels = lyricTex = lyricSig = null;
+    atlasW = atlasH = 0; lastEnv = null;
+  }
+  function releaseContext() {
+    mounted = false;
+    detachWatch();
+    disposeAll();
+    var ext = gl && gl.getExtension('WEBGL_lose_context');
+    if (ext) ext.loseContext();
+    if (canvas) canvas.remove();
+    canvas = null; gl = null; postReason = null;
+    emitPost();
   }
   function setHost(el) {
     if (el === host) return !el || mounted;
     host = el;
     if (!el) {
-      if (mounted) {
-        cancelAnimationFrame(raf); raf = 0;
-        mounted = false;
-        ctxLost = false;
-        detachWatch();
-        disposeAll();
-      }
-      if (canvas) { canvas.remove(); canvas = null; }
-      gl = null;
+      releaseContext();
+      ctxLost = false;
       reason = null;
       return true;
     }
@@ -722,11 +1014,24 @@
     return true;
   }
   function setStage(id) {
-    if (!gl || !cat) { stageId = id; return false; }
+    if (!gl) { stageId = id; return false; }
     if (stageId === id && built[id]) return true;
+    if (id && id.indexOf('scene:') === 0) {
+      if (!scenes().some(function (s) { return s.id === id; })) return false;
+      if (!built[id]) {
+        var sb = buildSceneStage(id);
+        if (!sb) return false;
+        built[id] = sb;
+      }
+      curBuilt = built[id];
+      stageId = id; reason = null;
+      lastStats.stage = id;
+      lastStats.count = curBuilt.count;
+      return true;
+    }
+    if (!cat) return false;   // 场路径需要 stage3d 的 shaderCatalog
     var def = defById(id);
     if (!def) return false;
-    stageId = id;
     if (!built[id]) {
       var b = def.kind === 'blank' ? buildBlankStage()
         : def.kind === 'prism' ? buildPrismStage(def) : buildFieldStage(def);
@@ -734,12 +1039,47 @@
       built[id] = b;
     }
     curBuilt = built[id];
+    stageId = id; reason = null;
     lastStats.stage = id;
     lastStats.count = curBuilt.count;
     return true;
   }
   function degradedBecause() { return reason; }
   function stats() { return { stage: stageId, count: lastStats.count, frames: lastStats.frames, buffers: bw + 'x' + bh, hdr: !!(post && post.hdr) }; }
+  function stageBaseline(id) {
+    if (id && id.indexOf('scene:') === 0) {
+      var rig = global.CreativeGL && CreativeGL.sceneRig ? CreativeGL.sceneRig(id.slice(6)) : null;
+      if (!rig) return null;
+      var c = rig.camera, D = Math.PI / 180;
+      var distance = CreativeGL.cameraSpec().filter(function (row) { return row[0] === 'cam.dist'; })[0];
+      return {
+        theta: (c['cam.yaw'] || 0) * D,
+        phi: (c['cam.pitch'] || 0) * D,
+        radius: c['cam.dist'] || 15,
+        fov: c['cam.fov'] || 58,
+        minRadius: distance[2], maxRadius: distance[3],
+        look: [0, c['cam.height'] || 0, 0]
+      };
+    }
+    try {
+      var list = global.Stage3D && Stage3D.effectCatalog ? Stage3D.effectCatalog() : [];
+      for (var i = 0; i < list.length; i += 1) {
+        if (list[i].id === id) {
+          return { theta: list[i].cam.theta, phi: list[i].cam.phi, radius: list[i].cam.dist, fov:45, look: list[i].cam.look || [0,0,0] };
+        }
+      }
+    } catch (_) { /* 目录不可用按 null */ }
+    return null;
+  }
+  // 第二批的两个创意场景（§7.2）；list 顺序即网格顺序。
+  function scenes() {
+    var out = [];
+    ['towers', 'nebula', 'lyric'].forEach(function (id) {
+      var rig = global.CreativeGL && CreativeGL.sceneRig ? CreativeGL.sceneRig(id) : null;
+      if (rig) out.push({ id: 'scene:' + id, label: rig.label });
+    });
+    return out;
+  }
 
   var api = {
     available: probe,
@@ -749,7 +1089,16 @@
     capture: capture,
     stats: stats,
     degradedBecause: degradedBecause,
-    onContext: function (fn) { onCtx = typeof fn === 'function' ? fn : null; }
+    onContext: function (fn) { onCtx = typeof fn === 'function' ? fn : null; },
+    postStatus: postStatus,
+    onPost: function (fn) {
+      onPost = typeof fn === 'function' ? fn : null;
+      if (onPost) onPost(postStatus());
+    },
+    // 场/场景的机位基线映射：场来自效果目录 cam（fov 目录不带、保持当前基线），
+    // 场景来自 creative 的面板度数机位（pitch/fov 度→弧度、height → 注视点 y）。
+    stageBaseline: stageBaseline,
+    scenes: scenes
   };
   global.SpaceFields = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

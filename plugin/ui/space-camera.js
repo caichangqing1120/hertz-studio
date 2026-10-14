@@ -94,6 +94,7 @@
     userT: 0, userP: 0.08, userR: 6.6,           // 目标（基线写入；自由镜头回正也会写回）
     baseT: 0, baseP: 0.08, baseR: 6.6,           // 基线（唯一 owner：Space3D 的注册表）
     baseLook: [0, 0, 0],                         // 基线注视点（可选，场机位带 look）
+    baseFov: BASE_FOV,                           // 基线视场角（场机位要 52–68°，自由镜头仍从捕获值出发）
     curT: 0, curP: 0.08, curR: 6.6,              // 视觉（一阶低通之后）
     curLook: [0, 0, 0],                          // 注视点视觉值（τ260 低通）
     cineT: 0, cineP: 0, cineR: 0,                // 电影漂移 + 节拍 kick 混合
@@ -122,17 +123,24 @@
   function defaults() { return { theta: 0, phi: 0.08, radius: 6.6, fov: BASE_FOV, look: [0, 0, 0] }; }
   function setBaseline(pose) {
     if (!pose || typeof pose !== 'object') return;
+    cam.minR = isFinite(pose.minRadius) ? Math.max(0.3, Number(pose.minRadius)) : MIN_RADIUS;
+    cam.maxR = isFinite(pose.maxRadius) ? Math.max(cam.minR, Math.min(80, Number(pose.maxRadius))) : MAX_RADIUS;
     cam.baseT = Number(pose.theta) || 0;
     cam.baseP = clamp(Number(pose.phi) || 0, cam.minP, cam.maxP);
     cam.baseR = clamp(Number(pose.radius) || 0, cam.minR, cam.maxR);
     // 注视点（可选）：场机位带 look（如隧道看向前方深处）。目标值随基线切换，
     // 视觉值走 τ260 的低通（stage3d 的 TAU_LOOK 同值）。
     if (pose.look && pose.look.length === 3 && pose.look.every(isFinite)) cam.baseLook = pose.look.slice();
-    else if (pose.look !== undefined) cam.baseLook = [0, 0, 0];
+    else cam.baseLook = [0, 0, 0];
+    // 基线视场角（可选）：orbit 的 FOV 冲击在它之上做减法，clamp 与自由镜头同界。
+    cam.baseFov = clamp(Number(pose.fov) || BASE_FOV, FREE_FOV_MIN, FREE_FOV_MAX);
     cam.userT = cam.baseT; cam.userP = cam.baseP; cam.userR = cam.baseR;
   }
   function baseline() { return { theta: cam.baseT, phi: cam.baseP, radius: cam.baseR }; }
-  function snap() { cam.curT = cam.userT; cam.curP = cam.userP; cam.curR = cam.userR; cam.fov = BASE_FOV; }
+  function snap() {
+    cam.curT = cam.userT; cam.curP = cam.userP; cam.curR = cam.userR;
+    cam.curLook = cam.baseLook.slice(); cam.fov = cam.baseFov;
+  }
   function setCenterLocked(v) { cam.centerLocked = !!v; if (v) cam.recentering = false; }
   function isCenterLocked() { return cam.centerLocked; }
   function setCinema(on, shake) {
@@ -408,9 +416,10 @@
     cam.curLook[0] = damp(cam.curLook[0], cam.baseLook[0], 260, dtMs);
     cam.curLook[1] = damp(cam.curLook[1], cam.baseLook[1], 260, dtMs);
     cam.curLook[2] = damp(cam.curLook[2], cam.baseLook[2], 260, dtMs);
-    // FOV 冲击（:137-142）：非对称、随 punch 衰减。
+    // FOV 冲击（:137-142）：非对称、随 punch 衰减；orbit 冲击打在基线 fov 上。
     var cameraPunch = Math.max(cam.punch * 0.55, bc.punch * 0.54 + bc.radiusKick * 0.16) * cam.shake;
-    var fovTarget = (free.active || free.locked ? free.fov : BASE_FOV) - cameraPunch * (free.active || free.locked ? 1.75 : 2.35);
+    var freeEngaged = free.active || free.locked;
+    var fovTarget = (freeEngaged ? free.fov : cam.baseFov) - cameraPunch * (freeEngaged ? 1.75 : 2.35);
     cam.fov = damp(cam.fov, fovTarget, tauFromFrame(fovTarget < cam.fov ? FOV_FRAME_IN : FOV_FRAME_OUT), dtMs);
     cam.punch *= Math.exp(-dtMs / tauFromFrame(PUNCH_FRAME));
   }
@@ -421,28 +430,26 @@
     var baseR = clamp(cam.baseR, cam.minR, cam.maxR);
     var cy = Math.cos(baseP);
     var pos = [
-      cam.baseR * cy * Math.sin(cam.baseT),
-      cam.baseR * Math.sin(baseP),
-      cam.baseR * cy * Math.cos(cam.baseT)
+      cam.baseLook[0] + baseR * cy * Math.sin(cam.baseT),
+      cam.baseLook[1] + baseR * Math.sin(baseP),
+      cam.baseLook[2] + baseR * cy * Math.cos(cam.baseT)
     ];
-    var len = Math.max(0.001, Math.sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]));
-    var dx = pos[0] / len, dy = pos[1] / len, dz = pos[2] / len;
-    // YXZ 欧拉下看向原点的 yaw/pitch（getDefaultFreeCameraResetPose 同构）。
-    var pitch = Math.asin(clamp(dy, -1, 1));
-    var yaw = Math.atan2(-dx, -dz);
-    return { position: pos, yaw: yaw, pitch: pitch, roll: 0, fov: BASE_FOV };
+    // YXZ 欧拉：yaw=0 向 -Z，正 pitch 向上。
+    var pitch = -baseP;
+    var yaw = cam.baseT;
+    return { position: pos, yaw: yaw, pitch: pitch, roll: 0, fov: cam.baseFov };
   }
   function captureFreeFromOrbit() {
-    var cy = Math.cos(cam.curP);
+    var theta = cam.curT + world.cy;
+    var phi = clamp(cam.curP + world.cx, -FREE_PITCH, FREE_PITCH);
+    var cy = Math.cos(phi);
     free.position = [
-      cam.curR * cy * Math.sin(cam.curT),
-      cam.curR * Math.sin(cam.curP),
-      cam.curR * cy * Math.cos(cam.curT)
+      cam.curLook[0] + cam.curR * cy * Math.sin(theta),
+      cam.curLook[1] + cam.curR * Math.sin(phi),
+      cam.curLook[2] + cam.curR * cy * Math.cos(theta)
     ];
-    var len = Math.max(0.001, Math.sqrt(free.position[0] * free.position[0] + free.position[1] * free.position[1] + free.position[2] * free.position[2]));
-    var dx = free.position[0] / len, dy = free.position[1] / len, dz = free.position[2] / len;
-    free.pitch = Math.asin(clamp(dy, -1, 1));
-    free.yaw = Math.atan2(-dx, -dz);
+    free.pitch = -phi;
+    free.yaw = theta;
     free.roll = 0;
     free.fov = clamp(cam.fov, FREE_FOV_MIN, FREE_FOV_MAX);
   }
@@ -452,7 +459,7 @@
       free.keys = {}; free.velocity = [0, 0, 0];
       return false;
     }
-    captureFreeFromOrbit();
+    if (!free.locked) captureFreeFromOrbit();
     free.active = true; free.locked = true;
     free.tween = null; free.keys = {};
     return true;
@@ -478,6 +485,8 @@
     free.pitch = clamp(free.pitch - dyPx * 0.00125, -FREE_PITCH, FREE_PITCH);
   }
   function isFreeActive() { return free.active; }
+  function isResetting() { return !!free.tween; }
+  function clearInput() { free.keys = {}; free.velocity = [0,0,0]; cam.rotating = false; }
   function isFreeEngaged() { return free.active || free.locked; }
   function freeSnapshot() {
     return {
@@ -492,7 +501,7 @@
     free.position = [
       clamp(Number(p.x) || 0, -80, 80),
       clamp(Number(p.y) || 0, -80, 80),
-      clamp(Number(p.z) || 6.6, -80, 80)
+      clamp(isFinite(Number(p.z)) ? Number(p.z) : 6.6, -80, 80)
     ];
     free.yaw = clamp(Number(raw.yaw) || 0, -FREE_YAW, FREE_YAW);
     free.pitch = clamp(Number(raw.pitch) || 0, -FREE_PITCH, FREE_PITCH);
@@ -518,12 +527,9 @@
         free.position = tw.to.position.slice();
         free.yaw = tw.to.yaw; free.pitch = tw.to.pitch; free.roll = tw.to.roll; free.fov = tw.to.fov;
         // 回正落点回写 orbit（syncOrbitAfterFreeCameraReset :338-356）。
-        var r = clamp(Math.sqrt(free.position[0] * free.position[0] + free.position[1] * free.position[1] + free.position[2] * free.position[2]) || cam.baseR, cam.minR, cam.maxR);
-        var theta = Math.atan2(free.position[0], free.position[2]);
-        var phi = clamp(Math.asin(clamp(free.position[1] / Math.max(0.001, r), -1, 1)), cam.minP, cam.maxP);
-        cam.baseT = theta; cam.baseP = phi; cam.baseR = r;
-        cam.userT = theta; cam.userP = phi; cam.userR = r;
-        cam.curT = theta; cam.curP = phi; cam.curR = r;
+        cam.userT = cam.baseT; cam.userP = cam.baseP; cam.userR = cam.baseR;
+        snap();
+        world.tx = world.ty = world.cx = world.cy = world.vx = world.vy = 0;
         dampImpulse(0.08);
         cam.centerLocked = true;
         cam.recentering = false;
@@ -572,8 +578,12 @@
     env = env || {};
     var dt = clamp(dtMs || 16.7, 0, 160) / 1000;
     if (env.energy != null || env.low != null) updateDynamics(dtMs, env.energy, env.low);
-    updateBeatCamera(dt, dtMs, Number(env.audioTime) || 0, !!env.playing);
-    updateCinema(dt, dtMs);
+    if (env.reduced) {
+      bc.events.length = 0; dampImpulse(0);
+    } else {
+      updateBeatCamera(dt, dtMs, Number(env.audioTime) || 0, !!env.playing);
+      updateCinema(env.playing === false ? 0 : dt, dtMs);
+    }
     updateFreeCamera(dt, dtMs);
     updateCamera(dtMs);
     // 世界旋转：先惯性积分进目标角，再走 0.055/帧（τ≈295ms）的逼近层。
@@ -634,7 +644,7 @@
     spinDrag: spinDrag, worldPose: worldPose, wheel: wheel,
     beat: beat, comboFor: comboFor, tick: tick, pose: pose, internals: internals,
     freeToggle: freeToggle, freeReset: freeReset, freeKey: freeKey, freeLook: freeLook,
-    isFreeActive: isFreeActive, isFreeEngaged: isFreeEngaged,
+    isFreeActive: isFreeActive, isFreeEngaged: isFreeEngaged, isResetting: isResetting, clearInput: clearInput,
     freeSnapshot: freeSnapshot, freeLoad: freeLoad,
     dispose: dispose,
     _setClock: function (fn) { if (typeof fn === 'function') clockFn = fn; }

@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="creative.css">
 <link rel="stylesheet" href="stage3d.css">
 <link rel="stylesheet" href="space3d.css">
+<link rel="stylesheet" href="space-layers.css">
 <!-- 动画绘景 SVG 舞台层：画稿与关键帧在 creative-anime.css，这里只管舞台集成侧。
      新层排在舞台基础层之后，同特异性争议整块胜出。 -->
 <link rel="stylesheet" href="stage-anime-svg.css">
@@ -2133,6 +2134,12 @@
     <button class="sp-tbtn" id="sp-prev" title="上一首" aria-label="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-prev"/></svg></button>
     <button class="sp-tbtn sp-play" id="sp-play" title="播放 (空格)" aria-pressed="false" aria-label="播放或暂停"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg></button>
     <button class="sp-tbtn" id="sp-next" title="下一首" aria-label="下一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-next"/></svg></button>
+    <div class="sp-progress">
+      <span id="sp-track-title">选择一首歌</span>
+      <input id="sp-seek" type="range" min="0" max="1" step="100" value="0" aria-label="播放进度">
+      <span id="sp-time">0:00 / 0:00</span>
+      <div id="sp-seek-particles" aria-hidden="true"></div>
+    </div>
     <i class="sp-sep" aria-hidden="true"></i>
     <button class="sp-tbtn" id="sp-fx-toggle" title="效果" aria-expanded="false" aria-controls="sp-fx" aria-label="切换舞台来源与粒子场"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg></button>
     <button class="sp-tbtn" id="sp-playlist-toggle" title="队列" aria-expanded="false" aria-controls="sp-playlist" aria-label="播放队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-playlist"/></svg></button>
@@ -2172,6 +2179,8 @@
     </select>
     <label class="sp-check" for="sp-cinema-toggle"><input id="sp-cinema-toggle" type="checkbox" checked> 电影镜头（漂移与节拍运镜）</label>
     <p class="sp-note" id="sp-free-note">自由镜头：<b>R</b> 进入 / 退出，<b>K</b> 回正；双击复位视角，转台拖拽转的是整个世界。</p>
+    <button class="sp-btn-line" id="sp-focus" type="button">聚焦当前舞台</button>
+    <div id="sp-extra-controls"></div>
     <button class="sp-btn-line" id="sp-defaults" type="button">恢复空间默认</button>
   </aside>
   <aside class="sp-playlist" id="sp-playlist" aria-label="播放队列">
@@ -2200,6 +2209,8 @@
 <!-- 三维空间：SpaceCamera（纯数学，Node 可直测）在前，模式层在后；
      只被调用不调用别人，排在适配器（stage-coast/zodiac/anime-svg）之后。 -->
 <script defer src="space-camera.js"></script>
+<script defer src="space-post.js"></script>
+<script defer src="space-layers.js"></script>
 <script defer src="space3d.js"></script>
 <!-- 沉浸粒子场渲染器（第二批）：着色器全部经 Stage3D.shaderCatalog() 只读导出，
      这里只持有 GL 上下文与后处理链；与 stage3d.js 无加载期依赖，只被调用。 -->

@@ -43,11 +43,54 @@ const vm = require('node:vm');
 const sandbox = { window: {}, document: { createElement: () => ({ getContext: () => null }) }, Math, console };
 sandbox.self = sandbox;
 const api = vm.runInNewContext(bundle + ';CoastStagePure', sandbox, { timeout: 15000 });
-for (const fn of ['probe', 'mount', 'unmount', 'setAudio', 'setTimeOfDay', 'setInteraction', 'resize', 'stats', 'capture', 'debug']) {
+for (const fn of ['probe', 'mount', 'unmount', 'setAudio', 'setTimeOfDay', 'setInteraction', 'setRig', 'resize', 'stats', 'capture', 'debug']) {
   assert.equal(typeof api[fn], 'function', 'CoastStagePure 缺少 ' + fn);
 }
 assert.ok(fs.existsSync(path.join(root, 'plugin/ui/stage-coast.js')), '缺少 stage-coast.js 适配层');
 pass('CoastStagePure API 完整（probe/mount/unmount/setAudio/setTimeOfDay/setInteraction/resize/stats/capture/debug）');
+
+const events = {};
+const rigCalls = [];
+const interactionCalls = [];
+let currentOptions;
+const fakeEngine = {
+  probe: () => true, mount: (_canvas, options) => { currentOptions = options; return true; },
+  unmount() {}, resize() {}, setTimeOfDay() {},
+  setRig: (pose, options) => rigCalls.push({ pose, options }),
+  setInteraction: value => interactionCalls.push(value),
+};
+const adapterSandbox = {
+  window: { CoastStagePure: fakeEngine }, Float32Array, Date,
+  document: {
+    body: { classList: { contains: () => false } },
+    addEventListener: (name, fn) => { events[name] = fn; },
+    createElement: () => ({ className: '', setAttribute() {}, addEventListener() {}, removeEventListener() {}, remove() {} }),
+  },
+  requestAnimationFrame: () => 1, cancelAnimationFrame() {}, clearTimeout() {},
+};
+vm.runInNewContext(fs.readFileSync(path.join(root, 'plugin/ui/stage-coast.js'), 'utf8'), adapterSandbox);
+const adapter = adapterSandbox.window.StageCoast;
+assert.equal(typeof adapter.setInteraction, 'function', 'StageCoast pointer handoff');
+const host = { clientWidth: 640, clientHeight: 360, appendChild() {} };
+adapter.setHost(host);
+adapter.setInteraction(false);
+const supplied = { position: [1, 2, 3], yaw: 0.6, pitch: 0.2, fov: 48 };
+adapter.setRig(supplied, { external: true });
+supplied.position[0] = 999;
+events['stage:fps']({ detail: { lowfx: true } });
+assert.equal(rigCalls.at(-1).pose.position[0], 1, 'rebuild restores a copied free pose');
+assert.equal(rigCalls.at(-1).options.external, true, 'rebuild preserves immediate external mode');
+assert.equal(currentOptions.interactive, false, 'rebuild preserves pointer handoff');
+assert.equal(interactionCalls.at(-1), false, 'pointer handoff reaches engine');
+adapter.setRig(null);
+assert.equal(rigCalls.at(-1).pose, null, 'null releases the live engine camera');
+adapter.setRig({ yaw: 1 });
+adapter.setHost(null);
+const callCount = rigCalls.length;
+adapter.setHost(host);
+assert.equal(rigCalls.length, callCount, 'fresh Stage3D mount does not inherit the previous camera');
+adapter.setHost(null);
+pass('StageCoast camera/pointer handoff survives rebuild and resets at unmount');
 
 // ---- 宿主接线 ----
 const index = fs.readFileSync(path.join(root, 'plugin/ui/index.html'), 'utf8');

@@ -120,6 +120,8 @@ const STEPS = [
     why: '歌词舞台（流光/心象/商籁/凝彩/星诞）：模块大、纯逻辑，最容易在改别处时被无声改坏。' },
   { script: 'check-space-camera.js', stage: 'behavior',
     why: '三维空间的相机运行时是纯数学：角度环绕、钳制、combo→镜头映射、60/144Hz 变帧率一致性、基线表唯一 owner，错了不报错、只是镜头「手感不对」。' },
+  { script: 'check-space-post.js', stage: 'behavior', why: '空间后处理参数范围与默认关闭契约，真实 GPU 像素检查可用 --browser 运行。' },
+  { script: 'check-space-layers.js', stage: 'behavior', why: '空间装饰的有界几何、歌词擦除、背景归还与暂停时钟。' },
   { script: 'check-stanza-sonnet.js', stage: 'behavior',
     why: '商籁：构图数、逐字时间轴、镜头包络都只表现为「画面变得不对」，不报错。' },
   { script: 'check-stanza-tempera.js', stage: 'behavior',

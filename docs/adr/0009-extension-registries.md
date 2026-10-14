@@ -18,6 +18,19 @@ RSS、音频及远程封面使用 `public_net` 的同一 URL/DNS/重定向规则
 
 创意场景定义持有参数规格、默认值、机位、别名与歌词能力，CreativeStage 消费定义并继续独占预置、cue 和音频绑定。沉浸场景描述绑定构造函数；歌词渲染器描述与实例表统一宿主分发。Stage 仍持有唯一帧时钟，starborn 仍是导演而非渲染器。
 
+2026-10-14 三维空间：Space3D 与 Stage3D 互斥，切来源先卸载旧引擎，再挂载新引擎。
+SpaceCamera 只接机位数据；沉浸几何来自 Stage3D.shaderCatalog，频谱场景来自
+CreativeGL.sceneRig/sceneSource。画质几何必须经同一 geometryFor 解析后输出，
+不能把缺省 mode 的分档条目直接送到 WebGL。歌词能力沿用 ownsLyrics 与 Lyric3D 图集，
+每个上下文持有自己的纹理签名。SpacePost 只持有参数与着色器，SpaceFields 持有 GPU 资源；
+SpaceLayers 只持有有界装饰几何和临时背景宿主，Backgrounds/HandDrawn 继续独占各自偏好。
+不新增音频分析器、上下文适配器或共享预置副本。三维空间的 post/layers/freeCam 保存于 settings.space3d。
+HandDrawn 宿主契约显式提供歌词根节点和可见性，Backgrounds 独占源画面版本；空间层只消费这些只读能力。
+SpaceFields 按实际绘制路径声明深度写入能力，可选滤镜故障单独报告且保留基础画面；失败挂载与正常卸载
+共用上下文释放路径，恢复资格由活动宿主与丢失状态决定，不依赖当前是否挂载成功。
+镜头偏好在关闭/离页时提交最新快照，HTTP 请求使用 keepalive，仍经过原有串行设置写入队列；
+不另设浏览器存储副本或并行末次写入，避免恢复冲突与旧写覆盖新写。离页前尚未发出的请求仍是尽力保存。
+
 JS/CSS 由一份显式宏清单同时生成内嵌内容、HTTP 路由与指纹输入。HTML 保留加载顺序与原鉴权；图片保留原二进制响应规则。保存键、ID、分享 v1 和 HTTP/RPC 信封不变。
 
 DBX 最低宿主版本以真实验收为准，当前为 0.6.35：0.6.29 的样式内联丢失皮肤标记，

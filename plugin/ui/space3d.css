@@ -43,6 +43,24 @@
   visibility: visible;
   transition: opacity var(--dur-slow, 0.45s) var(--sp-ease), visibility 0s linear 0s;
 }
+.sp.sp-open { isolation: isolate; }
+.sp-canvas { mix-blend-mode: screen; }
+.sp-canvas { touch-action: none; }
+#sp-extra-controls details { border-top: 1px solid var(--sp-line-soft); margin-top: 18px; padding-top: 14px; }
+#sp-extra-controls summary { cursor: pointer; font-size: 13px; color: var(--sp-text); padding: 4px 0; }
+#sp-extra-controls output { display: block; text-align: right; font-size: 11px; color: var(--sp-muted); }
+#sp-extra-controls input[type="checkbox"] { accent-color: var(--sp-accent); }
+#sp-extra-controls input:disabled { opacity: 0.35; }
+.sp-progress { position: relative; display: grid; grid-template-columns: 1fr auto; width: clamp(160px, 27vw, 320px); gap: 4px 10px; margin: 0 8px; }
+#sp-track-title { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; grid-column: 1 / -1; }
+#sp-time { font-size: 10px; color: var(--sp-muted); font-variant-numeric: tabular-nums; }
+#sp-seek { width: 100%; height: 12px; margin: 0; accent-color: var(--sp-accent); cursor: pointer; }
+#sp-seek-particles { position: absolute; top: 22px; width: 0; pointer-events: none; }
+#sp-seek-particles i { position: absolute; width: 3px; height: 3px; background: var(--sp-accent); border-radius: 50%; opacity: 0; }
+#sp-seek-particles.sp-seeking i { animation: sp-seek-spark 700ms ease-out infinite; animation-delay: calc(var(--spark-i) * -87ms); }
+@keyframes sp-seek-spark { from { opacity: .8; transform: translate(0, 0); } to { opacity: 0; transform: translate(calc((var(--spark-i) - 4) * 5px), -18px); } }
+@media (max-width: 640px) { .sp-progress { width: 130px; margin: 0 3px; } #sp-time { display: none; } }
+@media (max-width: 420px) { .sp-progress { width: 88px; } .sp-bar .sp-tbtn { width: 30px; height: 34px; } }
 .sp.sp-idle { cursor: none; }
 .sp.sp-idle .sp-bar, .sp.sp-idle .sp-fab, .sp.sp-idle .sp-head-btn { opacity: 0; }
 .sp-bar, .sp-fab, .sp-head-btn { transition: opacity var(--dur-base, 0.2s) var(--sp-ease), transform var(--dur-base, 0.2s) var(--sp-ease); }

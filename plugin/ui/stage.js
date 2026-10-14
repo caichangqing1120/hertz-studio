@@ -1015,7 +1015,7 @@
   // 每一档都是 60 与 120 的公因数：帧门只能按整数分频给帧，声明一个除不尽的数
   // （原来是 24/40）会在 60Hz 上被夹成 20/30，档位表与实际帧率就对不上了。
   function lyricsTargetFps() {
-    if (hidden || document.body.classList.contains('s3d-open')) return 0;
+    if (hidden || isVisualOccluded()) return 0;
     if (!playing) return 12;
     if (reduced) return 15;
     return tier === 0 ? 20 : tier === 1 ? 30 : 60;
@@ -1078,8 +1078,11 @@
   // 窄屏（≤1240px）舞台是右侧抽屉，关着的时候画布只是被 transform 移出
   // 屏幕——布局尺寸原样保留，GL 不被告知就会持续往不可见画面上烧 GPU。
   var narrow = false;
+  function isVisualOccluded() {
+    return document.body.classList.contains('s3d-open') || document.body.classList.contains('space3d-open');
+  }
   function isStageVisible() {
-    if (hidden || document.body.classList.contains('s3d-open')) return false;
+    if (hidden || isVisualOccluded()) return false;
     if (!narrow) return true;
     return document.body.classList.contains('stage-open');
   }
@@ -1453,7 +1456,7 @@
     isLowFx: function () { return lowfx; },
     // Visual layers under the immersive stage stop drawing. The shared clock,
     // energy gate and Stage3D gates keep running in the host scheduler.
-    isHidden: function () { return hidden || document.body.classList.contains('s3d-open'); },
+    isHidden: function () { return hidden || isVisualOccluded(); },
     // GL 层据此判断活动画布当前是否真的可见（窄屏抽屉关着 = 不可见）。
     isStageVisible: isStageVisible,
     // 已经平滑过的能量，0–1。粒子层直接吃这个值比自己重算 FFT 均值便宜，

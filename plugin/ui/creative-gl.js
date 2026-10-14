@@ -1413,9 +1413,14 @@ void main() {
         cam.ty + sp * framedDist,
         cam.tz + Math.cos(cam.yaw) * cp * framedDist
       ];
+      var target = [cam.tx, cam.ty, cam.tz];
+      if (cam.position) {
+        eye = cam.position.slice();
+        target = [eye[0] - Math.sin(cam.yaw) * cp, eye[1] + sp, eye[2] - Math.cos(cam.yaw) * cp];
+      }
       S.eye = eye;
       perspective(proj, cam.fov * Math.PI / 180, w / h, 0.1, 400);
-      lookAt(view, eye[0], eye[1], eye[2], cam.tx, cam.ty, cam.tz, 0, 1, 0);
+      lookAt(view, eye[0], eye[1], eye[2], target[0], target[1], target[2], 0, 1, 0);
       // roll 缺省 0：除电影/自由相机外所有调用方不传即完全等价旧路径。
       if (cam.roll) {
         rollView(rolled, rollM, view, cam.roll);
@@ -1679,6 +1684,32 @@ void main() {
       var m;
       while ((m = re.exec(COMMON)) !== null) out.push(m[1]);
       return out;
+    },
+    // 「三维空间」的场景运行时目录（只读，docs/design/space3d-mode.md §7.2）：
+    // sceneSource(id) 给源码，这里给渲染语义的另一半 —— 几何规格、画质分档、
+    // 深度/混合、面板度数的机位默认、参数默认值，以及 setup/qualityDefs/
+    // extraPasses 这三个 owner 函数的**引用**。函数按引用导出（同页面执行域），
+    // 调用方编排调用而不是复制实现 —— 一份着色器与一份场景语义，一个 owner。
+    sceneRig: function (id) {
+      var s = typeof id === 'string' ? SCENE_BY_ID[id] || null : null;
+      if (!s) return null;
+      return {
+        id: s.id, label: s.label,
+        geom: { mode: s.geom.mode, verts: s.geom.verts, instances: s.geom.instances },
+        geometry: function (quality) { return geometryFor(s, quality); },
+        qualityGeom: s.qualityGeom ? JSON.parse(JSON.stringify(s.qualityGeom)) : null,
+        depth: s.depth === true,
+        blend: s.blend,
+        uniforms: (s.uniforms || []).slice(),
+        // 面板口径：pitch/fov 单位是度（CAMERA_SPEC 的约定），换算归调用方。
+        camera: JSON.parse(JSON.stringify(s.camera)),
+        defaults: JSON.parse(JSON.stringify(s.defaults)),
+        decl: s.decl || '',
+        qualityDefs: s.qualityDefs || null,
+        setup: s.setup || null,
+        extraPasses: s.extraPasses || null,
+        ownsLyrics: s.ownsLyrics === true
+      };
     },
     postSource: function () {
       return { vs: POST_VS, bright: BRIGHT_FS, blur: BLUR_FS, composite: COMPOSITE_FS };

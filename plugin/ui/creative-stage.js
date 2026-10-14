@@ -929,6 +929,15 @@
       !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
+  // External camera owners invalidate only when their applied pose changes.
+  // The existing Stage gate draws the latest pose once, then can sleep again.
+  var cameraFramePending = false;
+  function requestCameraFrame() {
+    if (!attached || (!wanted && !stageView) || fixedComposition() || cameraFramePending) return;
+    cameraFramePending = true;
+    if (window.Stage && Stage.kick) Stage.kick();
+  }
+
   function targetFps() {
     if (!attached || (!wanted && !stageView) || !views.length || document.hidden) return 0;
     if (!stageView && window.Stage && Stage.isHidden()) return 0;
@@ -939,8 +948,8 @@
     var playing = document.body.classList.contains('is-playing');
     var busy = stageView ? animations.some(function (a) { return !a.songClock; })
       : feat.pulse >= 0.01 || animations.length > 0;
-    if (!playing && !busy) return 0;
-    if (!playing) return 6;   // 暂停只剩余韵：6fps 是 60/120 的公因数（原来写 8，实际跑 7.5）
+    if (!playing && !busy && !cameraFramePending) return 0;
+    if (!playing && !cameraFramePending) return 6;   // 暂停只剩余韵：6fps 是 60/120 的公因数（原来写 8，实际跑 7.5）
     if (reducedMotion()) return Math.min(15, TIERS[tierIndex()].fps);
     return TIERS[tierIndex()].fps;
   }
@@ -1009,6 +1018,7 @@
   // 一帧只在活动视图的那个引擎上跑：另一个停着不画，省下来的 GPU 时间正好
   // 留给后处理链；切回去时由 pickView 触发一次即时重绘。
   function renderOne(v, dtMs) {
+    cameraFramePending = false;
     var definition = sceneDefinition(preset.scene);
     var family = definition && definition.presentation && definition.presentation.family || '';
     var fixed = fixedComposition();
@@ -1079,18 +1089,20 @@
       // 自由相机全开标志（目前只作观测，不参与合成分支）。
       freecam: false
     };
-    for (var li = 0; !reduced && !fixed && li < camLayers.length; li += 1) {
+    for (var li = 0; !fixed && li < camLayers.length; li += 1) {
+      if (reduced && !camLayers[li].manual) continue;
       try { camLayers[li].fn(ctx); } catch (e) { /* 单层抛错不能拖垮帧循环 */ }
     }
 
     var drift = driftBase * ctx.driftMul;
     var yaw = (ctx.yawDeg * Math.PI / 180)
-      + Math.sin(driftPhase) * 0.22 * drift + cam.shakeYaw + interact.parYaw;
+      + Math.sin(driftPhase) * 0.22 * drift + (ctx.absolute ? 0 : cam.shakeYaw + interact.parYaw);
+    var pitchLimit = ctx.absolute && ctx.position ? Math.PI * 0.49 : 1.35;
     var pitch = clamp((ctx.pitchDeg * Math.PI / 180)
-      + Math.sin(driftPhase * 0.73 + 1.1) * 0.10 * drift + cam.shakePitch + interact.parPitch, -1.35, 1.35);
+      + Math.sin(driftPhase * 0.73 + 1.1) * 0.10 * drift + (ctx.absolute ? 0 : cam.shakePitch + interact.parPitch), -pitchLimit, pitchLimit);
     // agg kick 是基线音频响应，对所有层生效；near plane 0.1，dist 不得贴到 0.3 以下。
     var dist = Math.max(0.3, ctx.dist
-      * (1 - (reduced || fixed ? 0 : agg[0]) * 0.06 * (readPath(runtime, 'cam.kick') / 100)));
+      * (1 - (reduced || fixed || ctx.absolute ? 0 : agg[0]) * 0.06 * (readPath(runtime, 'cam.kick') / 100)));
 
     var rot = readPath(runtime, 'stage.rotY') * Math.PI / 180 + Math.sin(driftPhase * 0.5) * 0.08 * drift;
     var sc = readPath(runtime, 'stage.scale');
@@ -1108,6 +1120,7 @@
       lyric: (window.Stage && Stage.lyrics) ? Stage.lyrics() : null,
       lyricVisible: v !== stageView || v.el.dataset.lyrics !== 'false',
       cam: { yaw: yaw, pitch: pitch, dist: dist,
+        position: ctx.position,
         fov: ctx.fov,
         tx: ctx.tx, ty: ctx.ty, tz: ctx.tz,
         roll: ctx.rollDeg * Math.PI / 180 },
@@ -1341,6 +1354,7 @@
     stageView = null;
     if (stageObserver) { stageObserver.disconnect(); stageObserver = null; }
     attached = false;
+    cameraFramePending = false;
     document.documentElement.classList.remove('creative-3d');
   }
 
@@ -1357,6 +1371,7 @@
   // 大舞台开合不改侧栏增强渲染偏好，也不创建模拟频谱或第二个调度器。
   function attachStage(el) {
     if (stageView && stageView.el === el) return true;
+    cameraFramePending = false;
     if (stageView) {
       var old = stageView;
       stageView = null;
@@ -1592,6 +1607,7 @@
     init: init,
     attach: attach,
     attachStage: attachStage,
+    requestCameraFrame: requestCameraFrame,
     stageActive: function () { return !!stageView; },
     syncPosition: function () {
       if (!stageView || !window.Stage || !Stage.position) return;
@@ -1837,10 +1853,10 @@
     onChange: onChange,
 
     // 相机层注册。priority 小者先执行；同 fn 不重复注册。
-    addCamLayer: function (fn, priority) {
+    addCamLayer: function (fn, priority, options) {
       if (typeof fn !== 'function') return;
       if (camLayers.some(function (x) { return x.fn === fn; })) return;
-      camLayers.push({ fn: fn, p: priority == null ? 100 : priority });
+      camLayers.push({ fn: fn, p: priority == null ? 100 : priority, manual: !!(options && options.manual) });
       camLayers.sort(function (a, b) { return a.p - b.p; });
     },
     removeCamLayer: function (fn) {
