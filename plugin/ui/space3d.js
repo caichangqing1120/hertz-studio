@@ -1161,6 +1161,7 @@
     preferences: preferences,
     setQueue: setQueue,
     setSource: setSource,
+    setField: setField,
     sourceId: function () { return prefs.sceneSource; },
     requestFullscreen: function () { if (active) toggleFullscreen(); },
     toggleFullscreen: function () { if (active) toggleFullscreen(); },
