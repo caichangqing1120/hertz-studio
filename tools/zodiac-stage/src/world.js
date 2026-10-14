@@ -535,7 +535,7 @@ export function createWorld(THREE, scene, opts) {
   const hazeMat = makeFieldMaterial(THREE);
   hazeMat.uniforms.uSizeScale.value = 310;
   const discMat = makeGlintMaterial(THREE, '#dff1ff');
-  discMat.uniforms.uSizeScale.value = 190;
+  discMat.uniforms.uSizeScale.value = 225;
   disposables.push(shapeMat, meshMat, edgeCoreMat, edgeHaloMat, nodeMat,
     haloMat, coreMat, hazeMat, discMat);
 
