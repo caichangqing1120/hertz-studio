@@ -128,9 +128,8 @@ assert.ok(FIGURE_Z < CONSTELLATION_Z, '形象图网格必须落在星座连线�
 // 否则「横宽的星座撑满宽度」这个前提就不成立。
 assert.ok(FIG_ASPECT > 1.4 && FIG_ASPECT < 2.4, 'FIG_ASPECT 应是横屏比例');
 assert.ok(Math.abs(FIG_HALF_W - FIG_HALF * FIG_ASPECT) < 1e-9, 'FIG_HALF_W 必须等于 FIG_HALF × FIG_ASPECT');
-// 深度是**固定的**：每座按自己的 z 极值单独定标，十二座厚度一致 —— 深度不齐会
-// 招来不同的透视放大，同一机位下有的撑满有的留白。
-assert.ok(FIGURE_DEPTH > 0.2 && FIGURE_DEPTH < 1.0, 'FIGURE_DEPTH 应在合理区间（浅浮雕）');
+// 深度有统一上限；细长部位的体积随轮廓收窄。
+assert.ok(FIGURE_DEPTH > 0.2 && FIGURE_DEPTH < 1.0, 'FIGURE_DEPTH 应在合理体积区间');
 // 网格边是丝带画的：LineBasicMaterial 在 WebGL 下宽度恒为 1px，1px 的网格边
 // 在这个体量下等于没画，所以四档宽度都必须 > 0 且芯细于晕。
 assert.ok(EDGE_CORE_WIDTH > 0 && EDGE_HALO_WIDTH > EDGE_CORE_WIDTH * 2,
@@ -172,20 +171,17 @@ for (let i = 0; i < 12; i += 1) {
       ZODIAC[i].id + ' 骨架星点出画框');
     assert.ok(c.m[k] > 0 && c.m[k] <= 1, ZODIAC[i].id + ' 骨架星点亮度越界');
   }
-  // 骨架自己也要撑满设计框：按造型 fit 直接落位时，天秤（3.0×2.0）只有造型的
-  // 六成宽，看着是「贴在动物身上的一根细线」而不是画面里的主元素。
-  let sMinX = Infinity, sMaxX = -Infinity, sMinY = Infinity, sMaxY = -Infinity;
-  for (let k = 0; k < c.nodes; k += 1) {
-    sMinX = Math.min(sMinX, c.x[k]); sMaxX = Math.max(sMaxX, c.x[k]);
-    sMinY = Math.min(sMinY, c.y[k]); sMaxY = Math.max(sMaxY, c.y[k]);
-  }
-  const starFill = Math.max((sMaxX - sMinX) / 2 / FIG_HALF_W, (sMaxY - sMinY) / 2 / FIG_HALF);
-  assert.ok(starFill > 0.84 && starFill <= 1.0,
-    ZODIAC[i].id + ' 骨架应撑满设计框（实测 ' + starFill.toFixed(3) + '）');
-  // 丝带的 z 必须落在连线的那个平面上（否则连线会穿进造型里）
+  // 主星只能使用造型的变换；独立撑满画框会让主星离开对应身体部位。
+  const fit = shapeFit(i);
+  CONSTELLATION[i].nodes.forEach(([px, py], k) => {
+    assert.ok(Math.abs(c.x[k] - (px - fit.cx) * fit.k) < 1e-5
+      && Math.abs(c.y[k] - (py - fit.cy) * fit.k) < 1e-5,
+    ZODIAC[i].id + ' 主星必须贴合造型原始位置，不能独立放大/居中');
+  });
+  // 立体连线的端点深度必须跟随对应主星。
   for (let v = 2; v < c.core.length; v += 3) {
-    assert.ok(Math.abs(c.core[v] - CONSTELLATION_Z) < 1e-5,
-      ZODIAC[i].id + ' 连线丝带不在连线平面上');
+    assert.ok(c.core[v] >= FIGURE_Z && c.core[v] <= FIGURE_DEPTH+.1,
+      ZODIAC[i].id + ' 连线丝带必须贴合立体造型表面');
   }
 }
 pass('骨架与造型同坐标：不出画、亮度在域、丝带顶点数与深度正确');
@@ -196,18 +192,18 @@ for (let i = 0; i < 12; i += 1) {
   const a2 = buildFigureMesh(i, n);
   const b2 = buildFigureMesh(i, n);
   assert.equal(a2.cloud.length, n * 3, ZODIAC[i].id + ' 形象图柔光点数 = count × 3');
-  // 逐部件三角化的成果：每座都有上千个面片（全局三角化时只有三百多，且大半
-  // 被最大边长筛掉，只剩最密的那个部件有网格）。
+  // 轮廓约束三角化保留细肢和空隙，各座均有完整的面片覆盖。
   assert.ok(a2.triangles >= 400, ZODIAC[i].id + ' 三角面片太少（' + a2.triangles + '）');
   assert.equal(a2.mesh.pos.length, a2.triangles * 9, ZODIAC[i].id + ' 面片顶点数 = 三角形数 × 9');
   assert.equal(a2.mesh.tint.length, a2.triangles * 9, ZODIAC[i].id + ' 面片明度数 = 三角形数 × 9');
-  assert.ok(a2.segmentCount > a2.triangles, ZODIAC[i].id + ' 网格边应多于三角形（去重前）');
+  assert.ok(a2.segmentCount > a2.frontTriangles, ZODIAC[i].id + ' 前表面网格边应多于前表面三角形');
   // 网格边与顶点亮点：丝带每边 6 个顶点、顶点亮点每点 3 个分量。
   assert.equal(a2.edgeCore.length, a2.segmentCount * 18, ZODIAC[i].id + ' 网格边细芯丝带顶点数 = 边数 × 18');
   assert.equal(a2.edgeHalo.length, a2.segmentCount * 18, ZODIAC[i].id + ' 网格边宽晕丝带顶点数 = 边数 × 18');
   assert.equal(a2.nodes.length, FIGURE_MESH_POINTS * 3, ZODIAC[i].id + ' 网格顶点数应等于网格点数');
   for (let v = 2; v < a2.edgeCore.length; v += 3) {
-    assert.ok(Math.abs(a2.edgeCore[v] - FIGURE_Z) < 1e-5, ZODIAC[i].id + ' 网格边丝带不在网格平面上');
+    assert.ok(a2.edgeCore[v] >= FIGURE_Z && a2.edgeCore[v] <= FIGURE_DEPTH,
+      ZODIAC[i].id + ' 网格边丝带必须在起伏表面上');
   }
   assert.ok(Buffer.from(a2.cloud.buffer).equals(Buffer.from(b2.cloud.buffer)),
     ZODIAC[i].id + ' 形象图柔光点云必须确定性');
@@ -225,14 +221,15 @@ for (let i = 0; i < 12; i += 1) {
     assert.ok(Math.abs(a2.mesh.pos[v]) <= tolX && Math.abs(a2.mesh.pos[v + 1]) <= tolY,
       ZODIAC[i].id + ' 形象图面片出画框');
   }
-  // 网格顶点必须落在网格平面上（和面片同一个深度）
+  // 顶点亮点必须在立体造型的前表面上。
   for (let v = 2; v < a2.nodes.length; v += 3) {
-    assert.ok(Math.abs(a2.nodes[v] - FIGURE_Z) < 1e-5, ZODIAC[i].id + ' 网格顶点不在网格平面上');
+    assert.ok(a2.nodes[v] >= FIGURE_Z && a2.nodes[v] <= FIGURE_DEPTH,
+      ZODIAC[i].id + ' 网格顶点必须在起伏表面上');
   }
 }
-pass('低多边形形象图：面片上千、网格边/顶点两套丝带、确定、不出画');
+pass('低多边形形象图：完整面片、网格边/顶点两套丝带、确定、不出画');
 
-// 造型归一化：十二座都**撑满设计框**（宽或高至少一边顶到），且居中、厚度一致。
+// 造型归一化：十二座撑满设计框、居中，并有受限的体积深度。
 // 断言的是用户看得见的那件事 —— 「每座都占满舞台」；旧版断言「最长边顶到
 // ±FIG_HALF」是「最长边归一化」这个实现的同义反复，换成画框归一化后它就不再
 // 成立（横宽的星座最长边是宽度，高瘦的是高度，两者不是同一个数）。
@@ -248,15 +245,14 @@ for (let i = 0; i < 12; i += 1) {
   }
   const w = maxX - minX;
   const h = maxY - minY;
-  // 上界留一点余量：fit 用固定 4200 点求包围盒，别的采样量极值会略微超出，
-  // 差的那一点由 SHAPE_BOX* 的裁剪兜住。
+  // fit 由完整轮廓决定，随机采样必须落在同一设计框内。
   const fill = Math.max(w / 2 / FIG_HALF_W, h / 2 / FIG_HALF);
   assert.ok(fill > 0.90 && fill <= 1.12,
     ZODIAC[i].id + ' 归一化后应撑满设计框（实测 ' + fill.toFixed(3) + '）');
   assert.ok(Math.abs((minX + maxX) / 2) < 0.18 && Math.abs((minY + maxY) / 2) < 0.18,
     ZODIAC[i].id + ' 归一化后应居中（质心偏移过大）');
-  assert.ok(maxZ > FIGURE_DEPTH * 0.72 && maxZ <= FIGURE_DEPTH * 1.12,
-    ZODIAC[i].id + ' 厚度应压到 ±FIGURE_DEPTH（实测 ' + maxZ.toFixed(3) + '）');
+  assert.ok(maxZ > FIGURE_DEPTH * 0.60 && maxZ <= FIGURE_DEPTH * 1.12,
+    ZODIAC[i].id + ' 体积深度必须非零且不超过上限（实测 ' + maxZ.toFixed(3) + '）');
   fills.push(fill);
   widths.push(w);
 }
@@ -266,7 +262,7 @@ const wide = widths.filter((w) => w / 2 / FIG_HALF_W > 0.9).length;
 assert.ok(wide >= 2 && wide <= 9, '应有一部分星座由宽度定标（实测 ' + wide + ' 座）');
 assert.ok(fills.every((v) => v > 0.90), '十二座都必须撑满设计框：' + fills.map((v) => v.toFixed(2)).join(','));
 pass('造型归一化：十二座撑满设计框（' + fills.map((v) => v.toFixed(2)).join('/')
-  + '）、居中、厚度一致（宽度定标 ' + wide + ' 座）');
+  + '）、居中、深度有界（宽度定标 ' + wide + ' 座）');
 
 // Delaunay 与丝带的纯函数自检（不依赖浏览器）。
 const sq = [[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]].map(([x, y]) => ({ x, y }));

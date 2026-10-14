@@ -1,6 +1,7 @@
 {
-  "src/main.js": "3a85cf954f3a2120",
+  "src/figures.js": "bc4f6beb7e427732",
+  "src/main.js": "2aa299e8ec5be79f",
   "src/util.js": "d6233b2afd9abd85",
-  "src/world.js": "5303b46ad76c5022",
-  "src/zodiac.js": "16f6809bc0820d0f"
+  "src/world.js": "7396b8240e183ee9",
+  "src/zodiac.js": "95e7484f65ba64ed"
 }

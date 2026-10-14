@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 「星座」世界：深浅渐变星空穹顶 + 星场/星芒 + 单粒子池 + 半透明形象图 + 星座骨架。
+// 「星座」世界：近黑星空、呼吸星光、轨迹粒子、立体网格与星座骨架。
 //
-// 图层由远及近（renderOrder 决定，全部 depthWrite:false + depthTest:false，
-// 深度只由顺序表达，不靠 z 值大小）：
+// 背景和辉光按 renderOrder 绘制；实体面片使用深度测试和写入：
 //   -1000 天空穹顶      纵向三段渐变 + 顶点级 FBM 星云 + 屏幕暗角
 //    -900 星场           细密星点（加法混合）
 //    -890 星云斑块       大尺度柔斑
 //    -880 星光点缀       四芒星闪烁（大颗亮星）
 //    -100 形象图柔光     造型表面点云，大点径低透明 → 半透明的「体量」
-//     -90 形象图网格     低多边形面片（半透明 + 每面随机明度）
+//     -90 形象图网格     有前后表面及侧壁的低多边形体积，受光照影响
 //     -82 网格边宽晕     低多边形辉光
 //     -80 网格边细芯     矢量清晰的实线
 //     -78 网格顶点       三角形顶点上的亮点
@@ -27,6 +26,7 @@
 import {
   ZODIAC, SIGN_COUNT, buildShape, buildCloud, buildSeeds, buildFigureMesh,
   buildConstellation, CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
+  transitionStyle,
 } from './zodiac.js';
 import { clamp, seededRandom } from './util.js';
 
@@ -46,6 +46,7 @@ const DISC_SLOTS = 18;   // 单座骨架最多 18 个星点（当前最大 15，
 const SKY_VERT = (oct) => [
   'varying float vY;',
   'varying vec2 vNeb;',
+  'varying float vGalaxy;',
   'varying vec3 vNdc;',
   'uniform float uTime;',
   'float hash31(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453123); }',
@@ -66,8 +67,10 @@ const SKY_VERT = (oct) => [
   '  vec3 dir = normalize(position);',
   '  vY = dir.y;',
   '  vNeb = vec2(',
-  '    fbm(dir * 2.35 + vec3(0.0, uTime * 0.0055, uTime * 0.0042)),',
-  '    fbm(dir * 5.10 - vec3(uTime * 0.0044, 0.0, uTime * 0.0031)));',
+  '    fbm(dir * 7.0 + vec3(0.0, uTime * 0.0006, 0.0)),',
+  '    fbm(dir * 23.0 - vec3(uTime * 0.0004, 0.0, 0.0)));',
+  '  float latitude = dot(dir,normalize(vec3(-0.42,0.86,0.25)));',
+  '  vGalaxy = exp(-pow(latitude + (vNeb.x-0.5)*0.10,2.0)*65.0);',
   '  vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
   '  vNdc = pos.xyw;',
   '  gl_Position = pos;',
@@ -85,14 +88,16 @@ const SKY_FRAG = [
   'uniform float uVignette;',
   'varying float vY;',
   'varying vec2 vNeb;',
+  'varying float vGalaxy;',
   'varying vec3 vNdc;',
   'void main() {',
   '  float y = clamp(vY * 0.5 + 0.5, 0.0, 1.0);',
   '  vec3 col = mix(uBot, uMid, smoothstep(0.0, 0.58, y));',
   '  col = mix(col, uTop, smoothstep(0.46, 1.0, y));',
-  // 星云：两条不同尺度的带子，紫与青错开，避免整片天空一个颜色。
-  '  col += uNeb1 * (smoothstep(0.22, 0.92, vNeb.x) * 1.00) * uNeb;',
-  '  col += uNeb2 * (smoothstep(0.30, 0.95, vNeb.y) * 0.62) * uNeb;',
+  // 银河尘埃保留淡灰色纹理和暗带。
+  '  float dust = smoothstep(0.25,0.72,vNeb.x)*smoothstep(0.2,0.72,vNeb.y);',
+  '  float lane = 1.0-smoothstep(0.34,0.53,vNeb.y)*0.65;',
+  '  col += (uNeb1*dust*lane + uNeb2*pow(vNeb.y,4.0))*vGalaxy*uNeb;',
   // 暗角：屏幕边缘压暗才有纵深，也让画面中心的造型更跳出来。
   '  vec2 ndc = vNdc.xy / max(1e-4, vNdc.z);',
   '  col *= 1.0 - uVignette * smoothstep(0.28, 1.18, length(ndc * vec2(0.84, 1.0)));',
@@ -104,14 +109,12 @@ function makeSkyMaterial(THREE, oct) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      // 参考图的底是天青石蓝（中段约 #24459f），不是近黑的藏青 —— 天空太暗时
-      // 整屏读成「黑底上一团白粒子」，层次全靠造型自己在撑。这里把三段的绝对值
-      // 整体抬上去，并让**中段最亮**（原来三分量一路向上加亮，最亮在画面顶部）。
-      uTop: { value: new THREE.Color(0.066, 0.113, 0.408) },
-      uMid: { value: new THREE.Color(0.146, 0.252, 0.595) },
-      uBot: { value: new THREE.Color(0.043, 0.067, 0.247) },
-      uNeb1: { value: new THREE.Color(0.245, 0.189, 0.595) },
-      uNeb2: { value: new THREE.Color(0.114, 0.284, 0.587) },
+      // 近黑夜空，层次来自星点和低亮度尘埃。
+      uTop: { value: new THREE.Color(0.006,0.007,0.011) },
+      uMid: { value: new THREE.Color(0.010,0.011,0.015) },
+      uBot: { value: new THREE.Color(0.003,0.004,0.006) },
+      uNeb1: { value: new THREE.Color(0.10,0.096,0.088) },
+      uNeb2: { value: new THREE.Color(0.042,0.048,0.061) },
       uNeb: { value: 1.00 },
       uVignette: { value: 0.54 },
     },
@@ -135,51 +138,72 @@ const SHAPE_VERT = [
   'uniform float uPixelRatio;',
   'uniform float uBoost;',
   'uniform float uTwinkle;',
-  'uniform int uState;',        // 0 gather / 1 hold / 2 disperse
-  'uniform float uK;',         // 状态内线性进度 0..1
+  'uniform float uMotion;',
+  'uniform float uSpin;',
+  'uniform int uVariant;',
+  'uniform int uState;',
+  'uniform float uK;',
   'varying float vAlpha;',
   'varying float vShine;',
   'varying float vCore;',
-  'float smooth01(float x) { x = clamp(x, 0.0, 1.0); return x*x*(3.0-2.0*x); }',
-  'void main() {',
-  '  float stagger = (aSeed - 0.5) * 0.55;',
-  '  vec3 p;',
-  '  float k = 0.0;',
-  '  if (uState == 0) {',
-  '    k = smooth01(uK * 1.22 + stagger);',
-  '    p = mix(aEntry, aShape, k);',
-  // 飞行途中绕 y 轴卷一下：半径在 k=0.5 最大、两端归零，错峰由 aSeed 决定。
-  '    float ang = k * 5.2 * (0.35 + aSeed);',
-  '    float swirl = sin(k * 3.14159265) * 2.6 * (0.25 + aSeed * 0.9);',
-  '    p.xz += vec2(cos(ang), sin(ang)) * swirl;',
-  '    vAlpha = smooth01(k * 1.6);',
-  '  } else if (uState == 2) {',
-  '    k = clamp(uK * 1.22 + stagger, 0.0, 1.0);',
-  '    float ke = k * k;',
-  '    p = mix(aShape, aExit, ke);',
-  '    float outR = ke * ke * 2.2 * (0.4 + aSeed);',
-  '    p += normalize(aShape + vec3(0.0001)) * outR;',
-  '    vAlpha = 1.0 - smooth01((k - 0.55) / 0.45);',
+  'varying vec2 vDirection;',
+  'varying float vStretch;',
+  'vec3 flight(float t) {',
+  '  t = clamp(t,0.0,1.0);',
+  '  float ease = uState == 2 ? t*t : 1.0-(1.0-t)*(1.0-t);',
+  '  vec3 origin = uState == 2 ? aShape : aEntry;',
+  '  vec3 target = uState == 2 ? aExit : aShape;',
+  '  vec3 p = mix(origin,target,ease);',
+  '  float arc = sin(t*3.14159265)*uMotion;',
+  '  float angle = aPhase+t*(7.0+aSeed*8.0)*uSpin;',
+  '  if(uVariant == 0) {',
+  '    p.xy += vec2(cos(angle),sin(angle))*arc*(1.2+aSeed*2.6);',
+  '    p.z += arc*sin(angle*0.7)*1.8;',
+  '  } else if(uVariant == 1) {',
+  '    p.xz += vec2(sin(angle),cos(angle))*arc*2.8;',
+  '    p.y += arc*(aSeed-0.5)*5.0;',
+  '  } else if(uVariant == 2) {',
+  '    p.x += arc*(aSeed-0.5)*7.0;',
+  '    p.y += sin(t*9.0+aPhase)*arc*1.2;',
+  '    p.z += arc*(aSeed*4.0-2.0);',
+  '  } else if(uVariant == 3) {',
+  '    p.xz += vec2(cos(angle),sin(angle))*arc*4.2;',
+  '    p.y += sin(angle*0.4)*arc*0.8;',
   '  } else {',
-  '    p = aShape;',
-  // 停留时沿造型外法线轻微呼吸 + 各自的相位漂移，点云是活的。
-  '    vec3 n = normalize(aShape + vec3(0.0001));',
-  '    float breathe = sin(uTime * 1.5 + aPhase) * 0.035 + sin(uTime * 0.45 + aSeed * 20.0) * 0.025;',
-  '    p += n * breathe;',
-  '    vAlpha = 1.0;',
+  '    vec3 direction = normalize(aShape+vec3(sin(aPhase),cos(aPhase),aSeed-0.5));',
+  '    p += direction*arc*(2.0+4.0*aSeed);',
   '  }',
-  '  vec4 mv = modelViewMatrix * vec4(p, 1.0);',
-  '  float tw = 1.0 + uTwinkle * sin(uTime * 1.9 + aPhase) * 0.45;',
-  '  float boost = 1.0 + (uBoost - 1.0) * (0.55 + aShine * 0.45);',
-  // 细密点阵：基础点径很小，靠密度与加法混合堆出造型；亮星略大。
-  // 停留态收得更细：这一段的主角是形象图网格边，点云退成「网格上的星尘」，
-  // 否则一层白雾把三角形结构整个盖住（参考图里点云根本不存在）。
-  '  float settle = uState == 1 ? 0.82 : 1.0;',
-  '  float size = (0.18 + aShine * 0.28) * settle * tw * boost * (46.0 / max(1.0, -mv.z)) * uPixelRatio;',
-  '  gl_PointSize = size;',
-  '  vShine = aShine;',
-  '  vCore = clamp(aShine, 0.0, 1.0);',
-  '  gl_Position = projectionMatrix * mv;',
+  '  return p;',
+  '}',
+  'void main() {',
+  '  float stagger = (aSeed-0.5)*0.48;',
+  '  float k = clamp(uK*1.24+stagger,0.0,1.0);',
+  '  vec3 p;',
+  '  vec3 ahead;',
+  '  float arc = 0.0;',
+  '  if(uState == 1) {',
+  '    p = aShape;',
+  '    vec3 n = normalize(aShape+vec3(0.0001));',
+  '    p += n*sin(uTime*1.4+aPhase)*0.028*uMotion;',
+  '    ahead = p;',
+  '    vAlpha = 0.42;',
+  '  } else {',
+  '    p = flight(k); ahead = flight(min(1.0,k+0.012));',
+  '    arc = sin(k*3.14159265);',
+  '    vAlpha = uState == 0 ? 0.24+smoothstep(0.0,0.78,k)*0.76 : 1.0-smoothstep(0.72,1.0,k);',
+  '  }',
+  '  vec4 mv = modelViewMatrix*vec4(p,1.0);',
+  '  vec4 clip = projectionMatrix*mv;',
+  '  vec4 next = projectionMatrix*modelViewMatrix*vec4(ahead,1.0);',
+  '  vec2 velocity = next.xy/max(0.001,abs(next.w))-clip.xy/max(0.001,abs(clip.w));',
+  '  vDirection = length(velocity)>0.00001 ? normalize(velocity) : vec2(1.0,0.0);',
+  '  vStretch = uState == 1 ? 1.0 : 1.0+(2.0+arc*5.0)*uMotion;',
+  '  float tw = 1.0+uTwinkle*sin(uTime*1.9+aPhase)*0.35;',
+  '  float boost = 1.0+(uBoost-1.0)*(0.55+aShine*0.45);',
+  '  float size = uState == 1 ? 0.16+aShine*0.24 : (0.35+aShine*0.65)*(1.0+arc*1.8*uMotion);',
+  '  gl_PointSize = clamp(size*tw*boost*(46.0/max(1.0,-mv.z))*uPixelRatio,0.6,34.0);',
+  '  vShine = aShine; vCore = clamp(aShine,0.0,1.0);',
+  '  gl_Position = clip;',
   '}',
 ].join('\n');
 
@@ -189,17 +213,22 @@ const SHAPE_FRAG = [
   'varying float vAlpha;',
   'varying float vShine;',
   'varying float vCore;',
+  'varying vec2 vDirection;',
+  'varying float vStretch;',
   'void main() {',
-  '  vec2 q = gl_PointCoord - vec2(0.5);',
-  '  float d = length(q);',
-  '  float halo = smoothstep(0.5, 0.12, d);',
-  '  float core = smoothstep(0.12, 0.0, d);',
-  '  float a = halo * halo * vAlpha * 0.46;',
-  // 冷蓝白打底，越亮的点越往强调色（暖白/主题色）走。
-  '  vec3 base = mix(vec3(0.72, 0.84, 1.0), vec3(0.96, 0.98, 1.0), 0.55 + vShine * 0.3);',
-  '  vec3 col = mix(base, uAccent, clamp((vShine - 0.75) * 1.4, 0.0, 0.55));',
-  '  col += core * vCore * 0.35;',
-  '  gl_FragColor = vec4(col, a);',
+  '  vec2 q = gl_PointCoord-vec2(0.5);',
+  '  vec2 dir = vec2(vDirection.x,-vDirection.y);',
+  '  float along = dot(q,dir);',
+  '  float across = dot(q,vec2(-dir.y,dir.x));',
+  '  float d = length(vec2(along,across*vStretch));',
+  '  float halo = smoothstep(0.5,0.10,d);',
+  '  float core = smoothstep(0.14,0.0,d);',
+  '  float tail = mix(1.0,smoothstep(-0.5,0.15,along),clamp(vStretch-1.0,0.0,1.0));',
+  '  float a = halo*halo*vAlpha*(0.38+tail*0.30);',
+  '  vec3 base = mix(vec3(0.31,0.74,1.0),vec3(0.92,0.97,1.0),vCore);',
+  '  vec3 col = mix(base,uAccent,clamp((vShine-0.9)*1.2,0.0,0.3));',
+  '  col += core*vCore*0.3;',
+  '  gl_FragColor = vec4(col,a);',
   '}',
 ].join('\n');
 
@@ -219,7 +248,8 @@ const FIELD_VERT = [
   'void main() {',
   '  vColor = aColor;',
   '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
-  '  float tw = 1.0 - uTwinkle * 0.3 * (1.0 - sin(uTime * 1.2 + aPhase));',
+  '  float breath = sin(uTime*(0.34+0.12*sin(aPhase))+aPhase);',
+  '  float tw = 1.0-uTwinkle*0.32+uTwinkle*0.30*breath;',
   '  gl_PointSize = clamp(aSize * uSizeScale * tw * (1.0 / max(1.0, -mv.z)) * uPixelRatio, 1.0, 512.0);',
   '  vAlpha = aAlpha * tw * uAlpha;',
   '  gl_Position = projectionMatrix * mv;',
@@ -253,9 +283,9 @@ const GLINT_VERT = [
   'varying float vBright;',
   'void main() {',
   '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
-  '  float tw = 1.0 + uTwinkle * 0.26 * sin(uTime * 1.6 + aPhase);',
+  '  float tw = 1.0+uTwinkle*0.20*sin(uTime*(0.42+0.09*sin(aPhase))+aPhase);',
   '  gl_PointSize = clamp(aSize * uSizeScale * tw * (1.0 / max(1.0, -mv.z)) * uPixelRatio, 1.0, 320.0);',
-  '  vBright = aBright * uBrightness;',
+  '  vBright = aBright*uBrightness*(1.0+uTwinkle*0.27*sin(uTime*0.44+aPhase));',
   '  gl_Position = projectionMatrix * mv;',
   '}',
 ].join('\n');
@@ -289,6 +319,9 @@ function makeShapeMaterial(THREE) {
       uBoost: { value: 1 },
       uTwinkle: { value: 1 },
       uState: { value: 0 },
+      uMotion: { value: 1 },
+      uSpin: { value: 1 },
+      uVariant: { value: 0 },
       uK: { value: 0 },
       uAccent: { value: new THREE.Color('#b9d3ff') },
     },
@@ -403,24 +436,23 @@ export function createWorld(THREE, scene, opts) {
   const fieldPhase = new Float32Array(fieldCount);
   const fieldAlpha = new Float32Array(fieldCount);
   for (let i = 0; i < fieldCount; i += 1) {
-    const u = frnd() * 2 - 1;
+    const u = frnd() < .48 ? (frnd()+frnd()+frnd()-1.5)*.14 : frnd()*2-1;
     const t = frnd() * Math.PI * 2;
     const r = 22 + Math.pow(frnd(), 0.5) * 68;
     const s = Math.sqrt(1 - u * u);
     fieldPos[i * 3] = Math.cos(t) * s * r;
-    fieldPos[i * 3 + 1] = u * r * 0.8;
+    fieldPos[i * 3 + 1] = u*r*.8 + Math.cos(t)*s*r*.38;
     fieldPos[i * 3 + 2] = Math.sin(t) * s * r;
-    // 冷蓝白为主，间或一颗偏青/偏暖的白，密度与色差撑起「星光点缀」。
-    // 参考图的星场是可读的「银河」而不是背景噪点，亮度整体比原来高半档。
+    // 中性白为主，少量冷暖星点。
     const tone = 0.50 + frnd() * 0.52;
     const pick = frnd();
-    fieldCol[i * 3] = tone * (pick > 0.88 ? 1.0 : 0.76);
-    fieldCol[i * 3 + 1] = tone * (pick > 0.5 ? 0.90 : 0.83);
-    fieldCol[i * 3 + 2] = tone * (pick > 0.35 ? 1.0 : 0.92);
+    fieldCol[i * 3] = tone*(pick>.90 ? 1.0 : pick<.12 ? .8 : .96);
+    fieldCol[i * 3 + 1] = tone*(pick>.90 ? .88 : .96);
+    fieldCol[i * 3 + 2] = tone*(pick>.90 ? .70 : 1.0);
     // 尺寸：绝大多数是细砂，少数明显大颗（3 次幂拉开长尾）。
-    fieldSize[i] = 1.0 + Math.pow(frnd(), 3.0) * 3.0;
+    fieldSize[i] = .65 + Math.pow(frnd(), 4.0) * 3.5;
     fieldPhase[i] = frnd() * Math.PI * 2;
-    fieldAlpha[i] = 0.36 + frnd() * 0.60;
+    fieldAlpha[i] = 0.30 + frnd() * 0.66;
   }
   const fieldGeo = softGeometry(THREE, fieldPos,
     softAttrs(THREE, fieldCol, fieldSize, fieldPhase, fieldAlpha));
@@ -434,7 +466,7 @@ export function createWorld(THREE, scene, opts) {
 
   const nrnd = seededRandom('zodiac-nebula-3');
   const nebulaPalette = [
-    [0.30, 0.24, 0.72], [0.52, 0.28, 0.78], [0.18, 0.42, 0.78], [0.26, 0.52, 0.76],
+    [0.22, 0.22, 0.23], [0.27, 0.26, 0.24], [0.18, 0.19, 0.21], [0.24, 0.24, 0.25],
   ];
   const nPos = new Float32Array(NEBULA * 3);
   const nCol = new Float32Array(NEBULA * 3);
@@ -454,7 +486,7 @@ export function createWorld(THREE, scene, opts) {
     nCol[i * 3] = c[0] * tone; nCol[i * 3 + 1] = c[1] * tone; nCol[i * 3 + 2] = c[2] * tone;
     nSize[i] = 70 + nrnd() * 150;
     nPhase[i] = nrnd() * Math.PI * 2;
-    nAlpha[i] = 0.055 + nrnd() * 0.095;
+    nAlpha[i] = 0.010 + nrnd() * 0.025;
   }
   const nebulaGeo = softGeometry(THREE, nPos, softAttrs(THREE, nCol, nSize, nPhase, nAlpha));
   const nebulaMat = makeFieldMaterial(THREE);
@@ -479,13 +511,13 @@ export function createWorld(THREE, scene, opts) {
     sPos[i * 3 + 1] = u * r * 0.85;
     sPos[i * 3 + 2] = Math.sin(t) * s * r;
     // 大颗的极少：长尾分布，避免「满天都是大星」的廉价感。
-    sSize[i] = 3.0 + Math.pow(srnd(), 2.8) * 12;
+    sSize[i] = 1.5 + Math.pow(srnd(), 3.5) * 7;
     sBright[i] = 0.34 + srnd() * 0.66;
     sPhase[i] = srnd() * Math.PI * 2;
   }
   const sparkleGeo = glintGeometry(THREE, sPos, sSize, sBright,
     new THREE.BufferAttribute(sPhase, 1));
-  const sparkleMat = makeGlintMaterial(THREE, '#cce6ff');
+  const sparkleMat = makeGlintMaterial(THREE, '#f2f0eb');
   sparkleMat.uniforms.uSizeScale.value = 260;
   const sparklePoints = new THREE.Points(sparkleGeo, sparkleMat);
   sparklePoints.frustumCulled = false;
@@ -501,15 +533,30 @@ export function createWorld(THREE, scene, opts) {
   const figureGroup = new THREE.Group();
   root.add(figureGroup);
 
+  const lights = new THREE.Group();
+  lights.add(new THREE.AmbientLight('#6685b1',.65));
+  const keyLight = new THREE.DirectionalLight('#b8e8ff',3.2);
+  keyLight.position.set(-5,6,8);lights.add(keyLight);
+  const rimLight = new THREE.DirectionalLight('#59e5c4',2.4);
+  rimLight.position.set(4,1,-5);lights.add(rimLight);
+  const fillLight = new THREE.DirectionalLight('#d19ac7',1.1);
+  fillLight.position.set(5,-3,4);lights.add(fillLight);
+  scene.add(lights);
+
   const shapeMat = makeShapeMaterial(THREE);
-  const meshMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#4fcdf2'),
+  const meshMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#54b7c8'),
+    emissive: new THREE.Color('#103c50'),
+    emissiveIntensity: .35,
+    roughness: .42,
+    metalness: .18,
+    flatShading: true,
     vertexColors: true,
     transparent: true,
-    opacity: 0.18,
+    opacity: 0.44,
     side: THREE.DoubleSide,
-    depthTest: false,
-    depthWrite: false,
+    depthTest: true,
+    depthWrite: true,
     toneMapped: false,
   });
   const ribbonMat = (color, opacity) => new THREE.MeshBasicMaterial({
@@ -526,16 +573,16 @@ export function createWorld(THREE, scene, opts) {
   // linewidth 恒为 1px，1024 宽的舞台上那根线细到看不见，点云一盖就没了。
   // 芯色是青白（B>G>R）而不是纯白：参考图量出来线色 #afd2ef~#d5e1f5，
   // 用白色加法叠密了会整片过曝（L>235 占比一度是参考图的 5 倍）。
-  const edgeCoreMat = ribbonMat('#a9dcff', 0.56);
-  const edgeHaloMat = ribbonMat('#2fb9ff', 0.15);
+  const edgeCoreMat = ribbonMat('#afd2ef', 0.25);
+  const edgeHaloMat = ribbonMat('#2fb9ff', 0.055);
   const nodeMat = makeFieldMaterial(THREE);
-  nodeMat.uniforms.uSizeScale.value = 84;
+  nodeMat.uniforms.uSizeScale.value = 52;
   const haloMat = ribbonMat('#3fb9ff', 0.20);
   const coreMat = ribbonMat('#e2f5ff', 0.90);
   const hazeMat = makeFieldMaterial(THREE);
-  hazeMat.uniforms.uSizeScale.value = 310;
+  hazeMat.uniforms.uSizeScale.value = 190;
   const discMat = makeGlintMaterial(THREE, '#dff1ff');
-  discMat.uniforms.uSizeScale.value = 225;
+  discMat.uniforms.uSizeScale.value = 280;
   disposables.push(shapeMat, meshMat, edgeCoreMat, edgeHaloMat, nodeMat,
     haloMat, coreMat, hazeMat, discMat);
 
@@ -562,7 +609,7 @@ export function createWorld(THREE, scene, opts) {
       // 大部分是均匀的柔雾，少数颗粒大一圈 → 半透明形象图里透出「颗粒感」。
       size[i] = 0.8 + Math.pow(hr(), 2.4) * 2.4;
       phase[i] = hr() * Math.PI * 2;
-      alpha[i] = 0.020 + hr() * 0.040;
+      alpha[i] = 0.008 + hr() * 0.020;
     }
     return softAttrs(THREE, col, size, phase, alpha);
   })();
@@ -586,7 +633,7 @@ export function createWorld(THREE, scene, opts) {
       col[i * 3 + 2] = tone * 1.0;
       size[i] = 0.30 + Math.pow(nr(), 1.8) * 0.55;
       phase[i] = nr() * Math.PI * 2;
-      alpha[i] = 0.46 + nr() * 0.40;
+      alpha[i] = 0.25 + nr() * 0.35;
     }
     return softAttrs(THREE, col, size, phase, alpha);
   })();
@@ -638,6 +685,7 @@ export function createWorld(THREE, scene, opts) {
     const mg = new THREE.BufferGeometry();
     mg.setAttribute('position', new THREE.BufferAttribute(fig.mesh.pos, 3));
     mg.setAttribute('color', new THREE.BufferAttribute(fig.mesh.tint, 3));
+    mg.computeVertexNormals();
     meshes.push(mg);
     disposables.push(mg);
 
@@ -669,7 +717,7 @@ export function createWorld(THREE, scene, opts) {
     for (let k = 0; k < n; k += 1) {
       dpos[k * 3] = line.x[k];
       dpos[k * 3 + 1] = line.y[k];
-      dpos[k * 3 + 2] = CONSTELLATION_Z;
+      dpos[k * 3 + 2] = line.z[k];
       // 参考图里的主星是大颗的四芒星（带一大片辉光），次星也明显可见 ——
       // 「每颗都是小圆点」是上一版最不像的地方之一。
       dsize[k] = 0.55 + line.m[k] * 1.75;
@@ -724,6 +772,7 @@ export function createWorld(THREE, scene, opts) {
   figureGroup.add(discs);
 
   let current = -1;
+  let lastCycle = 0;
   let fieldVisible = true;
   let figAlpha = 1;
 
@@ -769,6 +818,7 @@ export function createWorld(THREE, scene, opts) {
 
   function update(time, ctx) {
     const c = ctx || {};
+    lastCycle = c.cycle || 0;
     const reduced = !!c.reduced;
     const state = c.state || 'hold';
     const k = c.k || 0;
@@ -781,8 +831,12 @@ export function createWorld(THREE, scene, opts) {
     shapeMat.uniforms.uTwinkle.value = reduced ? 0.15 : 1;
     shapeMat.uniforms.uState.value = state === 'gather' ? 0 : state === 'disperse' ? 2 : 1;
     shapeMat.uniforms.uK.value = k;
+    const style = transitionStyle(c.cycle || 0);
+    shapeMat.uniforms.uVariant.value = state === 'disperse' ? style.disperse : style.gather;
+    shapeMat.uniforms.uSpin.value = style.direction;
+    shapeMat.uniforms.uMotion.value = reduced ? .12 : 1;
 
-    // 背景星场：只有闪烁快慢受减弱动效影响，星云与星点常驻。
+    // 减弱动效降低呼吸幅度，星云与星点常驻。
     const fTw = reduced ? 0.2 : 1;
     fieldMat.uniforms.uTime.value = time;
     fieldMat.uniforms.uTwinkle.value = fTw;
@@ -793,10 +847,10 @@ export function createWorld(THREE, scene, opts) {
     sparkleMat.uniforms.uBrightness.value = 0.82 + onset * 0.3;
 
     // 造型自转改成「以播放时间为唯一输入」的微摆：seek 到任意时刻画面一致，
-    // 暂停时真正冻结；也保证半透明的平面形象图不会转到侧棱上变成一条线。
-    const sway = reduced ? 0.04 : 0.22;
+    // 暂停时冻结；微摆展示立体侧面，同时保持剪影可识别。
+    const sway = reduced ? 0.04 : 0.43;
     root.rotation.y = Math.sin(time * 0.30) * sway + Math.sin(time * 0.085 + 1.3) * sway * 0.34;
-    root.rotation.x = Math.sin(time * 0.11) * (reduced ? 0 : 0.03);
+    root.rotation.x = Math.sin(time * 0.19) * (reduced ? 0 : 0.11);
     const pulse = 1 + onset * 0.05 + bass * 0.02;
     root.scale.setScalar(state === 'gather' ? pulse * (0.92 + k * 0.08) : pulse);
 
@@ -805,9 +859,9 @@ export function createWorld(THREE, scene, opts) {
     figAlpha = figureOpacity(state, k);
     hazeMat.uniforms.uAlpha.value = figAlpha;
     hazeMat.uniforms.uTime.value = time;
-    meshMat.opacity = 0.15 * figAlpha;
-    edgeCoreMat.opacity = 0.56 * figAlpha;
-    edgeHaloMat.opacity = (0.15 + bass * 0.12) * figAlpha;
+    meshMat.opacity = 0.44 * figAlpha;
+    edgeCoreMat.opacity = 0.25 * figAlpha;
+    edgeHaloMat.opacity = (0.055 + bass * 0.06) * figAlpha;
     nodeMat.uniforms.uAlpha.value = figAlpha;
     nodeMat.uniforms.uTime.value = time;
     nodeMat.uniforms.uTwinkle.value = reduced ? 0.25 : 1;
@@ -843,6 +897,7 @@ export function createWorld(THREE, scene, opts) {
       figureAlpha: Math.round(figAlpha * 1000) / 1000,
       sky: true,
       layers: 13,
+      transition: { ...transitionStyle(lastCycle) },
     };
   }
 
@@ -851,6 +906,7 @@ export function createWorld(THREE, scene, opts) {
     scene.remove(root);
     scene.remove(fieldGroup);
     scene.remove(sky);
+    scene.remove(lights);
   }
 
   setFieldVisible(true);

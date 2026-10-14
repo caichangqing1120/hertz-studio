@@ -21,7 +21,7 @@ import * as THREE from 'three';
 import { clamp, aggregateBands, envelopeBands, damp } from './util.js';
 import {
   ZODIAC, SIGN_COUNT, GATHER_SECONDS, DISPERSE_SECONDS, CYCLE_SECONDS,
-  timelineAt, viewBass, zoomClamp, buildShape, buildCloud, buildSeeds,
+  timelineAt, transitionStyle, viewBass, zoomClamp, buildShape, buildCloud, buildSeeds,
   buildFigureMesh, buildConstellation, CONSTELLATION, delaunay2, buildRibbon,
   shapeFit, FIG_HALF, FIG_HALF_W, FIG_ASPECT, FIGURE_DEPTH, SHAPE_BOX, SHAPE_BOX_V,
   SHAPE_BOX_Z, CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
@@ -37,7 +37,7 @@ const QUALITY = {
 const BIN_COUNT = 24;
 const PAUSE_RENDER_MS = 250;
 // 兜底清屏色（天空穹顶盖满时看不到）：取天空最暗那一段的值，不留黑边。
-const BG_COLOR = '#070c22';
+const BG_COLOR = '#030405';
 // 机位距离不再是个常数：设计框是「半宽 FIG_HALF*FIG_ASPECT、半高 FIG_HALF」的
 // 1.78 矩形，机位要按**舞台自己的宽高比**退到刚好装下它（再多留 8% 边距）。
 // 写死距离的话，窄窗口会从左右切掉横宽的星座（巨蟹画到 8.7 宽，1.33 的画框只有
@@ -60,6 +60,11 @@ function fitDistance(aspect) {
     (FIG_HALF * FRAME_MARGIN) / tan,
     (FIG_HALF_W * FRAME_MARGIN) / (tan * a),
   );
+}
+
+function orbitDistance(rig) {
+  // Portrait framing can require more than the desktop distance ceiling.
+  return clamp(rig.distFit * rig.zoom, DIST_MIN, Math.max(DIST_MAX, rig.distFit * ZOOM_MAX));
 }
 const PITCH_LIMIT = 0.75;
 const CAMERA_DRIFT = 0.035;  // 机位极慢漂移（rad/s），与造型微摆错开速度产生视差
@@ -119,7 +124,7 @@ export function mount(canvas, opts = {}) {
   };
 
   function updateDist() {
-    rig.dist = clamp(rig.distFit * rig.zoom, DIST_MIN, DIST_MAX);
+    rig.dist = orbitDistance(rig);
   }
 
   function onPointerDown(e) {
@@ -220,7 +225,7 @@ export function resize(width, height) {
   st.camera.updateProjectionMatrix();
   // 舞台一变窄就得往后退：设计框是按 1.78 定的，窄画框会从左右切掉横宽的星座。
   st.rig.distFit = fitDistance(width / height);
-  st.rig.dist = clamp(st.rig.distFit * st.rig.zoom, DIST_MIN, DIST_MAX);
+  st.rig.dist = orbitDistance(st.rig);
   st.world.setPixelRatio(st.pr);
   st.dirty = true;
 }
@@ -315,7 +320,7 @@ function tick(now) {
   }
 
   st.world.update(st.sceneTime, {
-    bass: st.audio.bass, onset: st.audio.onsetLevel,
+    bass: st.audio.bass, onset: st.audio.onsetLevel, cycle: tl.cycle,
     reduced: prefs.reduced, glow: prefs.glow, dt,
     state: tl.state, k, cameraPos: camera.position,
   });
@@ -397,7 +402,7 @@ export function capture() {
 
 export const pure = {
   ZODIAC, SIGN_COUNT, GATHER_SECONDS, HOLD_SECONDS: CYCLE_SECONDS - GATHER_SECONDS - DISPERSE_SECONDS,
-  DISPERSE_SECONDS, CYCLE_SECONDS, buildShape, buildCloud, buildSeeds, timelineAt,
+  DISPERSE_SECONDS, CYCLE_SECONDS, buildShape, buildCloud, buildSeeds, timelineAt, transitionStyle,
   aggregateBands, viewBass, zoomClamp,
   // 形象图与星座骨架：Node 契约直接验证几何，不需要浏览器
   CONSTELLATION, buildFigureMesh, buildConstellation, buildRibbon, delaunay2, shapeFit,
