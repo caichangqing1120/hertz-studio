@@ -11,28 +11,32 @@
 //    -880 星光点缀       四芒星闪烁（大颗亮星）
 //    -100 形象图柔光     造型表面点云，大点径低透明 → 半透明的「体量」
 //     -90 形象图网格     低多边形面片（半透明 + 每面随机明度）
-//     -80 形象图网格边   清晰矢量线
+//     -82 网格边宽晕     低多边形辉光
+//     -80 网格边细芯     矢量清晰的实线
+//     -78 网格顶点       三角形顶点上的亮点
 //     -10 主粒子池       汇聚/停留/散开
 //      10 星座连线晕     宽丝带柔光
 //      11 星座连线芯     细丝带，矢量清晰
 //      12 星座星点       四芒星，主星最大
 //
 // 十二座的全部几何在一次构建里做好（零分配、零 GC、零重建，也不依赖
-// three 的 attribute 替换语义），换座只是把六个对象指向另一套几何。
+// three 的 attribute 替换语义），换座只是把九个对象指向另一套几何。
 // 预建的几何在 dispose() 里逐个释放 —— 挂在同一个几何上的 attribute 被换掉时
 // three 不会回收旧 buffer（弱引用只跟包装对象走），只有「每座一个几何」才收得干净。
 
 import {
   ZODIAC, SIGN_COUNT, buildShape, buildCloud, buildSeeds, buildFigureMesh,
-  buildConstellation, CONSTELLATION_Z, FIGURE_Z,
+  buildConstellation, CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
 } from './zodiac.js';
 import { clamp, seededRandom } from './util.js';
 
-const SHAPE_COUNTS = { low: 2400, medium: 3800, high: 5200 };
-const FIGURE_COUNTS = { low: 820, medium: 1400, high: 2100 };
-const FIELD_COUNTS = { low: 1900, medium: 3400, high: 5400 };
-const SPARKLE_COUNTS = { low: 64, medium: 104, high: 150 };
-const NEBULA = 26;
+// 归一化改成「落到 1.78 的设计框」之后，横宽的星座比原来大了约 1.8 倍，
+// 同样的粒子数摊在更大的面积上会显稀 —— 三个池子跟着上调一档。
+const SHAPE_COUNTS = { low: 2600, medium: 4200, high: 6000 };
+const FIGURE_COUNTS = { low: 1000, medium: 1700, high: 2600 };
+const FIELD_COUNTS = { low: 3000, medium: 5200, high: 8200 };
+const SPARKLE_COUNTS = { low: 70, medium: 112, high: 160 };
+const NEBULA = 36;
 const DISC_SLOTS = 18;   // 单座骨架最多 18 个星点（当前最大 15，留余量）
 
 // —— 天空穹顶 ——
@@ -87,8 +91,8 @@ const SKY_FRAG = [
   '  vec3 col = mix(uBot, uMid, smoothstep(0.0, 0.58, y));',
   '  col = mix(col, uTop, smoothstep(0.46, 1.0, y));',
   // 星云：两条不同尺度的带子，紫与青错开，避免整片天空一个颜色。
-  '  col += uNeb1 * (smoothstep(0.30, 0.86, vNeb.x) * 0.85) * uNeb;',
-  '  col += uNeb2 * (smoothstep(0.38, 0.92, vNeb.y) * 0.50) * uNeb;',
+  '  col += uNeb1 * (smoothstep(0.22, 0.92, vNeb.x) * 1.00) * uNeb;',
+  '  col += uNeb2 * (smoothstep(0.30, 0.95, vNeb.y) * 0.62) * uNeb;',
   // 暗角：屏幕边缘压暗才有纵深，也让画面中心的造型更跳出来。
   '  vec2 ndc = vNdc.xy / max(1e-4, vNdc.z);',
   '  col *= 1.0 - uVignette * smoothstep(0.28, 1.18, length(ndc * vec2(0.84, 1.0)));',
@@ -100,13 +104,16 @@ function makeSkyMaterial(THREE, oct) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uTop: { value: new THREE.Color(0.115, 0.215, 0.520) },
-      uMid: { value: new THREE.Color(0.088, 0.160, 0.405) },
-      uBot: { value: new THREE.Color(0.036, 0.062, 0.165) },
-      uNeb1: { value: new THREE.Color(0.235, 0.150, 0.520) },
-      uNeb2: { value: new THREE.Color(0.075, 0.280, 0.470) },
-      uNeb: { value: 0.68 },
-      uVignette: { value: 0.62 },
+      // 参考图的底是天青石蓝（中段约 #24459f），不是近黑的藏青 —— 天空太暗时
+      // 整屏读成「黑底上一团白粒子」，层次全靠造型自己在撑。这里把三段的绝对值
+      // 整体抬上去，并让**中段最亮**（原来三分量一路向上加亮，最亮在画面顶部）。
+      uTop: { value: new THREE.Color(0.066, 0.113, 0.408) },
+      uMid: { value: new THREE.Color(0.146, 0.252, 0.595) },
+      uBot: { value: new THREE.Color(0.043, 0.067, 0.247) },
+      uNeb1: { value: new THREE.Color(0.245, 0.189, 0.595) },
+      uNeb2: { value: new THREE.Color(0.114, 0.284, 0.587) },
+      uNeb: { value: 1.00 },
+      uVignette: { value: 0.54 },
     },
     vertexShader: SKY_VERT(oct),
     fragmentShader: SKY_FRAG,
@@ -165,7 +172,10 @@ const SHAPE_VERT = [
   '  float tw = 1.0 + uTwinkle * sin(uTime * 1.9 + aPhase) * 0.45;',
   '  float boost = 1.0 + (uBoost - 1.0) * (0.55 + aShine * 0.45);',
   // 细密点阵：基础点径很小，靠密度与加法混合堆出造型；亮星略大。
-  '  float size = (0.20 + aShine * 0.30) * tw * boost * (46.0 / max(1.0, -mv.z)) * uPixelRatio;',
+  // 停留态收得更细：这一段的主角是形象图网格边，点云退成「网格上的星尘」，
+  // 否则一层白雾把三角形结构整个盖住（参考图里点云根本不存在）。
+  '  float settle = uState == 1 ? 0.82 : 1.0;',
+  '  float size = (0.18 + aShine * 0.28) * settle * tw * boost * (46.0 / max(1.0, -mv.z)) * uPixelRatio;',
   '  gl_PointSize = size;',
   '  vShine = aShine;',
   '  vCore = clamp(aShine, 0.0, 1.0);',
@@ -184,7 +194,7 @@ const SHAPE_FRAG = [
   '  float d = length(q);',
   '  float halo = smoothstep(0.5, 0.12, d);',
   '  float core = smoothstep(0.12, 0.0, d);',
-  '  float a = halo * halo * vAlpha * 0.58;',
+  '  float a = halo * halo * vAlpha * 0.46;',
   // 冷蓝白打底，越亮的点越往强调色（暖白/主题色）走。
   '  vec3 base = mix(vec3(0.72, 0.84, 1.0), vec3(0.96, 0.98, 1.0), 0.55 + vShine * 0.3);',
   '  vec3 col = mix(base, uAccent, clamp((vShine - 0.75) * 1.4, 0.0, 0.55));',
@@ -401,15 +411,16 @@ export function createWorld(THREE, scene, opts) {
     fieldPos[i * 3 + 1] = u * r * 0.8;
     fieldPos[i * 3 + 2] = Math.sin(t) * s * r;
     // 冷蓝白为主，间或一颗偏青/偏暖的白，密度与色差撑起「星光点缀」。
-    const tone = 0.42 + frnd() * 0.58;
+    // 参考图的星场是可读的「银河」而不是背景噪点，亮度整体比原来高半档。
+    const tone = 0.50 + frnd() * 0.52;
     const pick = frnd();
-    fieldCol[i * 3] = tone * (pick > 0.88 ? 1.0 : 0.74);
-    fieldCol[i * 3 + 1] = tone * (pick > 0.5 ? 0.88 : 0.82);
-    fieldCol[i * 3 + 2] = tone * (pick > 0.35 ? 1.0 : 0.9);
+    fieldCol[i * 3] = tone * (pick > 0.88 ? 1.0 : 0.76);
+    fieldCol[i * 3 + 1] = tone * (pick > 0.5 ? 0.90 : 0.83);
+    fieldCol[i * 3 + 2] = tone * (pick > 0.35 ? 1.0 : 0.92);
     // 尺寸：绝大多数是细砂，少数明显大颗（3 次幂拉开长尾）。
-    fieldSize[i] = 0.8 + Math.pow(frnd(), 3.4) * 2.6;
+    fieldSize[i] = 1.0 + Math.pow(frnd(), 3.0) * 3.0;
     fieldPhase[i] = frnd() * Math.PI * 2;
-    fieldAlpha[i] = 0.30 + frnd() * 0.62;
+    fieldAlpha[i] = 0.36 + frnd() * 0.60;
   }
   const fieldGeo = softGeometry(THREE, fieldPos,
     softAttrs(THREE, fieldCol, fieldSize, fieldPhase, fieldAlpha));
@@ -443,7 +454,7 @@ export function createWorld(THREE, scene, opts) {
     nCol[i * 3] = c[0] * tone; nCol[i * 3 + 1] = c[1] * tone; nCol[i * 3 + 2] = c[2] * tone;
     nSize[i] = 70 + nrnd() * 150;
     nPhase[i] = nrnd() * Math.PI * 2;
-    nAlpha[i] = 0.045 + nrnd() * 0.085;
+    nAlpha[i] = 0.055 + nrnd() * 0.095;
   }
   const nebulaGeo = softGeometry(THREE, nPos, softAttrs(THREE, nCol, nSize, nPhase, nAlpha));
   const nebulaMat = makeFieldMaterial(THREE);
@@ -492,22 +503,13 @@ export function createWorld(THREE, scene, opts) {
 
   const shapeMat = makeShapeMaterial(THREE);
   const meshMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#63d6ee'),
+    color: new THREE.Color('#4fcdf2'),
     vertexColors: true,
     transparent: true,
-    opacity: 0.15,
+    opacity: 0.18,
     side: THREE.DoubleSide,
     depthTest: false,
     depthWrite: false,
-    toneMapped: false,
-  });
-  const edgeMat = new THREE.LineBasicMaterial({
-    color: new THREE.Color('#8ad8f2'),
-    transparent: true,
-    opacity: 0.44,
-    depthTest: false,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
     toneMapped: false,
   });
   const ribbonMat = (color, opacity) => new THREE.MeshBasicMaterial({
@@ -520,13 +522,22 @@ export function createWorld(THREE, scene, opts) {
     blending: THREE.AdditiveBlending,
     toneMapped: false,
   });
-  const haloMat = ribbonMat('#3fb9ff', 0.14);
-  const coreMat = ribbonMat('#eaf9ff', 0.74);
+  // 形象图网格边：细芯 + 宽晕两级丝带。原来是 LineBasicMaterial —— WebGL 下
+  // linewidth 恒为 1px，1024 宽的舞台上那根线细到看不见，点云一盖就没了。
+  // 芯色是青白（B>G>R）而不是纯白：参考图量出来线色 #afd2ef~#d5e1f5，
+  // 用白色加法叠密了会整片过曝（L>235 占比一度是参考图的 5 倍）。
+  const edgeCoreMat = ribbonMat('#a9dcff', 0.56);
+  const edgeHaloMat = ribbonMat('#2fb9ff', 0.15);
+  const nodeMat = makeFieldMaterial(THREE);
+  nodeMat.uniforms.uSizeScale.value = 84;
+  const haloMat = ribbonMat('#3fb9ff', 0.20);
+  const coreMat = ribbonMat('#e2f5ff', 0.90);
   const hazeMat = makeFieldMaterial(THREE);
   hazeMat.uniforms.uSizeScale.value = 310;
-  const discMat = makeGlintMaterial(THREE, '#cfeaff');
-  discMat.uniforms.uSizeScale.value = 150;
-  disposables.push(shapeMat, meshMat, edgeMat, haloMat, coreMat, hazeMat, discMat);
+  const discMat = makeGlintMaterial(THREE, '#dff1ff');
+  discMat.uniforms.uSizeScale.value = 190;
+  disposables.push(shapeMat, meshMat, edgeCoreMat, edgeHaloMat, nodeMat,
+    haloMat, coreMat, hazeMat, discMat);
 
   const seeds = buildSeeds(count);
   const poolPhase = new Float32Array(count);
@@ -561,11 +572,31 @@ export function createWorld(THREE, scene, opts) {
     for (let i = 0; i < DISC_SLOTS; i += 1) phase[i] = dr() * Math.PI * 2;
     return new THREE.BufferAttribute(phase, 1);
   })();
+  // 网格顶点亮点的尺寸/亮度：十二座点数固定（FIGURE_MESH_POINTS），跨座共享。
+  const nodeShare = (() => {
+    const nr = seededRandom('zodiac-node-1');
+    const col = new Float32Array(FIGURE_MESH_POINTS * 3);
+    const size = new Float32Array(FIGURE_MESH_POINTS);
+    const phase = new Float32Array(FIGURE_MESH_POINTS);
+    const alpha = new Float32Array(FIGURE_MESH_POINTS);
+    for (let i = 0; i < FIGURE_MESH_POINTS; i += 1) {
+      const tone = 0.70 + nr() * 0.30;
+      col[i * 3] = tone * 0.60;
+      col[i * 3 + 1] = tone * 0.86;
+      col[i * 3 + 2] = tone * 1.0;
+      size[i] = 0.30 + Math.pow(nr(), 1.8) * 0.55;
+      phase[i] = nr() * Math.PI * 2;
+      alpha[i] = 0.46 + nr() * 0.40;
+    }
+    return softAttrs(THREE, col, size, phase, alpha);
+  })();
 
   const pools = [];
   const hazes = [];
   const meshes = [];
-  const edgeSets = [];
+  const edgeCores = [];
+  const edgeHalos = [];
+  const nodeSets = [];
   const halos = [];
   const cores = [];
   const discSets = [];
@@ -610,11 +641,16 @@ export function createWorld(THREE, scene, opts) {
     meshes.push(mg);
     disposables.push(mg);
 
-    // 网格边
-    const eg = new THREE.BufferGeometry();
-    eg.setAttribute('position', new THREE.BufferAttribute(fig.edges, 3));
-    edgeSets.push(eg);
-    disposables.push(eg);
+    // 网格边：细芯与宽晕两套丝带 + 顶点亮点
+    const ecg = new THREE.BufferGeometry();
+    ecg.setAttribute('position', new THREE.BufferAttribute(fig.edgeCore, 3));
+    edgeCores.push(ecg);
+    const ehg = new THREE.BufferGeometry();
+    ehg.setAttribute('position', new THREE.BufferAttribute(fig.edgeHalo, 3));
+    edgeHalos.push(ehg);
+    const ngeo = softGeometry(THREE, fig.nodes, nodeShare);
+    nodeSets.push(ngeo);
+    disposables.push(ecg, ehg, ngeo);
 
     // 星座连线两级丝带
     const hgeo = new THREE.BufferGeometry();
@@ -634,8 +670,10 @@ export function createWorld(THREE, scene, opts) {
       dpos[k * 3] = line.x[k];
       dpos[k * 3 + 1] = line.y[k];
       dpos[k * 3 + 2] = CONSTELLATION_Z;
-      dsize[k] = 0.34 + line.m[k] * 1.32;
-      dbright[k] = 0.42 + line.m[k] * 0.72;
+      // 参考图里的主星是大颗的四芒星（带一大片辉光），次星也明显可见 ——
+      // 「每颗都是小圆点」是上一版最不像的地方之一。
+      dsize[k] = 0.55 + line.m[k] * 1.75;
+      dbright[k] = 0.55 + line.m[k] * 0.85;
     }
     const dg = glintGeometry(THREE, dpos, dsize, dbright, discPhaseAttr);
     dg.setDrawRange(0, n);
@@ -658,10 +696,18 @@ export function createWorld(THREE, scene, opts) {
   mesh.renderOrder = -90;
   figureGroup.add(mesh);
 
-  const edges = new THREE.LineSegments(edgeSets[0], edgeMat);
-  edges.frustumCulled = false;
-  edges.renderOrder = -80;
-  figureGroup.add(edges);
+  const edgeHalo = new THREE.Mesh(edgeHalos[0], edgeHaloMat);
+  const edgeCore = new THREE.Mesh(edgeCores[0], edgeCoreMat);
+  const nodes = new THREE.Points(nodeSets[0], nodeMat);
+  edgeHalo.frustumCulled = false;
+  edgeCore.frustumCulled = false;
+  nodes.frustumCulled = false;
+  edgeHalo.renderOrder = -82;
+  edgeCore.renderOrder = -80;
+  nodes.renderOrder = -78;
+  figureGroup.add(edgeHalo);
+  figureGroup.add(edgeCore);
+  figureGroup.add(nodes);
 
   const lineHalo = new THREE.Mesh(halos[0], haloMat);
   const lineCore = new THREE.Mesh(cores[0], coreMat);
@@ -688,7 +734,9 @@ export function createWorld(THREE, scene, opts) {
     points.geometry = pools[idx];
     haze.geometry = hazes[idx];
     mesh.geometry = meshes[idx];
-    edges.geometry = edgeSets[idx];
+    edgeHalo.geometry = edgeHalos[idx];
+    edgeCore.geometry = edgeCores[idx];
+    nodes.geometry = nodeSets[idx];
     lineHalo.geometry = halos[idx];
     lineCore.geometry = cores[idx];
     discs.geometry = discSets[idx];
@@ -746,25 +794,29 @@ export function createWorld(THREE, scene, opts) {
 
     // 造型自转改成「以播放时间为唯一输入」的微摆：seek 到任意时刻画面一致，
     // 暂停时真正冻结；也保证半透明的平面形象图不会转到侧棱上变成一条线。
-    const sway = reduced ? 0.05 : 0.26;
+    const sway = reduced ? 0.04 : 0.22;
     root.rotation.y = Math.sin(time * 0.30) * sway + Math.sin(time * 0.085 + 1.3) * sway * 0.34;
     root.rotation.x = Math.sin(time * 0.11) * (reduced ? 0 : 0.03);
     const pulse = 1 + onset * 0.05 + bass * 0.02;
     root.scale.setScalar(state === 'gather' ? pulse * (0.92 + k * 0.08) : pulse);
 
-    // 形象图 / 连线：随生命周期淡入淡出（每帧只算一次，六层共用）。
+    // 形象图 / 连线：随生命周期淡入淡出（每帧只算一次，九层共用）。
     // 透明度是材质标量，改它不触发着色器重编译，逐帧写没有代价。
     figAlpha = figureOpacity(state, k);
     hazeMat.uniforms.uAlpha.value = figAlpha;
     hazeMat.uniforms.uTime.value = time;
     meshMat.opacity = 0.15 * figAlpha;
-    edgeMat.opacity = 0.44 * figAlpha;
-    coreMat.opacity = (0.74 + bass * 0.18) * figAlpha;
-    haloMat.opacity = (0.10 + bass * 0.20) * figAlpha;
+    edgeCoreMat.opacity = 0.56 * figAlpha;
+    edgeHaloMat.opacity = (0.15 + bass * 0.12) * figAlpha;
+    nodeMat.uniforms.uAlpha.value = figAlpha;
+    nodeMat.uniforms.uTime.value = time;
+    nodeMat.uniforms.uTwinkle.value = reduced ? 0.25 : 1;
+    coreMat.opacity = (0.90 + bass * 0.06) * figAlpha;
+    haloMat.opacity = (0.20 + bass * 0.16) * figAlpha;
     discMat.uniforms.uBrightness.value = figAlpha * (1 + onset * 0.35);
     discMat.uniforms.uTime.value = time;
     discMat.uniforms.uTwinkle.value = reduced ? 0.25 : 1;
-    // 完全透明时整组跳过绘制：汇聚/散开阶段省掉六次 draw call。
+    // 完全透明时整组跳过绘制：汇聚/散开阶段省掉九次 draw call。
     figureGroup.visible = figAlpha > 0.002;
 
     fieldGroup.rotation.y = time * (reduced ? 0 : 0.0022);
@@ -783,12 +835,14 @@ export function createWorld(THREE, scene, opts) {
       fieldPoints: fieldCount + NEBULA + sparkleCount,
       fieldVisible,
       figureTriangles: current < 0 ? 0 : figures[current].triangles,
+      figureEdges: current < 0 ? 0 : figures[current].segmentCount,
       figurePoints: figureCount,
+      figureMeshPoints: FIGURE_MESH_POINTS,
       constellationNodes: current < 0 ? 0 : lines[current].nodes,
       constellationSegments: current < 0 ? 0 : lines[current].segments,
       figureAlpha: Math.round(figAlpha * 1000) / 1000,
       sky: true,
-      layers: 11,
+      layers: 13,
     };
   }
 

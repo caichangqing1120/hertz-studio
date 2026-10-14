@@ -97,7 +97,7 @@ async function main() {
     // ---- 形象图 / 星座骨架：三层几何都建好、且 GPU 资源已预热（驻留数恒定的前提）----
     await page.waitForFunction(() => ZodiacStagePure.stats().warmed === true, undefined, { timeout: 15000 });
     const warmed = await page.evaluate(() => ZodiacStagePure.stats());
-    assert.ok(warmed.geometries >= 60 && warmed.geometries <= 110,
+    assert.ok(warmed.geometries >= 60 && warmed.geometries <= 145,
       '十二座的几何应全部预建（实测 ' + warmed.geometries + '）');
     assert.ok(warmed.programs >= 4, '着色器程序应已编译（实测 ' + warmed.programs + '）');
     assert.ok(warmed.figurePoints > 0, '形象图柔光应有粒子');
@@ -181,7 +181,11 @@ async function main() {
     const distZoomed = await page.evaluate(() => ZodiacStagePure.debug().dist);
     assert.ok(distZoomed > dist0, '滚轮下滚应拉远：' + dist0.toFixed(2) + ' → ' + distZoomed.toFixed(2));
     await page.mouse.dblclick(cx, cy);
-    await page.waitForFunction(() => Math.abs(ZodiacStagePure.debug().dist - 6.2) < 0.01);
+    // 机位距离是按舞台宽高比算出来的（不是常数），复位判据要用引擎自己报的默认值。
+    await page.waitForFunction(() => {
+      const d = ZodiacStagePure.debug();
+      return Math.abs(d.zoom - 1) < 0.001 && Math.abs(d.dist - d.distDefault) < 0.01;
+    });
     pass('交互缩放/复位：滚轮推拉距离改变，双击回到默认机位');
 
     const yaw0 = await page.evaluate(() => ZodiacStagePure.debug().yaw);

@@ -168,7 +168,7 @@ async function main() {
       '散开末段形象图应撤掉：' + report.figure.alpha.disperseLate);
     // 每座每层一套预建几何（4 个背景层 + 6×12 形象图/骨架 + 12 粒子池 = 88），
     // 换座只是把对象指向另一套几何，数字必须纹丝不动。
-    assert.ok(report.figure.geometries >= 60 && report.figure.geometries <= 110,
+    assert.ok(report.figure.geometries >= 60 && report.figure.geometries <= 145,
       '十二座的几何应全部预建（实测 ' + report.figure.geometries + '）');
     assert.equal(new Set(report.figure.signs.map((s) => s.geoms)).size, 1,
       '十二座之间几何驻留数必须恒定：' + report.figure.signs.map((s) => s.geoms).join(','));
@@ -184,7 +184,9 @@ async function main() {
     assert.ok(d1 > d0 + 0.5, '滚轮拉远视距：' + d0.toFixed(2) + ' → ' + d1.toFixed(2));
     await page.mouse.dblclick(960, 540);
     await page.evaluate(() => __step(30.2, true, 0.2));
-    assert.ok(Math.abs((await page.evaluate(() => ZodiacStagePure.debug().dist)) - 6.2) < 0.01, '双击复位 6.2');
+    const reset = await page.evaluate(() => ZodiacStagePure.debug());
+    assert.ok(Math.abs(reset.dist - reset.distDefault) < 0.01 && Math.abs(reset.zoom - 1) < 0.001,
+      '双击应复位到默认机位（' + reset.dist.toFixed(2) + ' vs ' + reset.distDefault.toFixed(2) + '）');
 
     // —— 画质档：低档减点、像素预算、各座截图 —— //
     report.views = [];

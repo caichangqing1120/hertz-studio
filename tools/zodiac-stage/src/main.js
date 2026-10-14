@@ -23,7 +23,9 @@ import {
   ZODIAC, SIGN_COUNT, GATHER_SECONDS, DISPERSE_SECONDS, CYCLE_SECONDS,
   timelineAt, viewBass, zoomClamp, buildShape, buildCloud, buildSeeds,
   buildFigureMesh, buildConstellation, CONSTELLATION, delaunay2, buildRibbon,
-  shapeFit, FIG_HALF, SHAPE_BOX, CONSTELLATION_Z, FIGURE_Z,
+  shapeFit, FIG_HALF, FIG_HALF_W, FIG_ASPECT, FIGURE_DEPTH, SHAPE_BOX, SHAPE_BOX_V,
+  SHAPE_BOX_Z, CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
+  LINE_CORE_WIDTH, LINE_HALO_WIDTH, EDGE_CORE_WIDTH, EDGE_HALO_WIDTH,
 } from './zodiac.js';
 import { createWorld } from './world.js';
 
@@ -36,9 +38,29 @@ const BIN_COUNT = 24;
 const PAUSE_RENDER_MS = 250;
 // 兜底清屏色（天空穹顶盖满时看不到）：取天空最暗那一段的值，不留黑边。
 const BG_COLOR = '#070c22';
-const DIST_DEFAULT = 6.2;
+// 机位距离不再是个常数：设计框是「半宽 FIG_HALF*FIG_ASPECT、半高 FIG_HALF」的
+// 1.78 矩形，机位要按**舞台自己的宽高比**退到刚好装下它（再多留 8% 边距）。
+// 写死距离的话，窄窗口会从左右切掉横宽的星座（巨蟹画到 8.7 宽，1.33 的画框只有
+// ±3.6 可见）—— 而舞台比例随窗口变，这是唯一不重建几何就能自适应的地方。
+// 边距不是装饰：投影里还有三份「看不见的放大」—— 造型微摆把 x 甩到 z 上
+// 更靠近机位（+2.7%）、深度 0.45 与连线深度 0.5 的透视（+8%）、采样点比 fit
+// 样本更极端（+2%）。1.08 的量出来有座次溢出 27%，1.30 的最坏值才落到 0.96，
+// 横宽的星座仍占满 91~96% 的画面宽度。
+const FRAME_MARGIN = 1.30;
+const FOV_BASE = 52;
 const DIST_MIN = 2.6;
-const DIST_MAX = 12;
+const DIST_MAX = 18;
+const ZOOM_MIN = 0.42;
+const ZOOM_MAX = 2.4;
+
+function fitDistance(aspect) {
+  const tan = Math.tan((FOV_BASE * Math.PI / 180) / 2);
+  const a = aspect > 0.01 ? aspect : FIG_ASPECT;
+  return Math.max(
+    (FIG_HALF * FRAME_MARGIN) / tan,
+    (FIG_HALF_W * FRAME_MARGIN) / (tan * a),
+  );
+}
 const PITCH_LIMIT = 0.75;
 const CAMERA_DRIFT = 0.035;  // 机位极慢漂移（rad/s），与造型微摆错开速度产生视差
 
@@ -72,8 +94,8 @@ export function mount(canvas, opts = {}) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG_COLOR);
-  const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 400);
-  camera.position.set(0, 0, DIST_DEFAULT);
+  const camera = new THREE.PerspectiveCamera(FOV_BASE, 1, 0.1, 400);
+  camera.position.set(0, 0, fitDistance(FIG_ASPECT));
 
   const prefs = {
     field: true, interactive: opts.interactive !== false,
@@ -88,8 +110,17 @@ export function mount(canvas, opts = {}) {
     bass: 0, onsetLevel: 0,
   };
 
-  // 相机在造型球外轨道：drift 极慢漂移 + 拖拽 yaw/pitch + 滚轮 dist，双击复位。
-  const rig = { drift: 0, yaw: 0, pitch: 0.06, dist: DIST_DEFAULT, dragging: false, fov: 52 };
+  // 相机在造型球外轨道：drift 极慢漂移 + 拖拽 yaw/pitch + 滚轮缩放，双击复位。
+  // 「装下设计框」的距离由舞台宽高比算出（见 fitDistance），用户缩放是在它之上
+  // 乘一个倍率 —— 窗口比例变化时用户的那点缩放不会被重置。
+  const rig = {
+    drift: 0, yaw: 0, pitch: 0.06, zoom: 1, distFit: fitDistance(FIG_ASPECT),
+    dist: fitDistance(FIG_ASPECT), dragging: false, fov: FOV_BASE,
+  };
+
+  function updateDist() {
+    rig.dist = clamp(rig.distFit * rig.zoom, DIST_MIN, DIST_MAX);
+  }
 
   function onPointerDown(e) {
     if (!prefs.interactive) return;
@@ -105,11 +136,12 @@ export function mount(canvas, opts = {}) {
   function onWheel(e) {
     if (!prefs.interactive) return;
     e.preventDefault();
-    rig.dist = zoomClamp(rig.dist * (1 + e.deltaY * 0.001), DIST_MIN, DIST_MAX);
+    rig.zoom = zoomClamp(rig.zoom * (1 + e.deltaY * 0.001), ZOOM_MIN, ZOOM_MAX);
+    updateDist();
   }
   function onDouble() {
     if (!prefs.interactive) return;
-    rig.yaw = 0; rig.pitch = 0.06; rig.dist = DIST_DEFAULT;
+    rig.yaw = 0; rig.pitch = 0.06; rig.zoom = 1; updateDist();
   }
   function bindInput() {
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -186,6 +218,9 @@ export function resize(width, height) {
   st.renderer.setSize(width, height, false);
   st.camera.aspect = width / height;
   st.camera.updateProjectionMatrix();
+  // 舞台一变窄就得往后退：设计框是按 1.78 定的，窄画框会从左右切掉横宽的星座。
+  st.rig.distFit = fitDistance(width / height);
+  st.rig.dist = clamp(st.rig.distFit * st.rig.zoom, DIST_MIN, DIST_MAX);
   st.world.setPixelRatio(st.pr);
   st.dirty = true;
 }
@@ -272,7 +307,7 @@ function tick(now) {
     Math.cos(effYaw) * cp * rig.dist,
   );
   camera.lookAt(0, 0, 0);
-  const fovTarget = 52 + st.audio.bass * 1.6;
+  const fovTarget = FOV_BASE + st.audio.bass * 1.6;
   rig.fov = seek ? fovTarget : damp(rig.fov, fovTarget, 0.32, dt);
   if (Math.abs(camera.fov - rig.fov) > 0.001) {
     camera.fov = rig.fov;
@@ -314,6 +349,8 @@ export function stats() {
     onset: st.audio.onsetLevel,
     yaw: st.rig.drift + st.rig.yaw,
     dist: st.rig.dist,
+    distDefault: st.rig.distFit,
+    zoom: st.rig.zoom,
     time: st.time,
     playing: st.playing,
     warmed: !!st.warmed,
@@ -333,6 +370,8 @@ export function debug() {
     yaw: st.rig.yaw,
     pitch: st.rig.pitch,
     dist: st.rig.dist,
+    distDefault: st.rig.distFit,
+    zoom: st.rig.zoom,
     timeline: { ...st.timeline },
     prefs: { ...st.prefs },
   };
@@ -362,5 +401,7 @@ export const pure = {
   aggregateBands, viewBass, zoomClamp,
   // 形象图与星座骨架：Node 契约直接验证几何，不需要浏览器
   CONSTELLATION, buildFigureMesh, buildConstellation, buildRibbon, delaunay2, shapeFit,
-  FIG_HALF, SHAPE_BOX, CONSTELLATION_Z, FIGURE_Z,
+  FIG_HALF, FIG_HALF_W, FIG_ASPECT, FIGURE_DEPTH, SHAPE_BOX, SHAPE_BOX_V, SHAPE_BOX_Z,
+  CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
+  LINE_CORE_WIDTH, LINE_HALO_WIDTH, EDGE_CORE_WIDTH, EDGE_HALO_WIDTH,
 };

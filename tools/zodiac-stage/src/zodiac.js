@@ -21,22 +21,44 @@ export const HOLD_SECONDS = 7.6;
 export const DISPERSE_SECONDS = 2.6;
 export const CYCLE_SECONDS = GATHER_SECONDS + HOLD_SECONDS + DISPERSE_SECONDS;
 
-// 造型点云的画框：所有部件坐标都在 ±BOX 内，保证各座体量一致、不会出画。
-export const SHAPE_BOX = 2.7;
-
-// 归一化后的半宽（世界单位）。十二座原始坐标的尺度不一（狮子只有 ±1.6、
+// 归一化后的设计框半高（世界单位）。十二座原始坐标的尺度不一（狮子只有 ±1.6、
 // 摩羯拖到 ±2.2），直接上镜就是「有的撑满、有的缩在中间」。所有产出点云
-// 都先按包围盒中心归零、按最长边等比缩到 ±1，再乘这个半宽 —— 体量与居中
+// 都先按包围盒中心归零、等比缩放，再落到这个尺寸的设计框里 —— 体量与居中
 // 由数据层保证，渲染层与连线层拿到的都是同一套归一化坐标。
+//
+// 缩放按**画框宽高比**而不是最长边：舞台是横屏（1.78），横宽的造型该撑满宽度、
+// 高瘦的该撑满高度。按最长边归一化时，舞台宽度对高瘦星座是纯浪费 —— 实测处女
+// （2.1×5.2）只占 46% 的屏宽，看着像缩在中间，而参考图里每一张都撑满画框。
 export const FIG_HALF = 2.50;
+export const FIG_ASPECT = 1.78;
+// 设计框半宽。缩放是等比的（x/y 同一个 k），所以横宽的星座会撑满宽度、顶到 ±这里。
+export const FIG_HALF_W = FIG_HALF * FIG_ASPECT;
+// 造型的固定厚度（半深）：每座按自己的 z 极值单独定标，十二座深度一致。
+// 为什么非压不可 —— 参考图是平面画，而纵深会招来透视放大：z=1.14 的点比原点
+// 近 1.14，在 6.5 的机位上等于放大 1.31 倍，投影比设计框大 71%，画面直接被切。
+// 而且十二座原本深度差三倍（巨蟹 ±1.14 / 双鱼 ±0.32），同一机位下体量根本不齐。
+export const FIGURE_DEPTH = 0.45;
+// 造型点云的裁剪边界：归一化落到设计框之后，越界的只有采样噪声。裁剪必须按
+// 方向分开 —— 用同一个数（旧的 ±2.7）会把横宽星座的两端直接切平。
+export const SHAPE_BOX = FIG_HALF_W * 1.06;
+export const SHAPE_BOX_V = FIG_HALF * 1.06;
+export const SHAPE_BOX_Z = FIGURE_DEPTH * 1.2;
 
 // 星座连线/星点所在的深度：落在造型（z 约 ±0.5）前方，靠渲染顺序而非深度测试
 // 压在最上层。形象图网格跟在造型中段，和粒子云交错但不会糊在一起。
-export const CONSTELLATION_Z = 0.72;
-export const FIGURE_Z = 0.30;
+export const CONSTELLATION_Z = 0.50;
+export const FIGURE_Z = 0.26;
 // 连线的两级宽度（世界单位）：细芯保持矢量清晰，宽晕给一层柔光。
-export const LINE_CORE_WIDTH = 0.013;
-export const LINE_HALO_WIDTH = 0.040;
+// 参考图里连线是「一眼可读」的主元素，1px 的线在这个体量下等于没画。
+export const LINE_CORE_WIDTH = 0.022;
+export const LINE_HALO_WIDTH = 0.072;
+
+// 形象图网格边同样是两级：细芯给矢量感，宽晕给低多边形的辉光。
+// 用 LineBasicMaterial 画不出这个宽度（WebGL 下 linewidth 恒为 1），所以网格边
+// 也走丝带几何。宽度压得比连线细一档 —— 参考图里网格是「底面语言」，密而细；
+// 量出来亮像素（L>170）占比一度到 8.6%，而参考只有 3~5%。
+export const EDGE_CORE_WIDTH = 0.0095;
+export const EDGE_HALO_WIDTH = 0.026;
 
 // 求归一化包围盒用的固定采样量：与画质档无关，任何档位算出同一套 fit。
 const FIT_SAMPLE = 4200;
@@ -196,24 +218,32 @@ function shapeParts(i) {
         { t: 'tube', radius: 0.06, taper: 0.35, weight: 1.2,
           p0: [x + 0.08, 0.1, 0], p1: [x + 0.1, -0.4, 0], p2: [x + 0.12, -0.9, 0], p3: [x + 0.12, -1.5, 0] },
       ]);
-    case 3: // 巨蟹：扁圆身体 + 两只大环钳 + 六条外伸腿
+    case 3: // 巨蟹：俯视视角 —— 椭圆蟹壳居中，两螯向前外张，八条腿向后外撇
+      // 只有这一座不是侧视：螃蟹是扁的，「头朝 +x 的侧视」会让所有腿和螯都挤在
+      // 同一个侧面伸出来，归一到画框里就是「一块大三角面 + 一束向右的尖刺」。
+      // 俯视之后 +x 仍是「前」（螯的方向），腿沿 ±y 展开，剪影立刻认得出来。
       return [
-        { t: 'ellipsoid', c: [0, 0, 0], r: [0.62, 0.4, 0.46], weight: 9, noise: 0.14, shell: true },
-        { t: 'ellipsoid', c: [0, 0, 0], r: [0.55, 0.34, 0.4], weight: 4 },
-        { t: 'tube', radius: 0.07, taper: 0.5, weight: 1.2,
-          p0: [0.5, 0.12, 0.12], p1: [0.85, 0.35, 0.14], p2: [1.1, 0.42, 0.14], p3: [1.25, 0.4, 0.14] },
-        HORN([1.35, 0.42, 0.14], 0.22, 0.18, 0.85, -0.6, 0.05),
-        { t: 'tube', radius: 0.07, taper: 0.5, weight: 1.2,
-          p0: [0.5, 0.12, -0.12], p1: [0.85, 0.35, -0.14], p2: [1.1, 0.42, -0.14], p3: [1.25, 0.4, -0.14] },
-        HORN([1.35, 0.42, -0.14], 0.22, 0.18, 0.85, -0.6, -0.05, -1),
-        ...[0.2, -0.05, -0.3].flatMap((y) => [
-          { t: 'tube', radius: 0.04, taper: 0.6, weight: 0.5,
-            p0: [0.35, y, 0.2], p1: [0.6, y - 0.1, 0.45], p2: [0.85, y - 0.2, 0.6], p3: [1.05, y - 0.28, 0.68] },
-          { t: 'tube', radius: 0.04, taper: 0.6, weight: 0.5,
-            p0: [0.35, y, -0.2], p1: [0.6, y - 0.1, -0.45], p2: [0.85, y - 0.2, -0.6], p3: [1.05, y - 0.28, -0.68] },
+        { t: 'ellipsoid', c: [0, 0, 0], r: [0.6, 0.48, 0.3], weight: 10, noise: 0.12, shell: true },
+        { t: 'ellipsoid', c: [-0.05, 0, 0.02], r: [0.44, 0.34, 0.2], weight: 3 },
+        { t: 'ellipsoid', c: [0.44, 0.17, 0.1], r: [0.05, 0.05, 0.05], weight: 0.3 },
+        { t: 'ellipsoid', c: [0.44, -0.17, 0.1], r: [0.05, 0.05, 0.05], weight: 0.3 },
+        ...[1, -1].flatMap((s) => [
+          { t: 'tube', radius: 0.07, taper: 0.4, weight: 1.3,
+            p0: [0.32, 0.2 * s, 0], p1: [0.54, 0.36 * s, 0.03],
+            p2: [0.7, 0.48 * s, 0.04], p3: [0.82, 0.54 * s, 0.04] },
+          // 螯 = 一圈螺旋（可动指）+ 一条伸进环里的直管（不动指），
+          // 只画环的话钳口是空的，看着像顶了个呼啦圈。
+          HORN([0.98, 0.62 * s, 0.04], 0.26, 0.14, 0.95, -0.35, 0.05, s),
+          { t: 'tube', radius: 0.05, taper: 0.5, weight: 0.7,
+            p0: [0.82, 0.54 * s, 0.04], p1: [1.04, 0.6 * s, 0.04],
+            p2: [1.16, 0.6 * s, 0.04], p3: [1.24, 0.57 * s, 0.04] },
         ]),
-        { t: 'ellipsoid', c: [0.52, 0.3, 0.12], r: [0.05, 0.05, 0.05], weight: 0.3 },
-        { t: 'ellipsoid', c: [0.52, 0.3, -0.12], r: [0.05, 0.05, 0.05], weight: 0.3 },
+        // 八条腿：短、粗、带一个膝弯 —— 细长直管会读成蜘蛛脚
+        ...[0.44, 0.16, -0.16, -0.44].flatMap((y) => [1, -1].map((s) => ({
+          t: 'tube', radius: 0.05, taper: 0.5, weight: 0.6,
+          p0: [0.34, y * s, 0], p1: [-0.06, y * s * 1.35, 0.03],
+          p2: [-0.5, y * s * 1.5, 0.03], p3: [-0.78, y * s * 1.55, 0.03],
+        }))),
       ];
     case 4: // 狮子：躯干 + 大头与蓬松鬃毛（壳）+ 长腿 + 末端毛簇尾
       return [
@@ -389,20 +419,29 @@ function computeFit(index) {
   const raw = sampleInto(new Float32Array(FIT_SAMPLE * 3), parts,
     allocQuotas(parts, FIT_SAMPLE), FIT_SAMPLE, rnd, false);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let maxZ = 0;
   for (let i = 0; i < raw.length; i += 3) {
     if (raw[i] < minX) minX = raw[i];
     if (raw[i] > maxX) maxX = raw[i];
     if (raw[i + 1] < minY) minY = raw[i + 1];
     if (raw[i + 1] > maxY) maxY = raw[i + 1];
+    const az = Math.abs(raw[i + 2]);
+    if (az > maxZ) maxZ = az;
   }
-  const half = Math.max(maxX - minX, maxY - minY) / 2;
+  const dx = Math.max(1e-6, maxX - minX);
+  const dy = Math.max(1e-6, maxY - minY);
+  // 等比缩放落到设计框（半宽 FIG_HALF*FIG_ASPECT、半高 FIG_HALF）里：哪一边先顶到
+  // 就按哪一边定标，另一方向留白。不拉畸变 —— x/y 同一个 k。
+  const k = Math.min((FIG_HALF * FIG_ASPECT) / (dx / 2), FIG_HALF / (dy / 2));
   return {
     cx: (minX + maxX) / 2,
     cy: (minY + maxY) / 2,
-    k: FIG_HALF / (half > 1e-6 ? half : 1),
+    k,
+    // 深度单独定标：每座都压到 ±FIGURE_DEPTH，十二座的厚度因此一致。
+    kz: maxZ > 1e-6 ? FIGURE_DEPTH / maxZ : FIG_Z_SQUASH,
     // 归一化后的半宽/半高（世界单位）：星座骨架据此贴住形象图的体量。
-    w: (maxX - minX) / 2 * (FIG_HALF / (half > 1e-6 ? half : 1)),
-    h: (maxY - minY) / 2 * (FIG_HALF / (half > 1e-6 ? half : 1)),
+    w: dx / 2 * k,
+    h: dy / 2 * k,
   };
 }
 
@@ -412,12 +451,16 @@ export function shapeFit(index) {
   return fitCache[i];
 }
 
-// 把原始坐标就地归一化：中心归零、等比缩到 ±FIG_HALF。
+// 兜底压扁系数：只在造型完全没有 z 展布时用（正常走 fit.kz）。
+const FIG_Z_SQUASH = 0.4;
+
+// 把原始坐标就地归一化：中心归零、横向等比缩到设计框，深度压到 ±FIGURE_DEPTH。
 function applyFit(pos, fit) {
+  const kz = fit.kz == null ? fit.k * FIG_Z_SQUASH : fit.kz;
   for (let i = 0; i < pos.length; i += 3) {
     pos[i] = (pos[i] - fit.cx) * fit.k;
     pos[i + 1] = (pos[i + 1] - fit.cy) * fit.k;
-    pos[i + 2] *= fit.k;
+    pos[i + 2] *= kz;
   }
   return pos;
 }
@@ -452,8 +495,8 @@ export function buildShape(index, count) {
   applyFit(pos, shapeFit(i));
   for (let n = 0; n < count; n += 1) {
     pos[n * 3] = clamp(pos[n * 3], -SHAPE_BOX, SHAPE_BOX);
-    pos[n * 3 + 1] = clamp(pos[n * 3 + 1], -SHAPE_BOX, SHAPE_BOX);
-    pos[n * 3 + 2] = clamp(pos[n * 3 + 2], -SHAPE_BOX * 0.7, SHAPE_BOX * 0.7);
+    pos[n * 3 + 1] = clamp(pos[n * 3 + 1], -SHAPE_BOX_V, SHAPE_BOX_V);
+    pos[n * 3 + 2] = clamp(pos[n * 3 + 2], -SHAPE_BOX_Z, SHAPE_BOX_Z);
   }
   return { pos, shine, sign: ZODIAC[i] };
 }
@@ -481,11 +524,12 @@ export const CONSTELLATION = [
     [-0.55, 0.55, 0.45], [0.62, -1.25, 0.60], [-0.62, -1.25, 0.50],
     [0.55, -0.20, 0.40], [-0.55, -0.20, 0.35], [0.02, 0.25, 0.28]],
     lines: [[0, 2], [2, 6], [6, 4], [1, 3], [3, 7], [7, 5], [0, 1], [4, 5], [8, 0], [8, 1]] },
-  // 巨蟹：暗弱的倒 Y 压在蟹壳上，两臂伸向同一侧的钳与腿
-  // （造型的部件本身就是侧视：双钳都在 +x，节点必须跟着部件走）
-  { nodes: [[-0.45, 0.32, 0.55], [0.05, 0.00, 0.60], [-0.25, -0.35, 0.42],
-    [0.85, 0.35, 0.45], [1.40, 0.42, 0.50], [1.05, -0.25, 0.34], [0.55, -0.45, 0.28]],
-    lines: [[0, 1], [1, 2], [1, 3], [3, 4], [1, 5], [1, 6]] },
+  // 巨蟹：暗弱的倒 Y —— 交点在蟹壳正中，两臂伸向左右两螯，斜杆拖向后退的腿
+  // （这座造型是俯视的，节点也必须按俯视摆：螯在 ±y 的前方）
+  { nodes: [[0.04, 0.00, 0.62], [0.62, 0.34, 0.48], [0.98, 0.66, 0.55],
+    [0.62, -0.34, 0.48], [0.98, -0.66, 0.55], [-0.46, 0.00, 0.52],
+    [-0.92, 0.30, 0.36], [-0.92, -0.30, 0.36]],
+    lines: [[0, 1], [1, 2], [0, 3], [3, 4], [0, 5], [5, 6], [5, 7], [5, 0]] },
   // 狮子：镰刀形鬃毛 + 后半身的三角
   { nodes: [[0.55, -0.35, 1.00], [1.05, -0.30, 0.50], [1.05, 0.25, 0.85],
     [0.80, 0.62, 0.50], [0.38, 0.70, 0.40], [0.05, 0.42, 0.55],
@@ -537,9 +581,20 @@ export const CONSTELLATION = [
       [7, 10], [10, 8], [8, 9], [9, 0]] },
 ];
 
-// 星座骨架落到世界坐标：与造型点云共用同一套 fit，因此骨架天然贴在形象图上。
-// 返回 { x, y, m, nodes, segments, core, halo } —— x/y 是世界坐标，m 是星等亮度，
-// core/halo 是两级宽度的连线丝带顶点（三顶点一面的三角形列表）。
+// 星图占设计框的比例。参考图里连线几乎顶到画框边缘，而按造型 fit 直接落位的
+// 骨架只有七八成宽（天秤 3.0×2.0 对造型 5.0×4.2、摩羯 2.8×1.7）—— 星图比
+// 形象图还小，就只剩「贴在动物身上的一根细线」，不是画面里的主元素。
+const LINE_FILL = 0.88;
+// 星图自身偏心保留多少：0 = 完全居中，1 = 保持造型空间里的原始位置。
+// 留一点偏心，十二座各自的星图才不塌成同一张居中的网。
+const LINE_CENTER_KEEP = 0.25;
+
+// 星座骨架落到世界坐标。返回 { x, y, m, nodes, segments, core, halo } ——
+// x/y 是世界坐标，m 是星等亮度，core/halo 是两级宽度的连线丝带顶点。
+//
+// 两级归位：① 先按造型的 fit 缩放（保留「骨架贴在形象图上」这层关系），
+// ② 再按骨架自己的包围盒落到设计框里。第二步让每座的星图都撑满画框，
+// 且天生小的骨架（天秤、摩羯）会被放大到与大的（射手、双鱼）同一体量。
 export function buildConstellation(index) {
   const i = ((index % SIGN_COUNT) + SIGN_COUNT) % SIGN_COUNT;
   const src = CONSTELLATION[i];
@@ -548,11 +603,26 @@ export function buildConstellation(index) {
   const x = new Float32Array(n);
   const y = new Float32Array(n);
   const m = new Float32Array(n);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   src.nodes.forEach(([px, py, b], k) => {
-    x[k] = (px - fit.cx) * fit.k;
-    y[k] = (py - fit.cy) * fit.k;
+    const wx = (px - fit.cx) * fit.k;
+    const wy = (py - fit.cy) * fit.k;
+    x[k] = wx; y[k] = wy;
+    if (wx < minX) minX = wx;
+    if (wx > maxX) maxX = wx;
+    if (wy < minY) minY = wy;
+    if (wy > maxY) maxY = wy;
     m[k] = b == null ? 0.5 : clamp(b, 0.05, 1);
   });
+  const spanX = Math.max(1e-6, maxX - minX);
+  const spanY = Math.max(1e-6, maxY - minY);
+  const g = Math.min((FIG_HALF_W * 2 * LINE_FILL) / spanX, (FIG_HALF * 2 * LINE_FILL) / spanY);
+  const ncx = (minX + maxX) / 2;
+  const ncy = (minY + maxY) / 2;
+  for (let k = 0; k < n; k += 1) {
+    x[k] = (x[k] - ncx) * g + ncx * g * LINE_CENTER_KEEP;
+    y[k] = (y[k] - ncy) * g + ncy * g * LINE_CENTER_KEEP;
+  }
   return {
     x, y, m,
     nodes: n,
@@ -642,14 +712,21 @@ export function delaunay2(points) {
     .map((t) => [t[0] - 3, t[1] - 3, t[2] - 3]);
 }
 
-export const FIGURE_MESH_POINTS = 240;   // 三角化用的表面点（与画质档无关）
+export const FIGURE_MESH_POINTS = 780;   // 三角化用的表面点（与画质档无关）
 export const FIGURE_MESH_EXP = 0.42;     // 网格配额压缩指数：细腿细角也要分到点
-const FIGURE_MAX_EDGE = 0.44;            // 归一化坐标下的最大边长：超过就是跨缝隙的长条
+const FIGURE_MAX_EDGE = 0.62;            // 最大边长：超过就是极其稀疏处的细长条
 
-// 造型的低多边形形象图：{ cloud, mesh:{pos,tint}, edges, triangles }
-//   cloud    表面点云（半透明柔光底，按画质档取量）
-//   mesh     非索引三角面片：每面一个随机明度 → 参考图那种面片感
-//   edges    去重后的网格边（清晰矢量线）
+// 造型的低多边形形象图：{ cloud, mesh:{pos,tint}, edgeCore, edgeHalo, nodes, triangles }
+//   cloud     表面点云（半透明柔光底，按画质档取量）
+//   mesh      非索引三角面片：每面一个随机明度 → 参考图那种面片感
+//   edgeCore  网格边的细芯丝带（矢量清晰）
+//   edgeHalo  网格边的宽晕丝带（低多边形辉光）
+//   nodes     网格顶点（参考图里每个三角形顶点都是一颗亮点）
+//
+// 关键：**逐部件各自三角化**，不是把全体的点丢进一次 Delaunay。全局三角化会把
+// 包围盒相邻、实际分离的部件之间连成长条，被最大边长一筛就整片消失 —— 实测
+// 狮子只有鬃毛那一块留下网格，身子全是裸点。逐部件成网之后，每根管、每条腿
+// 都有自己的面，覆盖才是均匀的。
 export function buildFigureMesh(index, cloudCount) {
   const i = ((index % SIGN_COUNT) + SIGN_COUNT) % SIGN_COUNT;
   const fit = shapeFit(i);
@@ -660,27 +737,43 @@ export function buildFigureMesh(index, cloudCount) {
     allocQuotas(parts, cloudCount), cloudCount, rndCloud, true), fit);
   // 2) 网格采样点（固定量，任何档位同一张网）
   const rndMesh = seededRandom('zodiac-figure-mesh:' + ZODIAC[i].id);
-  const raw = applyFit(sampleInto(new Float32Array(FIGURE_MESH_POINTS * 3), parts,
-    allocQuotas(parts, FIGURE_MESH_POINTS, FIGURE_MESH_EXP), FIGURE_MESH_POINTS, rndMesh, true), fit);
+  const quotas = allocQuotas(parts, FIGURE_MESH_POINTS, FIGURE_MESH_EXP);
   const pts = [];
-  for (let n = 0; n < FIGURE_MESH_POINTS; n += 1) pts.push({ x: raw[n * 3], y: raw[n * 3 + 1] });
-  const tris = delaunay2(pts).filter(([a, b, c]) => {
-    const ab = Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y);
-    const bc = Math.hypot(pts[b].x - pts[c].x, pts[b].y - pts[c].y);
-    const ca = Math.hypot(pts[c].x - pts[a].x, pts[c].y - pts[a].y);
-    return Math.max(ab, bc, ca) <= FIGURE_MAX_EDGE;
+  const tris = [];
+  parts.forEach((part, pi) => {
+    const q = quotas[pi].n;
+    if (q <= 0) return;
+    const buf = new Float32Array(q * 3);
+    for (let k = 0; k < q; k += 1) {
+      const p = samplePartSurface(part, rndMesh);
+      buf[k * 3] = p[0]; buf[k * 3 + 1] = p[1]; buf[k * 3 + 2] = p[2];
+    }
+    applyFit(buf, fit);
+    const base = pts.length;
+    const local = [];
+    for (let k = 0; k < q; k += 1) {
+      const pt = { x: buf[k * 3], y: buf[k * 3 + 1] };
+      pts.push(pt);
+      local.push(pt);
+    }
+    if (q < 3) return;
+    delaunay2(local).forEach(([a, b, c]) => {
+      const ab = Math.hypot(local[a].x - local[b].x, local[a].y - local[b].y);
+      const bc = Math.hypot(local[b].x - local[c].x, local[b].y - local[c].y);
+      const ca = Math.hypot(local[c].x - local[a].x, local[c].y - local[a].y);
+      if (Math.max(ab, bc, ca) <= FIGURE_MAX_EDGE) tris.push([base + a, base + b, base + c]);
+    });
   });
   const tintRnd = seededRandom('zodiac-figure-tint:' + ZODIAC[i].id);
   const meshPos = new Float32Array(tris.length * 9);
   const tint = new Float32Array(tris.length * 9);
   const edgeSet = new Map();
   tris.forEach(([a, b, c], t) => {
-    const z = FIGURE_Z;
     const v = [pts[a], pts[b], pts[c]];
     v.forEach((p, n) => {
       meshPos[t * 9 + n * 3] = p.x;
       meshPos[t * 9 + n * 3 + 1] = p.y;
-      meshPos[t * 9 + n * 3 + 2] = z;
+      meshPos[t * 9 + n * 3 + 2] = FIGURE_Z;
     });
     // 面片明度：暗面/亮面交错，低多边形才不塌成一块平色。
     const t0 = 0.62 + tintRnd() * 0.66;
@@ -690,23 +783,33 @@ export function buildFigureMesh(index, cloudCount) {
       if (!edgeSet.has(k)) edgeSet.set(k, [u, w]);
     });
   });
-  const edgePos = new Float32Array(edgeSet.size * 6);
-  let e = 0;
-  edgeSet.forEach(([u, w]) => {
-    edgePos[e * 6] = pts[u].x; edgePos[e * 6 + 1] = pts[u].y; edgePos[e * 6 + 2] = FIGURE_Z;
-    edgePos[e * 6 + 3] = pts[w].x; edgePos[e * 6 + 4] = pts[w].y; edgePos[e * 6 + 5] = FIGURE_Z;
-    e += 1;
+  const px = new Float32Array(pts.length);
+  const py = new Float32Array(pts.length);
+  pts.forEach((p, k) => { px[k] = p.x; py[k] = p.y; });
+  const edgeLines = [];
+  edgeSet.forEach((pair) => edgeLines.push(pair));
+  // 网格顶点的亮点云（参考图里每个三角形顶点都是一个小亮核）。
+  const nodes = new Float32Array(pts.length * 3);
+  pts.forEach((p, k) => {
+    nodes[k * 3] = p.x; nodes[k * 3 + 1] = p.y; nodes[k * 3 + 2] = FIGURE_Z;
   });
   return {
-    cloud, mesh: { pos: meshPos, tint }, edges: edgePos,
-    triangles: tris.length, segmentCount: edgeSet.size,
+    cloud,
+    mesh: { pos: meshPos, tint },
+    edgeCore: buildRibbon(px, py, edgeLines, EDGE_CORE_WIDTH, FIGURE_Z),
+    edgeHalo: buildRibbon(px, py, edgeLines, EDGE_HALO_WIDTH, FIGURE_Z),
+    nodes,
+    triangles: tris.length,
+    segmentCount: edgeSet.size,
   };
 }
 
 // 连线丝带：二维线段按宽度向两侧挤成四边形（不做屏幕空间的粗线，几何一次性
 // 烘死在造型平面里，缩放旋转下始终清晰）。两端各外扩半个线宽，拐角就不会开豁口。
-export function buildRibbon(x, y, lines, width) {
+// z 缺省用星座连线的深度；形象图网格边会传 FIGURE_Z。
+export function buildRibbon(x, y, lines, width, z) {
   const hw = (width || 0.03) / 2;
+  const zz = z == null ? CONSTELLATION_Z : z;
   const out = new Float32Array(lines.length * 18);
   lines.forEach(([a, b], s) => {
     let dx = x[b] - x[a], dy = y[b] - y[a];
@@ -723,7 +826,7 @@ export function buildRibbon(x, y, lines, width) {
     for (let n = 0; n < 6; n += 1) {
       out[s * 18 + n * 3] = v[n * 2];
       out[s * 18 + n * 3 + 1] = v[n * 2 + 1];
-      out[s * 18 + n * 3 + 2] = CONSTELLATION_Z;
+      out[s * 18 + n * 3 + 2] = zz;
     }
   });
   return out;
