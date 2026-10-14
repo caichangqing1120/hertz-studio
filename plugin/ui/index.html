@@ -18,6 +18,8 @@
 <link rel="stylesheet" href="stage.css">
 <link rel="stylesheet" href="creative.css">
 <link rel="stylesheet" href="stage3d.css">
+<link rel="stylesheet" href="space3d.css">
+<link rel="stylesheet" href="space-layers.css">
 <!-- 动画绘景 SVG 舞台层：画稿与关键帧在 creative-anime.css，这里只管舞台集成侧。
      新层排在舞台基础层之后，同特异性争议整块胜出。 -->
 <link rel="stylesheet" href="stage-anime-svg.css">
@@ -231,6 +233,14 @@
     <path d="M12 2.6l8.1 4.7v9.4L12 21.4 3.9 16.7V7.3z"/>
     <path d="M12 12l8.1-4.7M12 12v9.4M12 12L3.9 7.3"/>
   </symbol>
+  <!-- 三维空间：星环轨道。独立于 i-cube（沉浸声场）——两枚按钮在顶栏相邻，
+       复用符号会出现两个一样立方体；i-orbit 已被「自动 360° 环转」占用。 -->
+  <symbol id="i-space" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3.4"/>
+    <path d="M20.6 9.1c1.2 1 1.9 2 1.9 2.9 0 2.6-4.7 4.7-10.5 4.7S1.5 14.6 1.5 12c0-.9.7-1.9 1.9-2.9"/>
+    <path d="M9.4 5.2C10.2 5.1 11.1 5 12 5c5.8 0 10.5 2.1 10.5 4.7"/>
+  </symbol>
   <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2ZM3 10h18"/>
   </symbol>
@@ -333,6 +343,9 @@
     </button>
     <button id="stage3d-entry" class="iconbtn" title="沉浸声场 (V)" aria-label="进入沉浸声场">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cube"/></svg>
+    </button>
+    <button id="space3d-entry" class="iconbtn" title="三维空间 (X)" aria-label="进入三维空间">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-space"/></svg>
     </button>
     <button type="button" id="settings-entry" class="iconbtn" title="设置 (4)" aria-label="打开设置" aria-controls="view-settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg>
@@ -1396,6 +1409,12 @@
           </span>
         </div>
         <div class="set-row">
+          <label>三维空间</label>
+          <span class="set-actions">
+            <button id="set-space3d-btn" class="btn">进入空间 (X)</button>
+          </span>
+        </div>
+        <div class="set-row">
           <label>胶囊播放器</label>
           <span class="set-actions">
             <button id="set-capsule-btn" class="btn">最小化为胶囊</button>
@@ -2086,6 +2105,90 @@
 <script defer src="stanza/stanza-sonnet-fx.js"></script>
 <script defer src="stanza/stanza-sonnet.js"></script>
 <script defer src="stanza/stanza-tempera.js"></script>
+<!-- 「三维空间」：与沉浸声场平行的全屏 3D 演出层（docs/design/space3d-mode.md）。
+     互斥规则：开空间即关声场，开声场即关空间，任何时刻只有一个自有上下文存活。
+     效果网格由 space3d.js 填充（来源 + Stage3D.effectCatalog() 派生的粒子场）；
+     歌词轨复用 .s3d-reading/.sl-* 的既有样式，stanza 走 .fl-* 的新宿主二次实例化。 -->
+<div class="sp" id="space3d" data-fx-zone="stage" aria-hidden="true" aria-modal="true" role="dialog" aria-label="三维空间" tabindex="-1">
+  <div class="sp-bg" id="sp-bg" aria-hidden="true"></div>
+  <div class="sp-canvas" id="sp-canvas"></div>
+  <div class="sp-vignette" aria-hidden="true"></div>
+  <div class="s3d-reading sp-reading" id="sp-reading">
+    <div class="s3d-eyebrow" id="sp-status">三维空间</div>
+  </div>
+  <div class="fl-root sp-stanza" id="sp-stanza" hidden>
+    <div class="fl-bg" id="sp-fl-bg"></div>
+    <div class="fl-sonnet-layer" id="sp-fl-sonnet-stage"></div>
+    <div class="fl-lyric" id="sp-fl-lyric"></div>
+    <div class="fl-sub" id="sp-fl-sub"></div>
+  </div>
+  <div class="sp-head">
+    <div class="sp-brand"><span class="sp-brand-mark" aria-hidden="true">h<span>z</span></span><div>hertz studio<small>三 维 空 间</small></div></div>
+    <button class="sp-head-btn" id="sp-close" title="关闭 (Esc)" aria-label="关闭三维空间">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+    </button>
+  </div>
+  <div class="sp-hint" id="sp-hint" role="status">自由镜头：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 · 鼠标转向 · <kbd>Q</kbd>/<kbd>E</kbd> 滚转 · <kbd>K</kbd> 回正 · <kbd>R</kbd> 退出</div>
+  <div class="sp-bar" id="sp-bar" role="toolbar" aria-label="三维空间控制条">
+    <button class="sp-tbtn" id="sp-prev" title="上一首" aria-label="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-prev"/></svg></button>
+    <button class="sp-tbtn sp-play" id="sp-play" title="播放 (空格)" aria-pressed="false" aria-label="播放或暂停"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg></button>
+    <button class="sp-tbtn" id="sp-next" title="下一首" aria-label="下一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-next"/></svg></button>
+    <div class="sp-progress">
+      <span id="sp-track-title">选择一首歌</span>
+      <input id="sp-seek" type="range" min="0" max="1" step="100" value="0" aria-label="播放进度">
+      <span id="sp-time">0:00 / 0:00</span>
+      <div id="sp-seek-particles" aria-hidden="true"></div>
+    </div>
+    <i class="sp-sep" aria-hidden="true"></i>
+    <button class="sp-tbtn" id="sp-fx-toggle" title="效果" aria-expanded="false" aria-controls="sp-fx" aria-label="切换舞台来源与粒子场"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+    <button class="sp-tbtn" id="sp-playlist-toggle" title="队列" aria-expanded="false" aria-controls="sp-playlist" aria-label="播放队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-playlist"/></svg></button>
+  </div>
+  <div class="sp-fx" id="sp-fx"><div class="sp-fx-grid" id="sp-fx-grid"></div></div>
+  <button class="sp-fab" id="sp-fab" title="三维空间设置" aria-expanded="false" aria-controls="sp-sheet" aria-label="三维空间设置"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg></button>
+  <aside class="sp-sheet" id="sp-sheet" aria-label="三维空间设置">
+    <h2>三维空间设置 <button class="sp-head-btn" id="sp-sheet-close" aria-label="收起设置" style="width:34px;height:34px"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></h2>
+    <label for="sp-source">舞台来源</label>
+    <select id="sp-source">
+      <option value="coast">海岸公路</option>
+      <option value="zodiac">星座</option>
+      <option value="creative">创意编排</option>
+      <option value="immersive">沉浸粒子场</option>
+      <!-- 「动画绘景」入口暂时下架（022095a）：保留 option 只加 hidden，
+           停在这个来源的偏好要能显示出来，也随时能切走。 -->
+      <option value="anime-svg" hidden>动画绘景</option>
+    </select>
+    <div id="sp-coast-tune" hidden>
+      <label for="sp-coast-tod">海岸时刻</label>
+      <input id="sp-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
+      <label class="sp-check" for="sp-coast-interact"><input id="sp-coast-interact" type="checkbox" checked> 舞台交互（拖拽环绕 / 滚轮推拉）</label>
+    </div>
+    <div id="sp-zodiac-tune" hidden>
+      <label class="sp-check" for="sp-zodiac-lines"><input id="sp-zodiac-lines" type="checkbox" checked> 星座连线</label>
+      <label class="sp-check" for="sp-zodiac-field"><input id="sp-zodiac-field" type="checkbox" checked> 背景星场</label>
+      <label class="sp-check" for="sp-zodiac-interact"><input id="sp-zodiac-interact" type="checkbox" checked> 交互旋转</label>
+    </div>
+    <label class="sp-check" for="sp-lyrics-toggle"><input id="sp-lyrics-toggle" type="checkbox" checked> 显示歌词 (L)</label>
+    <label for="sp-visual">歌词视觉</label>
+    <select id="sp-visual">
+      <option value="stage">舞台 3D 歌词轨</option>
+      <option value="classic">流光歌词</option>
+      <option value="cadenza">心象歌词</option>
+      <option value="sonnet">商籁歌词</option>
+      <option value="tempera">凝彩 · 色块歌词 MV</option>
+    </select>
+    <label class="sp-check" for="sp-cinema-toggle"><input id="sp-cinema-toggle" type="checkbox" checked> 电影镜头（漂移与节拍运镜）</label>
+    <p class="sp-note" id="sp-free-note">自由镜头：<b>R</b> 进入 / 退出，<b>K</b> 回正；双击复位视角，转台拖拽转的是整个世界。</p>
+    <button class="sp-btn-line" id="sp-focus" type="button">聚焦当前舞台</button>
+    <div id="sp-extra-controls"></div>
+    <button class="sp-btn-line" id="sp-defaults" type="button">恢复空间默认</button>
+  </aside>
+  <aside class="sp-playlist" id="sp-playlist" aria-label="播放队列">
+    <h2>播放队列</h2>
+    <div id="sp-playlist-body"></div>
+  </aside>
+  <p class="sp-fallback" id="sp-fallback" hidden></p>
+</div>
+
 <!-- 导演层：曲式编译（段落/副歌/句内画像 + 镜头语法）在前，元导演在后 -->
 <script defer src="stanza/stanza-songform.js"></script>
 <script defer src="stanza/stanza-starborn.js"></script>
@@ -2102,6 +2205,15 @@
      creative-anime.js（注册表）之后；与 stage3d.js 无加载期依赖，只被调用。 -->
 <script defer src="stage-anime-svg.js"></script>
 <script defer src="stage-immersive.js"></script>
+<!-- 三维空间：SpaceCamera（纯数学，Node 可直测）在前，模式层在后；
+     只被调用不调用别人，排在适配器（stage-coast/zodiac/anime-svg）之后。 -->
+<script defer src="space-camera.js"></script>
+<script defer src="space-post.js"></script>
+<script defer src="space-layers.js"></script>
+<script defer src="space3d.js"></script>
+<!-- 沉浸粒子场渲染器（第二批）：着色器全部经 Stage3D.shaderCatalog() 只读导出，
+     这里只持有 GL 上下文与后处理链；与 stage3d.js 无加载期依赖，只被调用。 -->
+<script defer src="space-fields.js"></script>
 <script defer src="vendor/qrcode.js"></script>
 <script defer src="online-login.js"></script>
 <script defer src="online.js"></script>

@@ -51,6 +51,69 @@ async function main() {
     });
     await page.addScriptTag({ path: path.join(root, 'plugin/ui/vendor/zodiac-stage.js') });
 
+    // Supplied poses must move the rendered Three camera, including its projection
+    // and free-camera heading. The engine's existing rAF owns every transition.
+    assert.equal(await page.evaluate(() => typeof ZodiacStagePure.setRig), 'function', 'setRig camera export');
+    assert.equal(await page.evaluate(() => typeof ZodiacStagePure.setInteraction), 'function', 'setInteraction export');
+    report.camera = await page.evaluate(() => {
+      __mount(); __step(1, false);
+      const original = ZodiacStagePure.debug();
+      ZodiacStagePure.setInteraction(false);
+      ZodiacStagePure.setRig({ yaw: Math.PI / 2, pitch: 0, dist: 12, fov: 40, tx: 2, ty: 3, tz: 4 }, { external: true });
+      __step(1, false);
+      const orbit = ZodiacStagePure.debug();
+      ZodiacStagePure.capture();
+      const orbitPixels = document.querySelector('canvas').toDataURL();
+      ZodiacStagePure.setRig({ position: [1, 2, 3], yaw: Math.PI / 2, pitch: 0.2, roll: 0.2, fov: 64, external: true });
+      __step(1, false);
+      const free = ZodiacStagePure.debug();
+      ZodiacStagePure.capture();
+      const freePixels = document.querySelector('canvas').toDataURL();
+      const canvas = document.querySelector('canvas');
+      canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, cancelable: true }));
+      canvas.dispatchEvent(new MouseEvent('dblclick'));
+      __step(12, false);
+      const held = ZodiacStagePure.debug();
+      ZodiacStagePure.setRig({ yaw: NaN, pitch: Infinity, fov: -Infinity, position: [NaN, 1, 2] });
+      __step(12, false);
+      const invalid = ZodiacStagePure.debug();
+      ZodiacStagePure.setRig({ yaw: 0, pitch: 0, dist: 9, tx: 0, ty: 0, tz: 0, fov: 56 });
+      __step(12, false);
+      const first = ZodiacStagePure.debug();
+      for (let i = 0; i < 180; i++) __step(12, false);
+      const settled = ZodiacStagePure.debug();
+      ZodiacStagePure.setRig(null);
+      ZodiacStagePure.setInteraction(true);
+      __step(12, true);
+      const released = ZodiacStagePure.debug();
+      for (let i = 1; i <= 60; i++) __step(12 + i / 60, true);
+      const resumed = ZodiacStagePure.debug();
+      return { original, orbit, free, held, invalid, first, settled, released, resumed,
+        pixelsChanged: orbitPixels !== freePixels, touchAction: canvas.style.touchAction };
+    });
+    const near = (actual, expected, label) => actual.forEach((v, i) =>
+      assert.ok(Math.abs(v - expected[i]) < 0.002, label + ': ' + actual + ' vs ' + expected));
+    near(report.camera.orbit.camera.position, [14, 3, 4], 'orbit position includes target');
+    near(report.camera.orbit.camera.direction, [-1, 0, 0], 'orbit looks at target');
+    assert.equal(report.camera.orbit.camera.fov, 40, 'orbit FOV reaches real camera');
+    assert.ok(Math.abs(report.camera.orbit.camera.projection[5] - 1 / Math.tan(40 * Math.PI / 360)) < 1e-9,
+      'FOV updates the actual projection matrix');
+    near(report.camera.free.camera.position, [1, 2, 3], 'free position is not converted to orbit');
+    near(report.camera.free.camera.direction, [-Math.cos(0.2), Math.sin(0.2), 0], 'free yaw/pitch preserve heading');
+    near(report.camera.free.camera.quaternion, [Math.SQRT1_2 * Math.sin(0.2), Math.SQRT1_2 * Math.cos(0.2), 0, Math.SQRT1_2],
+      'free roll reaches actual orientation');
+    assert.ok(report.camera.pixelsChanged, 'camera movement changes real WebGL pixels');
+    near(report.camera.held.camera.position, [1, 2, 3], 'control survives idle and disabled local input');
+    near(report.camera.invalid.camera.position, [1, 2, 3], 'invalid values do not poison the camera');
+    assert.ok(report.camera.first.camera.position[2] > 3 && report.camera.first.camera.position[2] < 9,
+      'default setRig transitions smoothly rather than snapping');
+    near(report.camera.settled.camera.position, [0, 0, 9], 'paused camera still completes internal damping');
+    near(report.camera.settled.camera.direction, [0, 0, -1], 'damped orbit heading settles');
+    assert.equal(report.camera.released.controlled, false, 'null releases camera ownership');
+    assert.equal(report.camera.released.dist, report.camera.original.dist, 'release restores the local rig');
+    assert.ok(report.camera.resumed.drift > report.camera.released.drift, 'release resumes default drift');
+    assert.equal(report.camera.touchAction, 'none', 'interaction can be restored');
+
     // —— 生命周期：时间线状态与换座 —— //
     report.lifecycle = await page.evaluate(() => {
       __mount();

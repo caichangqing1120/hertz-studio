@@ -15,6 +15,10 @@
 //   probe() / mount(canvas, {quality,reduced,palette,interactive}) / unmount()
 //   resize(w,h) / setTime({time,playing}) / setAudio({bands,onset})
 //   setPrefs({field,interact,glow,speed,reduced,palette})
+//   setRig(pose, opts)              orbit: {yaw,pitch,dist,fov,tx,ty,tz};
+//                                   free: {position:[x,y,z],yaw,pitch,roll,fov}
+//                                   external:true skips damping; null releases
+//   setInteraction(boolean)         local pointer ownership
 //   stats() / debug() / capture() / pure
 
 import * as THREE from 'three';
@@ -101,6 +105,7 @@ export function mount(canvas, opts = {}) {
   scene.background = new THREE.Color(BG_COLOR);
   const camera = new THREE.PerspectiveCamera(FOV_BASE, 1, 0.1, 400);
   camera.position.set(0, 0, fitDistance(FIG_ASPECT));
+  const cameraTarget = camera.clone();
 
   const prefs = {
     field: true, interactive: opts.interactive !== false,
@@ -166,7 +171,7 @@ export function mount(canvas, opts = {}) {
   }
 
   st = {
-    canvas, renderer, scene, camera, world, quality, prefs, audio, rig,
+    canvas, renderer, scene, camera, cameraTarget, control: null, world, quality, prefs, audio, rig,
     raf: 0, lastFrame: 0, lastRender: 0, lastTime: -1,
     time: 0, sceneTime: 0, playing: false, dirty: true,
     width: 0, height: 0, pr: 1,
@@ -252,8 +257,7 @@ export function setPrefs(patch = {}) {
     st.world.setFieldVisible(st.prefs.field);
   }
   if (typeof patch.interactive === 'boolean') {
-    st.prefs.interactive = patch.interactive;
-    st.canvas.style.touchAction = st.prefs.interactive ? 'none' : '';
+    setInteraction(patch.interactive);
   }
   if (patch.glow != null) st.prefs.glow = clamp(Number(patch.glow), 0, 2);
   if (patch.speed != null) st.prefs.speed = clamp(Number(patch.speed), 0.15, 3);
@@ -262,6 +266,55 @@ export function setPrefs(patch = {}) {
     st.prefs.palette = patch.palette;
     st.world.setPalette(st.prefs.palette);
   }
+  st.dirty = true;
+}
+
+export function setInteraction(value) {
+  if (!st) return;
+  st.prefs.interactive = !!value;
+  if (!value) st.rig.dragging = false;
+  st.canvas.style.touchAction = value ? 'none' : '';
+}
+
+// Angles are radians, FOV is degrees. Free poses use the same YXZ camera Euler
+// convention as SpaceCamera: yaw=0 faces -Z and positive pitch looks upward.
+// Local drift/input stay intact while a supplied camera owns the rendered pose.
+export function setRig(pose, opts) {
+  if (!st) return;
+  if (pose == null) {
+    st.control = null;
+    st.dirty = true;
+    return;
+  }
+  if (typeof pose !== 'object') return;
+  const validPosition = Array.isArray(pose.position) && pose.position.length === 3
+    && pose.position.every(Number.isFinite);
+  // An invalid free position must never silently turn into an orbit request.
+  if (pose.position !== undefined && !validPosition) return;
+  const previous = st.control || { yaw: st.rig.drift + st.rig.yaw, pitch: st.rig.pitch,
+    dist: st.rig.dist, fov: st.camera.fov, tx: 0, ty: 0, tz: 0, roll: 0 };
+  const next = { ...previous, position: validPosition ? pose.position.slice() : null,
+    external: !!(opts && opts.external !== undefined ? opts.external : pose.external) };
+  for (const key of ['yaw', 'pitch', 'dist', 'fov', 'tx', 'ty', 'tz', 'roll']) {
+    if (Number.isFinite(pose[key])) next[key] = pose[key];
+  }
+  next.pitch = clamp(next.pitch, -Math.PI * 0.49, Math.PI * 0.49);
+  next.dist = zoomClamp(next.dist, DIST_MIN, DIST_MAX);
+  next.fov = clamp(next.fov, 26, 72);
+  const target = st.cameraTarget;
+  if (next.position) {
+    target.position.fromArray(next.position);
+    target.rotation.set(next.pitch, next.yaw, next.roll, 'YXZ');
+  } else {
+    const cp = Math.cos(next.pitch);
+    target.position.set(next.tx + Math.sin(next.yaw) * cp * next.dist,
+      next.ty + Math.sin(next.pitch) * next.dist,
+      next.tz + Math.cos(next.yaw) * cp * next.dist);
+    target.lookAt(next.tx, next.ty, next.tz);
+  }
+  target.fov = next.fov;
+  st.control = next;
+  st.rig.dragging = false;
   st.dirty = true;
 }
 
@@ -299,24 +352,37 @@ function tick(now) {
   const k = tl.state === 'gather' ? clamp(tl.t / GATHER_SECONDS)
     : tl.state === 'disperse' ? clamp(tl.t / DISPERSE_SECONDS) : 1;
 
-  // 相机：极慢漂移 + 拖拽偏移；造型本身也在自转，两层速度错开有视差。
   const rig = st.rig;
-  rig.drift += dt * CAMERA_DRIFT * (prefs.reduced ? 0.3 : 1) * prefs.speed
-    + dt * st.audio.bass * 0.04 * (prefs.reduced ? 0.3 : 1);
-  const effYaw = rig.drift + rig.yaw;
-  const cp = Math.cos(rig.pitch);
   const camera = st.camera;
-  camera.position.set(
-    Math.sin(effYaw) * cp * rig.dist,
-    Math.sin(rig.pitch) * rig.dist,
-    Math.cos(effYaw) * cp * rig.dist,
-  );
-  camera.lookAt(0, 0, 0);
-  const fovTarget = FOV_BASE + st.audio.bass * 1.6;
-  rig.fov = seek ? fovTarget : damp(rig.fov, fovTarget, 0.32, dt);
-  if (Math.abs(camera.fov - rig.fov) > 0.001) {
-    camera.fov = rig.fov;
+  let cameraMoving = false;
+  if (st.control) {
+    const target = st.cameraTarget;
+    const mix = st.control.external ? 1 : 1 - Math.exp(-dt / 0.26);
+    camera.position.lerp(target.position, mix);
+    camera.quaternion.slerp(target.quaternion, mix);
+    camera.fov += (target.fov - camera.fov) * mix;
     camera.updateProjectionMatrix();
+    cameraMoving = camera.position.distanceToSquared(target.position) > 1e-8
+      || camera.quaternion.angleTo(target.quaternion) > 0.0001
+      || Math.abs(camera.fov - target.fov) > 0.0001;
+  } else {
+    // 相机：极慢漂移 + 拖拽偏移；造型本身也在自转，两层速度错开有视差。
+    rig.drift += dt * CAMERA_DRIFT * (prefs.reduced ? 0.3 : 1) * prefs.speed
+      + dt * st.audio.bass * 0.04 * (prefs.reduced ? 0.3 : 1);
+    const effYaw = rig.drift + rig.yaw;
+    const cp = Math.cos(rig.pitch);
+    camera.position.set(
+      Math.sin(effYaw) * cp * rig.dist,
+      Math.sin(rig.pitch) * rig.dist,
+      Math.cos(effYaw) * cp * rig.dist,
+    );
+    camera.lookAt(0, 0, 0);
+    const fovTarget = FOV_BASE + st.audio.bass * 1.6;
+    rig.fov = seek ? fovTarget : damp(rig.fov, fovTarget, 0.32, dt);
+    if (Math.abs(camera.fov - rig.fov) > 0.001) {
+      camera.fov = rig.fov;
+      camera.updateProjectionMatrix();
+    }
   }
 
   st.world.update(st.sceneTime, {
@@ -325,7 +391,7 @@ function tick(now) {
     state: tl.state, k, cameraPos: camera.position,
   });
 
-  st.dirty = false;
+  st.dirty = cameraMoving;
   st.lastRender = now;
   st.renderer.info.reset();
   st.renderer.render(st.scene, camera);
@@ -378,6 +444,14 @@ export function debug() {
     distDefault: st.rig.distFit,
     zoom: st.rig.zoom,
     timeline: { ...st.timeline },
+    controlled: !!st.control,
+    camera: {
+      position: st.camera.position.toArray(),
+      direction: st.camera.getWorldDirection(new THREE.Vector3()).toArray(),
+      quaternion: st.camera.quaternion.toArray(),
+      fov: st.camera.fov,
+      projection: st.camera.projectionMatrix.toArray(),
+    },
     prefs: { ...st.prefs },
   };
 }

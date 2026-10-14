@@ -25,6 +25,7 @@
 
   var view = null;
   var stageHost = null;
+  var hostContract = null;
   var registered = false;
   var initialized = false;
   var resizeObserver = null;
@@ -183,7 +184,7 @@
   }
 
   function isImmersive() {
-    return !!(view && view.el.closest && view.el.closest('#stage3d'));
+    return !!hostContract || !!(view && view.el.closest && view.el.closest('#stage3d'));
   }
   function presentation() {
     return window.Stage && Stage.presentation ? Stage.presentation() : {
@@ -193,9 +194,11 @@
   }
   function visible() {
     if (!opts.on || !view || document.hidden || view.el.isConnected === false) return false;
+    if (hostContract && typeof hostContract.visible === 'function') return !!hostContract.visible();
     // Stage.isHidden includes the open immersive stage; that sidebar-only stop
     // signal must not hide the art layer attached to the immersive host.
-    if (isImmersive()) return view.el.closest('#stage3d').getAttribute('aria-hidden') !== 'true';
+    var immersive = view.el.closest && view.el.closest('#stage3d');
+    if (immersive) return immersive.getAttribute('aria-hidden') !== 'true';
     return !(window.Stage && Stage.isHidden && Stage.isHidden()) &&
       !(window.Stage && Stage.isStageVisible && !Stage.isStageVisible());
   }
@@ -301,7 +304,7 @@
 
   function drawAnnot(v, amt) {
     if (!opts.annot) { v.paths.annot.setAttribute('d', ''); return; }
-    var root = isImmersive() ? v.el.closest('#stage3d') : v.el;
+    var root = hostContract && hostContract.lyricsRoot || v.el.closest('#stage3d') || v.el;
     var node = root.querySelector('.sl-line.is-active, .stage-lyrics .lyric.active');
     if (!node) { v.paths.annot.setAttribute('d', ''); return; }
     var rect = node.getBoundingClientRect(), box = v.el.getBoundingClientRect();
@@ -402,8 +405,11 @@
     if (opts.on) tick(); // Paused first paint, settings and host swaps are immediate.
     return api.values();
   }
-  function setStageHost(host) {
+  // A detached art layer can annotate sibling lyrics and owns its visibility.
+  // Existing Stage3D/sidebar callers retain their one-argument DOM contract.
+  function setStageHost(host, contract) {
     stageHost = host && host.nodeType === 1 ? host : null;
+    hostContract = stageHost && contract || null;
     init(); attachHost();
     if (view) view.frameKey = '';
     tick();

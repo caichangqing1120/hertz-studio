@@ -45,12 +45,57 @@ const vm = require('node:vm');
 const sandbox = { window: {}, document: { createElement: () => ({ getContext: () => null }) }, Math, console };
 sandbox.self = sandbox;
 const api = vm.runInNewContext(bundle + ';ZodiacStagePure', sandbox, { timeout: 15000 });
-for (const fn of ['probe', 'mount', 'unmount', 'setAudio', 'setTime', 'setPrefs', 'resize', 'stats', 'capture', 'debug']) {
+for (const fn of ['probe', 'mount', 'unmount', 'setAudio', 'setTime', 'setPrefs', 'setRig', 'setInteraction', 'resize', 'stats', 'capture', 'debug']) {
   assert.equal(typeof api[fn], 'function', 'ZodiacStagePure 缺少 ' + fn);
 }
 assert.ok(api.pure && typeof api.pure.timelineAt === 'function', 'ZodiacStagePure.pure 缺少 timelineAt');
 assert.ok(fs.existsSync(path.join(root, 'plugin/ui/stage-zodiac.js')), '缺少 stage-zodiac.js 适配层');
 pass('ZodiacStagePure API 完整（含 pure 纯函数测试口）');
+
+// Adapter owns remount state; a quality/context rebuild must keep the supplied
+// pose, while leaving the host must restore the next Stage3D session's defaults.
+const events = {};
+const rigCalls = [];
+const interactionCalls = [];
+let currentOptions;
+const fakeEngine = {
+  probe: () => true, mount: (_canvas, options) => { currentOptions = options; return true; },
+  unmount() {}, resize() {}, setPrefs() {},
+  setRig: (pose, options) => rigCalls.push({ pose, options }),
+  setInteraction: value => interactionCalls.push(value),
+};
+const adapterSandbox = {
+  window: { ZodiacStagePure: fakeEngine }, Float32Array, Date,
+  document: {
+    addEventListener: (name, fn) => { events[name] = fn; },
+    createElement: () => ({ className: '', setAttribute() {}, addEventListener() {}, removeEventListener() {}, remove() {} }),
+  },
+  requestAnimationFrame: () => 1, cancelAnimationFrame() {}, clearTimeout() {},
+};
+vm.runInNewContext(fs.readFileSync(path.join(root, 'plugin/ui/stage-zodiac.js'), 'utf8'), adapterSandbox);
+const adapter = adapterSandbox.window.StageZodiac;
+assert.equal(typeof adapter.setRig, 'function', 'StageZodiac camera adapter export');
+assert.equal(typeof adapter.setInteraction, 'function', 'StageZodiac pointer handoff');
+const host = { clientWidth: 640, clientHeight: 360, appendChild() {} };
+adapter.setHost(host);
+adapter.setInteraction(false);
+const supplied = { position: [1, 2, 3], yaw: 0.6, pitch: 0.2, fov: 48 };
+adapter.setRig(supplied, { external: true });
+supplied.position[0] = 999;
+events['stage:fps']({ detail: { lowfx: true } });
+assert.equal(rigCalls.at(-1).pose.position[0], 1, 'rebuild restores a copied free pose');
+assert.equal(rigCalls.at(-1).options.external, true, 'rebuild preserves immediate external mode');
+assert.equal(currentOptions.interactive, false, 'rebuild preserves pointer handoff');
+assert.equal(interactionCalls.at(-1), false, 'pointer handoff reaches engine');
+adapter.setRig(null);
+assert.equal(rigCalls.at(-1).pose, null, 'null releases the live engine camera');
+adapter.setRig({ yaw: 1 });
+adapter.setHost(null);
+const callCount = rigCalls.length;
+adapter.setHost(host);
+assert.equal(rigCalls.length, callCount, 'fresh Stage3D mount does not inherit the previous camera');
+adapter.setHost(null);
+pass('StageZodiac camera/pointer handoff survives rebuild and resets at unmount');
 
 // ---- 数据与纯函数：十二宫元数据、造型采样、云团、时间线 ----
 const { ZODIAC, SIGN_COUNT, GATHER_SECONDS, HOLD_SECONDS, DISPERSE_SECONDS, CYCLE_SECONDS,

@@ -11,6 +11,8 @@
 //   StageCoast.available()          入口置灰判断（探测 WebGL2，带缓存）
 //   StageCoast.setHost(el|null)     挂进宿主层 / 卸载；返回是否成功
 //   StageCoast.setPrefs(p)          { tod: 0..1, interact: bool } 即时生效
+//   StageCoast.setRig(pose, opts)   注入机位；null 交回内部巡航（见引擎契约）
+//   StageCoast.setInteraction(v)    把指针所有权交给空间层 / 交回场景
 //   StageCoast.degradedBecause()    最近一次挂载失败的原因，null 为可用
 //
 // GL 上下文丢失（GPU 进程重启/休眠唤醒/上下文被浏览器回收）时画布会变成
@@ -33,6 +35,7 @@
   var raf = 0;
   var lastTick = 0;
   var lastW = 0, lastH = 0;
+  var currentRig = null, currentRigOptions = null;
   var ZEROS = new Float32Array(64);
 
   // —— GL 上下文丢失恢复（与 stage3d.js 主画布的恢复预算同语义）—— //
@@ -184,6 +187,7 @@
     }
     reason = null;
     CS().resize(w, h);
+    if (currentRig) CS().setRig(currentRig, currentRigOptions);
     mounted = true;
     attachContextWatch();
     return true;
@@ -193,6 +197,8 @@
     if (el === host) return !el || mounted;
     host = el;
     if (!el) {
+      currentRig = null;
+      currentRigOptions = null;
       if (mounted) {
         cancelAnimationFrame(raf);
         raf = 0;
@@ -224,9 +230,20 @@
       if (mounted) CS().setTimeOfDay(tod);
     }
     if (typeof p.interact === 'boolean') {
-      interact = p.interact;
-      if (mounted) CS().setInteraction(interact);
+      setInteraction(p.interact);
     }
+  }
+
+  function setRig(pose, opts) {
+    currentRig = pose ? Object.assign({}, pose) : null;
+    if (currentRig && Array.isArray(pose.position)) currentRig.position = pose.position.slice();
+    currentRigOptions = opts ? Object.assign({}, opts) : null;
+    if (mounted) CS().setRig(currentRig, currentRigOptions);
+  }
+
+  function setInteraction(value) {
+    interact = !!value;
+    if (mounted) CS().setInteraction(interact);
   }
 
   // 舞台帧门测得吃不住（lowfx）就降到流畅档重建一次；之后不再回升级。
@@ -246,5 +263,7 @@
     setHost: setHost,
     setPrefs: setPrefs,
     degradedBecause: degradedBecause,
+    setRig: setRig,
+    setInteraction: setInteraction,
   };
 }());

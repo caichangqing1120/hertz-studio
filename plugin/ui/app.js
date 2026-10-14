@@ -402,9 +402,9 @@ const ServerTransport = {
   async post(path, body, options) {
     return serializedPlaybackPost(path, body, request, options);
   },
-  async put(path, body) {
+  async put(path, body, options) {
     PlaybackIntent.command(path);
-    return request(path, { method: 'PUT', body: JSON.stringify(body || {}) });
+    return request(path, { ...options, method: 'PUT', body: JSON.stringify(body || {}) });
   },
   async del(path) { return request(path, { method: 'DELETE' }); },
   // 直接给出可以塞进 <img src> 的地址，不再自己 fetch + createObjectURL。
@@ -2380,6 +2380,16 @@ function onStageControl(e) {
       d.completion = write;
       break;
     }
+    case 'space3d': {
+      // 与 stage3d 分支同形状的整对象写回（§8：改任何一项都会把 sceneSource 一并落库）。
+      markSettingsDirty();
+      state.settings.space3d = d.value;
+      // 已发出的机位快照在 HTTP 页面离开后继续提交；仍按原队列排序，避免旧写覆盖新写。
+      const writeSpace = stageSettingsWrite.then(() => transport.put('/v1/settings', { space3d: d.value }, { keepalive: true }));
+      stageSettingsWrite = writeSpace.catch(() => toast('空间设置暂未保存', 'error'));
+      d.completion = writeSpace;
+      break;
+    }
     case 'view': setView(d.value); break;
     case 'queue-play':
       playQueueIndex(state.queue.indexOf(String(d.value)));
@@ -2503,6 +2513,13 @@ function drawSpectrum() {
 // 全屏声场（Stage3D）里的播放队列浮层与队列视图同源：这里把精简后的行模型
 // 推给 Stage3D，全屏内点行跳播/移出经 stage:control 意图回到同一套播放逻辑。
 function pushStageQueue() {
+  if (window.Space3D && Space3D.setQueue) {
+    Space3D.setQueue(state.queue.map((id) => {
+      const track = state.byId.get(id) || window.Online.getMeta(id)
+        || { id, title: '未知曲目', artist: '', duration_ms: null };
+      return { id, title: track.title, artist: track.artist, album: track.album || '', duration: track.duration_ms };
+    }));
+  }
   if (!window.Stage3D || !Stage3D.setQueue) return;
   Stage3D.setQueue(state.queue.map((id) => {
     const track = state.byId.get(id) || window.Online.getMeta(id)
@@ -4066,6 +4083,9 @@ async function loadSettings() {
   // 用户那次操作写对了），只回填确实没被动过的项。
   if (epoch === settingsEpoch) {
     if (window.Stage3D) Stage3D.configure(state.settings.stage3d);
+    // 三维空间的偏好键（§8）：migrateDefaults 在 configure 内做一次性默认值迁移，
+    // 迁移发生过会经 stage:control 把改写推回来落库。
+    if (window.Space3D) Space3D.configure(state.settings.space3d);
     // 空闲收起默认开：设置表里没有这项时传 true，行为与"用户勾上了"一致。
     setStageIdleHide(state.settings.stage_idle_hide !== false, false);
   }
@@ -5650,6 +5670,11 @@ function bindShortcuts() {
       case 'ArrowUp': e.preventDefault(); ui.volume.value = String(Math.min(100, Number(ui.volume.value) + 5)); setVolumeFromInput(); break;
       case 'ArrowDown': e.preventDefault(); ui.volume.value = String(Math.max(0, Number(ui.volume.value) - 5)); setVolumeFromInput(); break;
       case 'm': case 'M': toggleMute(true); break;
+      case 'x': case 'X':
+        // 三维空间的总开关（X）：开着时它的捕获相先吃大多数键，X 落到这里就是关闭。
+        e.preventDefault();
+        if (window.Space3D && Space3D.toggle) Space3D.toggle();
+        break;
       case '1': setView('library'); break;
       case '2': setView('playlists'); break;
       case '3': setView('queue'); break;

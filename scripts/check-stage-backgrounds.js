@@ -57,3 +57,37 @@ assert.match(html, /value="anime"/);
 assert.match(html, /s3d-fl-wallpaper-grid/);
 assert.match(html, /s3d-fl-wallpaper-dim/);
 console.log('Stage backgrounds: 20 checks passed (catalog, isolation, persistence, render/input gates, controls)');
+
+// Shared backgrounds keep their settings while Space3D temporarily owns their clock/depth.
+const backgroundSource = fs.readFileSync(path.join(root, 'backgrounds.js'), 'utf8').replace(/\r\n/g, '\n');
+function backgroundFunction(name) {
+  const start = backgroundSource.indexOf('  function ' + name + '(');
+  assert.ok(start >= 0, 'Backgrounds exposes the ' + name + ' lifecycle');
+  return backgroundSource.slice(start, backgroundSource.indexOf('\n  }', start) + 4);
+}
+let paused = 0, played = 0, refreshed = 0, destroyed = 0, attached = 0;
+const backgroundState = { spec: { type: 'mesh', depthMode: 'scene' }, attached: true,
+  layer: { dataset: {}, style: { removeProperty() {} } }, depthEffective: 'scene', stageState: null,
+  media: { tagName: 'VIDEO', pause() { paused++; }, play() { played++; return Promise.resolve(); } } };
+const backgroundContext = vm.createContext({ state: backgroundState, isVisible: () => true,
+  isCanvasType: () => true, BG_FPS: 12, document: { body: { classList: { contains: () => true } } },
+  destroyWall: () => { destroyed++; }, ensureWall: () => { attached++; return true; },
+  refresh: () => { refreshed++; }, isFinite, Math });
+vm.runInContext(['setStageState', 'targetFps', 'syncMediaPlayback', 'configureDepth'].map(backgroundFunction).join('\n'), backgroundContext);
+backgroundContext.setStageState({ flat: true, paused: true, reduced: false, timeSec: 4 });
+assert.equal(backgroundContext.targetFps(), 0, 'paused space stops the background gate');
+assert.equal(backgroundState.depthEffective, 'flat', 'space temporarily suspends the GL wall');
+assert.equal(backgroundState.spec.depthMode, 'scene', 'configured depth is never overwritten by the temporary host');
+assert.ok(paused > 0 && destroyed > 0, 'media and old GL resources are suspended');
+const refreshCount = refreshed;
+backgroundContext.setStageState({ flat: true, paused: true, timeSec: 9 });
+assert.equal(refreshed, refreshCount, 'clock snapshot updates do not schedule redundant refreshes');
+backgroundContext.setStageState({ flat: true, paused: false, reduced: true, timeSec: 9 });
+assert.equal(backgroundContext.targetFps(), 0, 'reduced motion also stops background motion');
+backgroundContext.setStageState({ flat: true, paused: false, reduced: false, timeSec: 10 });
+assert.equal(backgroundContext.targetFps(), 12, 'playing space uses the existing background gate');
+backgroundContext.setStageState(null);
+assert.equal(backgroundState.depthEffective, 'scene', 'original depth becomes effective again when ownership returns');
+assert.equal(backgroundContext.targetFps(), 30, 'original stage wall frame policy returns unchanged');
+assert.ok(attached > 0 && played > 0, 'original wall and media playback resume');
+console.log('Shared backgrounds: 11 host clock/depth lifecycle checks passed');

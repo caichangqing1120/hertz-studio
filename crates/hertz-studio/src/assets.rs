@@ -63,6 +63,11 @@ ui_assets! {
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
     "/stage-anime-svg.js", JS => const STAGE_ANIME_SVG_JS: &str = include_str!("../../../plugin/ui/stage-anime-svg.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
+    "/space-camera.js", JS => const SPACE_CAMERA_JS: &str = include_str!("../../../plugin/ui/space-camera.js");
+    "/space3d.js", JS => const SPACE3D_JS: &str = include_str!("../../../plugin/ui/space3d.js");
+    "/space-fields.js", JS => const SPACE_FIELDS_JS: &str = include_str!("../../../plugin/ui/space-fields.js");
+    "/space-post.js", JS => const SPACE_POST_JS: &str = include_str!("../../../plugin/ui/space-post.js");
+    "/space-layers.js", JS => const SPACE_LAYERS_JS: &str = include_str!("../../../plugin/ui/space-layers.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");
     "/stanza/stanza-theme.js", JS => const STANZA_THEME_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-theme.js");
     "/stanza/stanza-textlayout.js", JS => const STANZA_TEXTLAYOUT_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-textlayout.js");
@@ -95,6 +100,8 @@ ui_assets! {
     "/creative.css", CSS => const CREATIVE_CSS: &str = include_str!("../../../plugin/ui/creative.css");
     "/creative-anime.css", CSS => const CREATIVE_ANIME_CSS: &str = include_str!("../../../plugin/ui/creative-anime.css");
     "/stage3d.css", CSS => const STAGE3D_CSS: &str = include_str!("../../../plugin/ui/stage3d.css");
+    "/space3d.css", CSS => const SPACE3D_CSS: &str = include_str!("../../../plugin/ui/space3d.css");
+    "/space-layers.css", CSS => const SPACE_LAYERS_CSS: &str = include_str!("../../../plugin/ui/space-layers.css");
     "/stage-anime-svg.css", CSS => const STAGE_ANIME_SVG_CSS: &str = include_str!("../../../plugin/ui/stage-anime-svg.css");
     "/stanza/stanza.css", CSS => const STANZA_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza.css");
     "/stanza/stanza-starborn.css", CSS => const STANZA_STARBORN_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza-starborn.css");

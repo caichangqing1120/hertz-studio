@@ -78,6 +78,7 @@ function createStage(canvas, opts) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0xffffff, 0.0052);
   const camera = new THREE.PerspectiveCamera(44, 1, 0.05, 900);
+  const cameraTarget = camera.clone();
   scene.add(camera);
 
   const sky = createSky();
@@ -160,6 +161,7 @@ function createStage(canvas, opts) {
     dist: 0,
     lastInput: -99,
     dragging: false,
+    control: null,
   };
   rig.yaw = rig.yaw0;
   rig.pitch = rig.pitch0;
@@ -204,8 +206,29 @@ function createStage(canvas, opts) {
   }
 
   function cameraUpdate(dt) {
+    if (rig.control) {
+      const pose = rig.control;
+      if (pose.position) cameraTarget.position.fromArray(pose.position);
+      else {
+        const cp = Math.cos(pose.pitch);
+        cameraTarget.position.set(pose.tx + Math.sin(pose.yaw) * cp * pose.dist,
+          pose.ty + Math.sin(pose.pitch) * pose.dist,
+          pose.tz + Math.cos(pose.yaw) * cp * pose.dist);
+      }
+      // Moving terrain remains owned by Coast for both orbit and free poses.
+      cameraTarget.position.y = Math.max(cameraTarget.position.y, groundAt(cameraTarget.position) + 0.3);
+      if (pose.position) cameraTarget.rotation.set(pose.pitch, pose.yaw, pose.roll, 'YXZ');
+      else cameraTarget.lookAt(pose.tx, pose.ty, pose.tz);
+      const mix = pose.external ? 1 : 1 - Math.exp(-dt / 0.26);
+      camera.position.lerp(cameraTarget.position, mix);
+      camera.position.y = Math.max(camera.position.y, groundAt(camera.position) + 0.3);
+      camera.quaternion.slerp(cameraTarget.quaternion, mix);
+      camera.fov += (pose.fov - camera.fov) * mix;
+      camera.updateProjectionMatrix();
+      return;
+    }
     focus.set(0, FOCUS_Y, S.lane);
-    // 静置 4 秒后平滑回巡航机位
+    // Native Stage3D motion is unchanged while no supplied camera owns the rig.
     if (S.t - rig.lastInput > 4) {
       rig.yaw = damp(rig.yaw, rig.yaw0, 1.2, dt);
       rig.pitch = damp(rig.pitch, rig.pitch0, 1.2, dt);
@@ -221,6 +244,7 @@ function createStage(canvas, opts) {
     lookAt.set(2.2, 0.55, S.lane * 0.4);
     camera.position.copy(camPos);
     camera.lookAt(lookAt);
+    camera.fov = 44;
     camera.updateProjectionMatrix();
   }
 
@@ -362,6 +386,7 @@ function createStage(canvas, opts) {
     composer,
     quality,
     scene,
+    camera,
     S,
     env,
     audio,
@@ -461,12 +486,43 @@ export function setTimeOfDay(v) {
 export function setInteraction(v) {
   if (!st) return;
   st.S.interactive = !!v;
+  if (!v) st.rig.dragging = false;
   st.canvas.style.touchAction = v ? 'none' : '';
 }
 
 export function resize(w, h) {
   if (!st) return;
   st.resize(w, h);
+}
+
+// Shared adapter contract: orbit {yaw,pitch,dist,fov,tx,ty,tz}, or free
+// {position:[x,y,z],yaw,pitch,roll,fov}. Angles are radians, FOV is degrees.
+// Free orientation is camera Euler YXZ (yaw=0 faces -Z; positive pitch is up).
+// external:true skips target damping; null releases to the untouched local rig.
+export function setRig(pose, opts) {
+  if (!st) return;
+  if (pose == null) {
+    st.rig.control = null;
+    st.rig.lastInput = st.S.t;
+    return;
+  }
+  if (typeof pose !== 'object') return;
+  const validPosition = Array.isArray(pose.position) && pose.position.length === 3
+    && pose.position.every(Number.isFinite);
+  if (pose.position !== undefined && !validPosition) return;
+  const previous = st.rig.control || { yaw: st.rig.yaw, pitch: st.rig.pitch,
+    dist: st.rig.dist, fov: st.camera.fov, tx: 0, ty: 0, tz: 0, roll: 0 };
+  const next = { ...previous, position: validPosition ? pose.position.slice() : null,
+    external: !!(opts && opts.external !== undefined ? opts.external : pose.external) };
+  for (const key of ['yaw', 'pitch', 'dist', 'fov', 'tx', 'ty', 'tz', 'roll']) {
+    if (Number.isFinite(pose[key])) next[key] = pose[key];
+  }
+  next.pitch = clamp(next.pitch, -Math.PI * 0.49, Math.PI * 0.49);
+  next.dist = clamp(next.dist, 2.4, 15);
+  next.fov = clamp(next.fov, 26, 72);
+  st.rig.control = next;
+  st.rig.lastInput = st.S.t;
+  st.rig.dragging = false;
 }
 
 // 供泄漏检查：GL 侧几何/纹理/程序驻留数
@@ -487,6 +543,11 @@ export function debug() {
     night: st.env.night, waveAmp: st.env.waveAmp,
     audio: { level: st.audio.level, bass: st.audio.bass },
     interactive: st.S.interactive,
+    controlled: !!st.rig.control,
+    camera: { position: st.camera.position.toArray(),
+      direction: st.camera.getWorldDirection(new THREE.Vector3()).toArray(),
+      quaternion: st.camera.quaternion.toArray(), fov: st.camera.fov,
+      projection: st.camera.projectionMatrix.toArray() },
   };
 }
 
