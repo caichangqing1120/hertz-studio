@@ -1872,7 +1872,7 @@
   }
 
   function controlTarget(e) {
-    return e.target && e.target.closest && e.target.closest('button, a, input, select, textarea, [contenteditable], [role="button"], .s3d-settings, .s3d-queue-panel, #s3d-reading, #s3d-stanza');
+    return e.target && e.target.closest && e.target.closest('button, a, input, select, textarea, [contenteditable], [role="button"], #s3d-settings, .s3d-queue-panel, #s3d-reading, #s3d-stanza');
   }
 
   function cancelGestures() {
@@ -2113,6 +2113,7 @@
     if (b) {
       b.setAttribute('aria-pressed', String(on));
       b.title = on ? '退出全屏 (F)' : '全屏 (F)';
+      b.textContent = on ? '退出全屏' : '进入全屏';
     }
   }
 
@@ -2121,7 +2122,7 @@
   // chrome 从此被永久钉住 —— 用户报告的「全屏控制按钮不隐藏」即此。
   // Tab 键盘导航仍受豁免（focus-visible 为真），chrome 不会从键盘用户脚下消失。
   function chromeKeyboardFocus() {
-    var el = root.querySelector('.s3d-head :focus, .s3d-player :focus, .s3d-dock :focus, .s3d-brand :focus, .s3d-hint :focus, .s3d-keys :focus, .s3d-queue :focus');
+    var el = root.querySelector('.s3d-head :focus, .s3d-player :focus, .s3d-dock :focus, .s3d-brand :focus, .s3d-hint :focus, .s3d-keys :focus, .s3d-queue :focus, .s3d-settings-fab:focus');
     return !!(el && el.matches && el.matches(':focus-visible'));
   }
 
@@ -2323,7 +2324,7 @@
       $('s3d-bloom').value = Math.round(bloom * 100); text('s3d-bloom-value', Math.round(bloom * 100) + '%');
       $('s3d-reactivity').value = Math.round(reactivity * 100); text('s3d-reactivity-value', Math.round(reactivity * 100) + '%');
       sweepRangeFills();
-      $('s3d-lyrics-toggle').setAttribute('aria-pressed', String(showLyrics));
+      $('s3d-lyrics-toggle').checked = showLyrics;
     } finally { restoring = false; }
   }
 
@@ -2360,12 +2361,13 @@
 
   function setSettings(on) {
     $('s3d-settings').hidden = !on;
+    $('s3d-settings').classList.toggle('sp-show', !!on);
     $('s3d-settings-toggle').setAttribute('aria-expanded', String(on));
     if (on && queueOpen) setQueuePanel(false);
     if (shelf) shelf.setBlocked(!!on || queueOpen);
     pokeChrome();
     if (on) sweepRangeFills();
-    if (on) $('s3d-motion').focus();
+    if (on) $('s3d-settings-close').focus({ preventScroll: true });
   }
 
   // 播放队列浮层：全屏里直接看队列、点行跳播，不再退出声场去队列页
@@ -2463,7 +2465,7 @@
   function toggleLyrics() {
     showLyrics = !showLyrics;
     syncLayout();
-    $('s3d-lyrics-toggle').setAttribute('aria-pressed', String(showLyrics));
+    $('s3d-lyrics-toggle').checked = showLyrics;
     if (stanzaActive() && stanza.ready) applyStanzaConfig();
     pokeChrome();
     savePreferences();
@@ -3228,6 +3230,7 @@
     root.style.setProperty('--sl-size', lyricSize);
     root.style.setProperty('--sl-glow', lyricGlow);
     $('s3d-layout').value = layout;
+    $('s3d-lyrics-toggle').checked = showLyrics;
     var visualSel = $('s3d-lyric-visual');
     if (visualSel) visualSel.value = stanza.visual;
     var themeSel = $('s3d-stage-theme');
@@ -3624,6 +3627,7 @@
     returnFocus = null;
     if (chromeTimer) clearTimeout(chromeTimer);
     $('s3d-settings').hidden = true;
+    $('s3d-settings').classList.remove('sp-show');
     $('s3d-settings-toggle').setAttribute('aria-expanded', 'false');
     queueOpen = false;
     root.classList.remove('s3d-queue-open');
@@ -3690,8 +3694,6 @@
     }
     if (k === 'Escape') {
       if (!$('s3d-settings').hidden) { setSettings(false); $('s3d-settings-toggle').focus(); e.stopImmediatePropagation(); return; }
-      var cluster = $('s3d-head-cluster');
-      if (cluster && cluster.classList.contains('is-open')) { cluster._collapse(); e.stopImmediatePropagation(); return; }
       if (queueOpen) { setQueuePanel(false); $('s3d-queue').focus(); e.stopImmediatePropagation(); return; }
       if (fsEl()) { exitFs(); e.stopImmediatePropagation(); return; }
       close();
@@ -3985,30 +3987,6 @@
     });
   }
 
-  // ----- 右上角按钮组：收拢为一颗触发按钮，悬停/聚焦飞出（CSS 驱动） -----
-  // 触屏没有 hover：首击展开、再击点具体按钮；Esc 或焦点移出即收拢。
-  function bindHeadCluster() {
-    var cluster = $('s3d-head-cluster');
-    var trigger = $('s3d-head-trigger');
-    if (!cluster || !trigger || cluster._bound) return;
-    cluster._bound = true;
-    function collapse() {
-      cluster.classList.remove('is-open');
-      trigger.setAttribute('aria-expanded', 'false');
-    }
-    trigger.addEventListener('click', function () {
-      var open = cluster.classList.toggle('is-open');
-      trigger.setAttribute('aria-expanded', String(open));
-    });
-    cluster.addEventListener('focusout', function (e) {
-      if (!cluster.contains(e.relatedTarget)) collapse();
-    });
-    cluster.addEventListener('pointerleave', function () {
-      if (cluster.classList.contains('is-open') && !cluster.contains(document.activeElement)) collapse();
-    });
-    cluster._collapse = collapse;
-  }
-
   function coastTodLabel(v) {
     if (v < 0.22) return '黄昏';
     if (v < 0.42) return '入夜';
@@ -4020,8 +3998,7 @@
   function bindUi() {
     bindLyricVisual();
     bindStageTheme();
-    bindHeadCluster();
-    $('s3d-lyrics-toggle').addEventListener('click', toggleLyrics);
+    $('s3d-lyrics-toggle').addEventListener('change', toggleLyrics);
     $('s3d-settings-toggle').addEventListener('click', function () { setSettings($('s3d-settings').hidden); });
     $('s3d-settings-close').addEventListener('click', function () { setSettings(false); $('s3d-settings-toggle').focus(); });
     var defaultsButton = $('s3d-defaults');

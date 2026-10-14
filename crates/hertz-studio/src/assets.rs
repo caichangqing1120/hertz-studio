@@ -26,6 +26,9 @@ ui_assets! {
     "/dialogs.js", JS => const DIALOGS_JS: &str = include_str!("../../../plugin/ui/dialogs.js");
     "/search-history.js", JS => const SEARCH_HISTORY_JS: &str = include_str!("../../../plugin/ui/search-history.js");
     "/app.js", JS => const APP_JS: &str = include_str!("../../../plugin/ui/app.js");
+    "/now-playing.js", JS => const NOW_PLAYING_JS: &str = include_str!("../../../plugin/ui/now-playing.js");
+    "/now-playing.css", CSS => const NOW_PLAYING_CSS: &str = include_str!("../../../plugin/ui/now-playing.css");
+    "/skins/skin.classic.css", CSS => const CLASSIC_CSS: &str = include_str!("../../../plugin/ui/skins/skin.classic.css");
     "/stage.js", JS => const STAGE_JS: &str = include_str!("../../../plugin/ui/stage.js");
     "/perf-probe.js", JS => const PERF_PROBE_JS: &str = include_str!("../../../plugin/ui/perf-probe.js");
     "/home-dashboard.js", JS => const HOME_DASHBOARD_JS: &str = include_str!("../../../plugin/ui/home-dashboard.js");
@@ -42,6 +45,7 @@ ui_assets! {
     "/pl-covers.js", JS => const PL_COVERS_JS: &str = include_str!("../../../plugin/ui/pl-covers.js");
     "/theme-studio.js", JS => const THEME_STUDIO_JS: &str = include_str!("../../../plugin/ui/theme-studio.js");
     "/skins/skins.js", JS => const SKINS_JS: &str = include_str!("../../../plugin/ui/skins/skins.js");
+    "/skins/skin.sheen.js", JS => const SHEEN_JS: &str = include_str!("../../../plugin/ui/skins/skin.sheen.js");
     "/creative-gl.js", JS => const CREATIVE_GL_JS: &str = include_str!("../../../plugin/ui/creative-gl.js");
     "/creative-anime.js", JS => const CREATIVE_ANIME_JS: &str = include_str!("../../../plugin/ui/creative-anime.js");
     "/creative-stage.js", JS => const CREATIVE_STAGE_JS: &str = include_str!("../../../plugin/ui/creative-stage.js");

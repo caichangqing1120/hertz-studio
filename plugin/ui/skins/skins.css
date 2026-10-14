@@ -12,6 +12,28 @@
   gap: 8px;
 }
 
+.rail-toggle { display: none; }
+[data-skin="classic"] .rail-toggle,
+[data-skin="ios"] .rail-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  flex: 0 0 36px;
+  width: 40px;
+  min-width: 40px;
+  height: 36px;
+  padding: 0;
+  margin-bottom: 8px;
+  border-radius: 6px;
+}
+.rail-toggle svg { width: 18px; height: 18px; fill: none; transform: rotate(90deg); }
+[data-rail-state="collapsed"] .rail-toggle { align-self: center; }
+[data-rail-state="collapsed"] .rail-toggle svg { transform: rotate(-90deg); }
+@media (max-width: 620px) {
+  [data-skin="ios"] .rail-toggle { display: none; }
+}
+
 .skin-option {
   display: grid;
   gap: 2px;

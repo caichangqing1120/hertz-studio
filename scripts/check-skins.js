@@ -165,9 +165,9 @@ function makeSandbox(cssIds, carrier) {
 // ---------------------------------------------------------------------------
 
 function checkCatalog() {
-  section('皮肤目录：五套都在，classic 是"没有皮肤"');
+  section('皮肤目录：经典默认布局与可选皮肤');
 
-  const { sandbox, root, links, listHost } = makeSandbox(['sheen', 'workbench', 'liunian', 'ios', 'qingfeng']);
+  const { sandbox, root, links, listHost } = makeSandbox(['sheen', 'workbench', 'liunian', 'ios', 'qingfeng', 'classic']);
   const ids = sandbox.Skins.catalog().map((s) => s.id);
   ok(ids.indexOf('classic') >= 0, '有 classic（仓库原本那套布局）');
   ok(ids.indexOf('sheen') >= 0, '有 sheen');
@@ -238,7 +238,8 @@ function checkCatalog() {
     '来回切之后 sheen/workbench/ios 仍保持禁用（syncCss 没有累积状态）');
 
   sandbox.Skins.apply('classic');
-  eq(links.every((l) => l.disabled), true, 'classic 不启用任何皮肤 CSS（它本身就是默认布局）');
+  eq(links[5].disabled, false, 'classic 启用默认浏览布局 CSS');
+  eq(links.every((l, i) => i === 5 || l.disabled), true, 'classic 只启用自己的布局 CSS');
 
   section('切换：广播事件让画布类模块自己重排');
   const { sandbox: s2, events } = makeSandbox(['sheen', 'workbench', 'liunian']);
@@ -841,7 +842,8 @@ function checkCoverage() {
   //     右簇每多一颗 36px 的按钮就整体左移 50px —— 实测 1280 还剩 59px 余量，
   //     1200 就压上胶囊了。所以只有浮光在 ≤1240px 摘掉这颗（皮肤列表在设置页
   //     里仍然可达）。别的皮肤没有这颗胶囊，要求它们各写一条只等于制造死代码。
-  const GEOMETRY_OPTIONAL = /^\.(dv-name|dv-sub|dv-num|dv-src|topsearch|stage-lyrics|disc-wrap|stage-title|stage-artist)$|^#skin-picker$/;
+  // The mini-panel handle belongs to sheen's floating-panel lifecycle.
+  const GEOMETRY_OPTIONAL = /^\.(dv-name|dv-sub|dv-num|dv-src|topsearch|stage-lyrics|disc-wrap|stage-title|stage-artist|sheen-player-handle)$|^#skin-picker$/;
   const isGeometry = (s) => !GEOMETRY_OPTIONAL.test(s) && !/^[^\s]*\s/.test(s);
 
   const geometryGap = (from, to, fromName, toName) => {
@@ -1449,7 +1451,7 @@ function checkChaoxiSkin() {
 
   // 8) 覆盖：切过去不能落回默认。比 sheen 的几何模块，但排除交互态选择器
   //    —— 那些是 sheen/workbench 的历史包袱，潮汐主动不写（见下一条）。
-  const OPTIONAL = /^\.(dv-name|dv-sub|dv-num|dv-src|topsearch|stage-lyrics|disc-wrap|stage-title|stage-artist)$|^#skin-picker$/;
+  const OPTIONAL = /^\.(dv-name|dv-sub|dv-num|dv-src|topsearch|stage-lyrics|disc-wrap|stage-title|stage-artist|sheen-player-handle)$|^#skin-picker$/;
   const isGeom = (s) => !OPTIONAL.test(s)
     && !/^[^\s]*\s/.test(s)
     && !/:hover|:active|:focus|:disabled|::/.test(s);

@@ -56,8 +56,9 @@ async function fixtures() {
   }
   fs.writeFileSync(path.join(folder, 'Audit 01.lrc'), '[00:00.00]开始播放\n[00:05.00]滚动与歌词同步\n[00:10.00]暂停后继续\n[00:20.00]最后一行\n');
   await api('POST', '/v1/library/scan', { root: folder });
-  return until(() => api('GET', '/v1/tracks?limit=200'), data => data.tracks?.length >= 24,
+  const data = await until(() => api('GET', '/v1/tracks?limit=200'), data => data.tracks?.filter(track => track.path.startsWith(folder)).length >= 24,
     'fixture scan did not finish');
+  return { ...data, tracks: data.tracks.filter(track => track.path.startsWith(folder)).sort((a, b) => a.title.localeCompare(b.title)) };
 }
 
 async function routeAssets(page) {
@@ -211,9 +212,12 @@ async function playback(page, tracks) {
   await page.keyboard.press('Shift+ArrowRight');
   await until(() => api('GET', '/v1/state'), value => value.track_id === queue[1], 'keyboard next');
   check(true, 'next, previous and Shift+ArrowRight use the same queue');
-  await page.locator('#stop').click();
+  await page.locator('#bar-track').click();
+  await page.locator('#np-more').click();
+  await page.locator('#np-stop').click();
   await until(() => api('GET', '/v1/state'), value => !value.playing && value.position_ms === 0, 'stop');
   check(await page.evaluate(() => navigator.mediaSession.playbackState === 'none'), 'stop clears media session playing state');
+  await page.locator('#np-close').click();
   await page.locator('#playpause').click();
   await until(() => api('GET', '/v1/state'), value => value.playing && value.position_ms < 2000, 'restart');
   check(true, 'play after stop restarts at the beginning');

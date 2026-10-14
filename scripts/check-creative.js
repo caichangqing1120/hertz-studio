@@ -1739,8 +1739,23 @@ section('性能收口：不可见画布门控（E1）');
     '「跳转到舞台播放」随入口申请原生全屏');
   // E2 真机走查发现：窄屏模态抽屉键盘用户关不掉。Esc 必须能关抽屉
   // （沉浸页打开时 stage.js 自己 stopPropagation 处理 Esc，互不干扰）。
-  ok(/e\.key === 'Escape'[\s\S]{0,180}?classList\.remove\('stage-open'\)/.test(appSrcE),
-    'Esc 可关闭窄屏舞台抽屉（可访问性收口）');
+  const escapeBranch = appSrcE.slice(appSrcE.indexOf('function bindShortcuts()'))
+    .match(/if \(e\.key === 'Escape'\) \{([\s\S]*?)\n    \}/);
+  const removed = [];
+  const escapeSandbox = {
+    e: { key: 'Escape', preventDefault() {} }, typing: false,
+    window: {}, closeMenu() {}, closeNowPlaying() {}, setView() {}, state: { view: 'library' },
+    document: { body: { classList: { remove: name => removed.push(name) } } },
+  };
+  ok(!!escapeBranch, '全局快捷键保留 Esc 分支');
+  if (escapeBranch) {
+    vm.runInNewContext('(function () {' + escapeBranch[0] + '})();', escapeSandbox);
+    ok(removed.includes('stage-open'), 'Esc 可关闭窄屏舞台抽屉（可访问性收口）');
+    removed.length = 0;
+    escapeSandbox.window.NowPlaying = escapeSandbox.NowPlaying = { back: () => true };
+    vm.runInNewContext('(function () {' + escapeBranch[0] + '})();', escapeSandbox);
+    ok(removed.length === 0, '播放页消费 Esc 时保留底层舞台状态');
+  }
 }
 
 // PlaylistCovers 的异步行为测试放到最后，跑完再统一输出结论（CommonJS

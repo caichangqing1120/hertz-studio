@@ -391,6 +391,8 @@ export function buildFigureMesh(index, cloudCount) {
   pts.forEach((p, k) => { px[k] = p.x; py[k] = p.y; });
   const edgeLines = [];
   edgeSet.forEach((pair) => edgeLines.push(pair));
+  const contourLines = rims.map(({u,v}) => [u,v]);
+  const frontDepths = art.depths.map(z => z + .006);
   // 网格顶点的亮点云（参考图里每个三角形顶点都是一个小亮核）。
   const nodes = new Float32Array(pts.length * 3);
   pts.forEach((p, k) => {
@@ -401,6 +403,8 @@ export function buildFigureMesh(index, cloudCount) {
     mesh: { pos: meshPos, tint },
     edgeCore: buildRibbon(px, py, edgeLines, EDGE_CORE_WIDTH, art.depths.map(z=>z+.006)),
     edgeHalo: buildRibbon(px, py, edgeLines, EDGE_HALO_WIDTH, art.depths.map(z=>z+.006)),
+    contourCore: buildRibbon(px, py, contourLines, .012, frontDepths),
+    contourHalo: buildRibbon(px, py, contourLines, .048, frontDepths),
     nodes,
     triangles,
     frontTriangles: tris.length,

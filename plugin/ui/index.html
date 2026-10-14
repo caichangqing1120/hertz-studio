@@ -15,6 +15,8 @@
 <link rel="icon" href="data:,">
 <title>hertz-studio</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="now-playing.css">
+<link rel="stylesheet" href="skins/skin.classic.css" data-skin-css="classic" disabled>
 <link rel="stylesheet" href="stage.css">
 <link rel="stylesheet" href="creative.css">
 <link rel="stylesheet" href="stage3d.css">
@@ -139,6 +141,15 @@
   <symbol id="i-queue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M8 6h12M8 12h12M8 18h9"/>
     <g fill="currentColor" stroke="none"><circle cx="3.5" cy="6" r="1.25"/><circle cx="3.5" cy="12" r="1.25"/><circle cx="3.5" cy="18" r="1.25"/></g>
+  </symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4m14-1v3a2 2 0 0 1-2 2H3"/>
+  </symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m18 14 4 4-4 4m0-20 4 4-4 4M2 18h2.5a6 6 0 0 0 5-2.7l5-6.6A6 6 0 0 1 19.5 6H22M2 6h2.5a6 6 0 0 1 5 2.7l5 6.6a6 6 0 0 0 5 2.7H22"/>
+  </symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m11 5-6 4H2v6h3l6 4V5m4 3a5 5 0 0 1 0 8m3-11a9 9 0 0 1 0 14"/>
   </symbol>
   <!-- 每日推荐：日历页 + 一颗星，读作「今天挑的那批」。 -->
   <symbol id="i-daily" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -400,6 +411,9 @@
 
   <!-- 导航轨：四个一级目的地，选中态常驻，不再依赖记忆 -->
   <nav class="rail" id="rail" aria-label="主导航">
+    <button type="button" class="iconbtn rail-toggle" id="rail-toggle" aria-label="收缩侧边栏" title="收缩侧边栏" aria-controls="rail" aria-expanded="true" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+    </button>
     <button class="rail-item active" data-view="library" aria-label="曲库">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-library"/></svg>
       <span>曲库</span>
@@ -1552,7 +1566,8 @@
   <!-- 正在播放区：点开底部播放控制弹窗（旧 stage-btn 移除后的接替入口）。 -->
   <div class="bar-summary" id="bar-summary">
     <div class="bar-track" id="bar-track" role="button" tabindex="0" title="正在播放"
-       aria-label="打开播放控制弹窗">
+       aria-label="展开播放页">
+      <span id="bar-art" class="bar-art" aria-hidden="true"></span>
       <div id="bar-title" class="bar-title"></div>
       <div id="bar-sub" class="bar-sub"></div>
     </div>
@@ -1587,6 +1602,8 @@
   </div>
 
   <div class="bar-right">
+    <button id="bar-queue" class="ctrl" type="button" title="播放队列" aria-label="播放队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-queue"/></svg></button>
+    <button id="bar-player-expand" class="ctrl" type="button" title="展开播放页" aria-label="展开播放页"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg></button>
     <button id="sleep-timer" class="btn-pill st-pill" title="睡眠定时器" aria-label="睡眠定时器" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-timer"/></svg>
       <span id="sleep-timer-label" class="st-label" hidden></span>
@@ -1639,25 +1656,6 @@
   <div class="s3d-vignette" aria-hidden="true"></div>
   <div class="s3d-brand"><span class="s3d-brand-mark" aria-hidden="true">h<span>z</span></span><div>hertz studio<small>沉 浸 声 场</small></div></div>
   <div class="s3d-head">
-    <!-- 功能牌收拢进触发按钮：悬停/聚焦飞出（触屏首击展开），关闭键独立常驻。
-         两颗「打开面板」的钮走药丸并带名字（控制=展开这一行，设置=舞台设置面板），
-         开关与动作仍是圆牌 —— 同一排里两种几何各管一件事，图标也就不再撞车。
-         海岸公路 / 星座这类舞台效果不在这排上：它们是「换一整个舞台」而不是
-         拧一个旋钮，入口在设置面板的「舞台来源」与舞台控制舱的分段里。 -->
-    <div class="s3d-head-cluster" id="s3d-head-cluster">
-      <button class="s3d-btn s3d-btn-pill s3d-head-trigger" id="s3d-head-trigger" title="舞台控制" aria-label="舞台控制" aria-expanded="false" aria-controls="s3d-head-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg><span class="s3d-btn-label">控制</span></button>
-      <div class="s3d-head-menu" id="s3d-head-menu">
-        <button class="s3d-btn" id="s3d-lyrics-toggle" title="显示歌词 (L)" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M7 18h10"/></svg></button>
-        <button class="s3d-btn s3d-btn-pill" id="s3d-settings-toggle" title="舞台设置" aria-label="舞台设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg><span class="s3d-btn-label">设置</span></button>
-        <button class="s3d-btn" id="s3d-reset" title="复位视角 (K / 双击)" aria-label="复位视角">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-undo"/></svg>
-        </button>
-        <button class="s3d-btn" id="s3d-fs" title="全屏 (F)" aria-label="全屏" aria-pressed="false">
-          <svg class="ic-expand" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
-          <svg class="ic-compress" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-compress"/></svg>
-        </button>
-      </div>
-    </div>
     <button class="s3d-btn s3d-btn-x" id="s3d-close" title="关闭 (Esc)" aria-label="关闭三维舞台">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
     </button>
@@ -1690,11 +1688,13 @@
   </div>
   <!-- 3D 歌单架（封面流）：卡片由 stage-shelf.js 按队列生成，这里只留锚点 -->
   <div class="s3d-shelf" id="s3d-shelf" aria-hidden="true"><div class="s3d-shelf-plane" id="s3d-shelf-plane"></div></div>
-  <aside class="s3d-settings" id="s3d-settings" aria-label="舞台设置" hidden>
-    <div class="s3d-settings-heading"><span>舞台设置</span><button class="s3d-btn" id="s3d-settings-close" aria-label="收起舞台设置"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <button class="sp-fab s3d-settings-fab" id="s3d-settings-toggle" type="button" title="沉浸声场设置" aria-label="沉浸声场设置" aria-expanded="false" aria-controls="s3d-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg></button>
+  <aside class="sp-sheet" id="s3d-settings" aria-label="沉浸声场设置" hidden>
+    <h2>沉浸声场设置<button class="sp-head-btn" id="s3d-settings-close" type="button" title="收起设置" aria-label="收起设置"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></h2>
     <p class="s3d-settings-status" id="s3d-settings-status" role="status" aria-live="polite"></p>
-    <button class="btn s3d-workshop" id="s3d-defaults" type="button" aria-describedby="s3d-defaults-note">恢复舞台默认</button>
-    <p class="s3d-setting-note" id="s3d-defaults-note" role="status" aria-live="polite">恢复画面与镜头，保留已存工坊作品。</p>
+    <label class="sp-check" for="s3d-lyrics-toggle"><input id="s3d-lyrics-toggle" type="checkbox" checked> 显示歌词</label>
+    <button class="sp-btn-line" id="s3d-reset" type="button" title="复位视角" aria-label="复位视角">复位视角</button>
+    <button class="sp-btn-line" id="s3d-fs" type="button" title="全屏" aria-label="全屏" aria-pressed="false">进入全屏</button>
     <label for="s3d-layout">聆听布局</label>
     <select id="s3d-layout"><option value="focus">沉浸歌词</option><option value="sleeve">封面与歌词</option><option value="single">简洁单句</option></select>
     <label for="s3d-lyric-visual">歌词视觉</label>
@@ -1727,11 +1727,11 @@
       <select id="s3d-anime-scene"></select>
       <label for="s3d-anime-mirror"><input id="s3d-anime-mirror" type="checkbox"> 镜像对称（左右两侧一致）</label>
     </div>
-    <label for="s3d-stage-theme">设置风格</label>
+    <label for="s3d-stage-theme">舞台风格</label>
     <select id="s3d-stage-theme"><option value="starfall">星落</option><option value="ios">iOS</option></select>
     <label for="s3d-shelf-mode">3D 歌单架</label>
     <select id="s3d-shelf-mode"><option value="stage">舞台封面流</option><option value="side">右侧歌单架</option><option value="off">关闭</option></select>
-    <button class="btn s3d-workshop" id="s3d-workshop">进入创意工坊</button>
+    <button class="sp-btn-line" id="s3d-workshop">进入创意工坊</button>
     <label for="s3d-reactivity">律动强度 <output id="s3d-reactivity-value">135%</output></label>
     <input id="s3d-reactivity" type="range" min="0" max="200" value="135">
     <label for="s3d-motion">镜头动态 <output id="s3d-motion-value">65%</output></label>
@@ -1798,8 +1798,9 @@
       <label for="s3d-fl-halation-t">胶片溢光 <output id="s3d-fl-halation-t-value">0.50x</output></label>
       <input id="s3d-fl-halation-t" type="range" min="0" max="1" step="0.05" value="0.5">
     </div>
-    <p>拖动探索视角，滚轮拉近。<br>双击或按 K 回到舞台中心。</p>
-    <span id="s3d-motion-note">设置即时生效</span>
+    <button class="sp-btn-line" id="s3d-defaults" type="button" aria-describedby="s3d-defaults-note">恢复舞台默认</button>
+    <p class="sp-note" id="s3d-defaults-note" role="status" aria-live="polite">恢复画面与镜头，保留已存工坊作品。</p>
+    <span class="sp-note" id="s3d-motion-note">设置即时生效</span>
   </aside>
   <aside class="s3d-queue" id="s3d-queue-panel" aria-label="播放队列" hidden>
     <div class="s3d-queue-head"><span>播放队列<b id="s3d-queue-count">0</b></span><button class="s3d-btn" id="s3d-queue-close" aria-label="收起播放队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></div>
@@ -1961,35 +1962,61 @@
 </div>
 
 <div id="np-scrim" class="np-scrim" hidden></div>
-<div id="np-modal" class="np-modal" role="dialog" aria-modal="true" aria-label="播放控制" hidden>
+<div id="np-modal" class="np-modal" role="dialog" aria-modal="true" aria-label="正在播放" hidden>
   <div class="np-card">
     <header class="np-head">
       <div class="np-head-text">
         <div class="np-title">正在播放</div>
-        <div class="np-subtitle">播放控制</div>
+        <div class="np-subtitle" id="np-context">音乐</div>
       </div>
-      <button type="button" id="np-close" class="np-close" aria-label="关闭播放控制">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+      <div class="np-tabs" role="group" aria-label="播放页视图">
+        <button type="button" id="np-tab-cover" aria-pressed="true">封面</button>
+        <button type="button" id="np-tab-lyrics" aria-pressed="false">歌词</button>
+      </div>
+      <div class="np-head-actions">
+      <button type="button" id="np-fullscreen" class="np-ctrl" title="全屏播放页" aria-label="全屏播放页" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg>
+      </button>
+      <button type="button" id="np-more" class="np-ctrl" title="更多操作" aria-label="更多操作" aria-expanded="false" aria-controls="np-tools">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg>
+      </button>
+      </div>
+      <button type="button" id="np-close" class="np-close" title="收起播放页" aria-label="收起播放页">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-down"/></svg>
       </button>
     </header>
 
-    <div class="np-now">
-      <div class="np-art" id="np-art"><span class="np-art-note">♪</span></div>
+    <div class="np-body">
+    <div class="np-now" id="np-cover-pane">
+      <div class="np-art" id="np-art"><svg class="np-art-note" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-disc"/></svg></div>
       <div class="np-meta">
         <div class="np-name" id="np-name">未在播放</div>
         <div class="np-artist" id="np-artist">从曲库中挑选一首</div>
         <!-- 曲源接力后的出处说明：用户点的是那一家、现在由这一家供音。没换过家
              就整行不出现（不占位、不吓人）。 -->
         <div class="np-origin" id="np-origin" hidden></div>
+        <button type="button" id="np-favorite" class="np-ctrl" title="收藏歌曲" aria-label="收藏歌曲" aria-pressed="false" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart-outline"/></svg></button>
       </div>
     </div>
+    <section class="np-reading" id="np-reading" aria-label="歌词">
+      <div id="np-lyric-scroll" tabindex="0" aria-label="歌词"><div id="np-lyric-lines"></div></div>
+      <div id="np-empty" class="np-empty" role="status">播放一首音乐</div>
+      <button type="button" id="np-follow" class="btn" hidden>回到当前句</button>
+    </section>
+    <section id="np-queue-pane" class="np-queue-pane" aria-label="播放队列" hidden>
+      <header><h2>播放队列 <span id="np-queue-count"></span></h2><button type="button" id="np-queue-close" class="np-ctrl" title="收起队列" aria-label="收起队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></header>
+      <div id="np-queue-list"></div>
+    </section>
+    </div>
+    <footer class="np-footer">
 
     <div class="np-progress">
       <input id="np-progress-bar" type="range" min="0" max="1000" value="0" step="1" aria-label="播放进度">
-      <div class="np-times"><span id="np-time">0:00 / 0:00</span></div>
+      <div class="np-times"><span id="np-elapsed">0:00</span><span id="np-time" hidden>0:00 / 0:00</span><span id="np-duration">0:00</span></div>
     </div>
 
     <div class="np-transport">
+      <button type="button" id="np-mode" class="np-ctrl" title="列表循环" aria-label="列表循环"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-repeat"/></svg></button>
       <button type="button" id="np-prev" class="np-ctrl" title="上一首" aria-label="上一首">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-prev"/></svg>
       </button>
@@ -2000,15 +2027,24 @@
       <button type="button" id="np-next" class="np-ctrl" title="下一首" aria-label="下一首">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-next"/></svg>
       </button>
-      <button type="button" id="np-stop" class="np-ctrl" title="停止" aria-label="停止">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-stop"/></svg>
+      <button type="button" id="np-queue" class="np-ctrl" title="播放队列" aria-label="播放队列" aria-expanded="false" aria-controls="np-queue-pane">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-queue"/></svg>
       </button>
     </div>
 
     <div class="np-volume">
-      <span class="np-volume-label">音量</span>
+      <button type="button" id="np-mute" class="np-ctrl" title="静音" aria-label="静音"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-volume"/></svg></button>
       <input id="np-volume" type="range" min="0" max="100" value="80" aria-label="音量">
     </div>
+    </footer>
+    <section id="np-tools" class="np-tools" aria-label="播放工具" hidden>
+      <header><h2>播放工具</h2><button type="button" id="np-tools-close" class="np-ctrl" title="关闭工具" aria-label="关闭工具"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></header>
+      <div class="np-tool-actions">
+        <button type="button" id="np-eq" class="btn">均衡器</button>
+        <button type="button" id="np-sleep" class="btn">睡眠定时</button>
+        <button type="button" id="np-stop" class="btn">停止播放</button>
+      </div>
+      <div id="np-eq-pane" hidden></div>
 
     <!-- 歌词：本地曲目显示来源（导入 > 内嵌 > sidecar）、导入/清除与每曲偏移；
          在线曲目的歌词来自平台逐字接口，只显示来源、不出编辑控件。 -->
@@ -2032,6 +2068,7 @@
         <span>跳转到舞台播放页面</span>
       </button>
     </div>
+    </section>
   </div>
 </div>
 
@@ -2042,6 +2079,7 @@
 <!-- 皮肤公共段（锚点搬运 / 自建节点登记 / 封面位图回填）：必须在两张重编排
      皮肤（流年 / 清风）之前加载。 -->
 <script defer src="skins/skin-shared.js"></script>
+<script defer src="skins/skin.sheen.js"></script>
 <!-- 共享设置浮层（清风同款）：classic / sheen / workbench / ios 的生命周期
      由它代管，chaoxi 在自己的生命周期里调用；依赖 skins.js 与 skin-shared.js。 -->
 <script defer src="skins/skin-settings-sheet.js"></script>
@@ -2193,6 +2231,7 @@
 <script defer src="stanza/stanza-songform.js"></script>
 <script defer src="stanza/stanza-starborn.js"></script>
 <script defer src="stage-lyrics.js"></script>
+<script defer src="now-playing.js"></script>
 <!-- 3D 歌单架（封面流）：只依赖 Stage 只读出口，必须排在 stage3d.js 之前 -->
 <script defer src="stage-shelf.js"></script>
 <script defer src="stage-settings.js"></script>

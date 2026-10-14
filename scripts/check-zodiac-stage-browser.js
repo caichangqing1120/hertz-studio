@@ -211,7 +211,6 @@ async function main() {
 
     // ---- 设置面板：星座专属项可见、开关写回、下拉同步 ----
     await wakeChrome();
-    await page.hover('#s3d-head-trigger');
     await page.click('#s3d-settings-toggle');
     await page.waitForFunction(() => !document.getElementById('s3d-settings').hidden);
     assert.equal(await page.evaluate(() => document.getElementById('s3d-zodiac-tuning').hidden), false,
@@ -259,7 +258,6 @@ async function main() {
 
     // ---- 回到沉浸声场：画布卸载、GL 资源释放 ----
     await wakeChrome();
-    await page.hover('#s3d-head-trigger');
     await page.click('#s3d-settings-toggle');
     await page.waitForFunction(() => !document.getElementById('s3d-settings').hidden);
     await page.selectOption('#s3d-scene-source', 'immersive');

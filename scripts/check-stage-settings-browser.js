@@ -66,13 +66,9 @@ async function main() {
       Stage3D.open('aurora');
     });
     await page.waitForFunction(() => document.querySelector('.fl-tempera-canvas'));
-    // chrome 静止 CHROME_HIDE_MS 后自动打烊（.s3d-head 变 pointer-events:none），
-    // 无头下没有指针活动，点击前必须像真实用户那样先动一下鼠标唤醒 chrome。
-    // 功能牌又收在右上角那颗触发按钮飞出的菜单里（舞台控制舱）：不先展开就点不到，
-    // 而 Playwright 只会重试并报「canvas … intercepts pointer events」51 次后超时。
+    // Wake the floating settings entry after idle chrome hides.
     const openSettingsKey = async () => {
       await page.mouse.move(720, 500);
-      await page.hover('#s3d-head-trigger');
       await page.waitForFunction(() => Number(
         getComputedStyle(document.getElementById('s3d-settings-toggle')).opacity) === 1);
     };
@@ -92,12 +88,12 @@ async function main() {
       await page.waitForTimeout(150);
       const head = await page.evaluate(() => {
         const panel = document.getElementById('s3d-settings');
-        const bar = panel.querySelector('.s3d-settings-heading');
+        const bar = panel.querySelector('h2');
         const rect = bar.getBoundingClientRect();
         const bg = getComputedStyle(bar).backgroundColor;
         let under = 0;
         panel.querySelectorAll('label, select, input, p, button').forEach((n) => {
-          if (n.closest('.s3d-settings-heading')) return;
+          if (n.closest('h2')) return;
           const b = n.getBoundingClientRect();
           if (b.height > 2 && b.bottom > rect.top + 2 && b.top < rect.bottom - 2) under += 1;
         });

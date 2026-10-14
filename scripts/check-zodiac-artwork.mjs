@@ -44,6 +44,21 @@ for (let i = 0; i < FIGURES.length; i++) {
   }
   assert.ok(Math.abs(measured / expected - 1) < 1e-5, fig.id + ': mesh must cover entire silhouette');
   assert.equal(mesh.nodes.length, FIGURE_MESH_POINTS * 3);
+  assert.ok(mesh.contourCore?.length > 0 && mesh.contourCore.length < mesh.edgeCore.length,
+    fig.id + ': starlight uses boundary ribbons rather than the dense internal grid');
+  assert.equal(mesh.contourCore.length, mesh.contourHalo.length);
+  const authoredBoundaries = fig.regions.flatMap(r => [r.outline, ...r.holes]);
+  for (let k = 0; k < mesh.contourCore.length; k += 18) {
+    const ribbon = mesh.contourCore;
+    const middle = raw((ribbon[k]+ribbon[k+3]+ribbon[k+6]+ribbon[k+15])/4,
+      (ribbon[k+1]+ribbon[k+4]+ribbon[k+7]+ribbon[k+16])/4);
+    const distance = Math.min(...authoredBoundaries.flatMap(ring => ring.map((a,j) => {
+      const b = ring[(j+1)%ring.length], dx = b[0]-a[0], dy = b[1]-a[1];
+      const t = Math.max(0,Math.min(1,((middle[0]-a[0])*dx+(middle[1]-a[1])*dy)/(dx*dx+dy*dy)));
+      return Math.hypot(middle[0]-a[0]-t*dx,middle[1]-a[1]-t*dy);
+    })));
+    assert.ok(distance < 1e-4, fig.id + ': contour ribbon bridges a gap or crosses the body');
+  }
   for (const points of [buildShape(i, 2600).pos, mesh.cloud]) {
     for (let k = 0; k < points.length; k += 3) {
       assert.ok(contains(raw(points[k], points[k + 1])), fig.id + ': particle escaped silhouette');

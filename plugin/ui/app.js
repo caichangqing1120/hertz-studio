@@ -1982,6 +1982,7 @@ async function loadNowPlaying(id) {
   if (!isCurrent()) return;
   // 封面（含旋转）与取色背景交给舞台，app.js 不再直接碰 #cover。
   if (Stage) Stage.setTrack(track, url);
+  if ($('bar-art')) applyCoverBg($('bar-art'), url);
   // 播放控制弹窗同步曲目信息与封面
   syncNpTrack(track, url);
   // 胶囊（最小化态）同步同一份信息与封面
@@ -2294,13 +2295,24 @@ function applyNavVisibility() {
   document.dispatchEvent(new CustomEvent('nav:changed'));
 }
 
+let lyricRefreshEpoch = 0;
 async function refreshLyrics(id, track) {
-  // 拉不到就是「这首没有歌词」：按无歌词处理，不弹提示（切歌时高频发生）。
-  const doc = await (track.source && track.onlineId
-    ? window.Online.loadLyricDoc(track)
-    : transport.get(`/v1/tracks/${id}/lyrics`).catch(() => null));
+  if (!state.current || state.current.id !== id || !track || track.id !== id) return null;
+  const epoch = ++lyricRefreshEpoch;
+  if (window.NowPlaying) NowPlaying.lyricState('loading');
+  let doc;
+  try {
+    doc = await (track.source && track.onlineId
+      ? window.Online.loadLyricDoc(track)
+      : transport.get(`/v1/tracks/${id}/lyrics`));
+  } catch (error) {
+    if (epoch === lyricRefreshEpoch && state.current && state.current.id === id && window.NowPlaying) NowPlaying.lyricState('error');
+    return null;
+  }
   const staged = stageDoc(doc);
+  if (epoch !== lyricRefreshEpoch || !state.current || state.current.id !== id) return doc;
   if (Stage) Stage.setLyrics(staged && staged.lines && staged.lines.length ? staged : null);
+  if (window.NowPlaying) NowPlaying.lyricState(doc ? 'ready' : 'empty');
   syncNpLyrics(id, doc);
   return doc;
 }
@@ -5127,6 +5139,7 @@ function renderPlaybackProgress(snap, preview) {
   });
   if (state.seeking && preview == null) return;
   const label = `${fmt(position)} / ${fmt(duration)}`;
+  if (window.NowPlaying) NowPlaying.preview(position, duration);
   if (label !== progressLabelCache) {
     progressLabelCache = label;
     ui.barTime.textContent = label;
@@ -5659,7 +5672,10 @@ function bindShortcuts() {
       else focusSearch(true);
       return;
     }
-    if (e.key === 'Escape') { closeMenu(); closeNowPlaying(); if (typing) document.activeElement.blur(); setView(state.view); document.body.classList.remove('stage-open'); document.body.classList.remove('sheen-search'); return; }
+    if (e.key === 'Escape') {
+      if (window.NowPlaying && NowPlaying.back()) { e.preventDefault(); return; }
+      closeMenu(); closeNowPlaying(); if (typing) document.activeElement.blur(); setView(state.view); document.body.classList.remove('stage-open'); document.body.classList.remove('sheen-search'); return;
+    }
     if (e.key === '/' && !typing) { e.preventDefault(); focusSearch(false); return; }
     if (typing || e.ctrlKey || e.metaKey || e.altKey || target.closest('button, a, [role="button"], [role="slider"]')) return;
 
@@ -5690,7 +5706,9 @@ function bindShortcuts() {
 // ---------------------------------------------------------------------------
 function initSkinBridge() {
   window.Skins.connectHost((d) => {
-    if (d.action === 'settings-enter') {
+    if (d.action === 'open-player') {
+      openNowPlaying();
+    } else if (d.action === 'settings-enter') {
       loadDiagnostics();
       const refreshers = { cache: window.__loadCacheStats, dsp: window.__loadDspSettings, remote: window.__loadRemoteRoots };
       (Array.isArray(d.sections) ? d.sections : []).forEach(section => {
@@ -6428,6 +6446,7 @@ function isNpOpen() {
 function openNowPlaying() {
   np.scrim.hidden = false;
   np.modal.hidden = false;
+  if (window.NowPlaying) NowPlaying.open();
   // 弹窗内音量与底部播放栏保持一致
   np.volume.value = ui.volume.value;
   syncNpSnapshot(state.snapshot);
@@ -6439,7 +6458,8 @@ function openNowPlaying() {
   }
 }
 
-function closeNowPlaying() {
+function closeNowPlaying(options) {
+  if (window.NowPlaying) NowPlaying.close(options);
   np.scrim.hidden = true;
   np.modal.hidden = true;
 }
@@ -6450,6 +6470,7 @@ function syncNpSnapshot(snap) {
   np.play.classList.toggle('is-playing', snap.playing);
   np.play.setAttribute('aria-label', snap.playing ? '暂停' : '播放');
   renderPlaybackProgress(snap);
+  if (window.NowPlaying) NowPlaying.update();
 }
 
 // ---------------------------------------------------------------------------
@@ -6679,21 +6700,34 @@ function syncNpTrack(track, coverUrl) {
   }
   // 调用方有的传已解析的 data URL（换曲主流程），有的传在线元数据里的远程原址
   // （详情补拉回填），所以解析收在这里：插件形态远程地址先占位、代理落地后回填。
-  const apply = (u) => { np.art.style.backgroundImage = u ? `url("${u}")` : 'none'; };
-  const resolved = remoteCover(coverUrl);
-  if (resolved === null) {
-    apply(null);
-    remoteCoverSlot(coverUrl, apply);
-  } else {
-    apply(resolved);
-  }
+  const apply = (u) => {
+    if (!state.current || state.current.id !== track.id) return;
+    np.art.style.backgroundImage = u ? `url("${u}")` : 'none';
+    np.art.classList.toggle('has-cover', !!u);
+    const art = $('bar-art'); if (art) art.style.backgroundImage = np.art.style.backgroundImage;
+  };
+  np.name.title = track.title || '';
+  np.artist.title = np.artist.textContent;
+  assignCover(np.art, coverUrl, apply);
 }
 
 function initNowPlayingModal() {
   if (!np.modal) return;
+  if (window.NowPlaying) NowPlaying.init({
+    seek: seekTo, seeking: () => state.seeking, close: closeNowPlaying,
+    queue: queueSnapshot, playIndex: playQueueIndex,
+    favorite: () => ui.barFavorite.click(),
+    favoriteState: () => ({ disabled: ui.barFavorite.disabled, on: ui.barFavorite.getAttribute('aria-pressed') === 'true' }),
+    mode: () => ui.mode.click(),
+    modeState: () => ({ label: ui.mode.textContent, icon: state.snapshot.mode === 'shuffle' ? '#i-shuffle' : '#i-repeat' }),
+    mute: () => toggleMute(), sleep: openSleepTimerMenu, notice: toast,
+    closeTop: () => { if (!ui.menu.hidden) { closeMenu(); return true; } return false; },
+  });
 
   np.close.onclick = closeNowPlaying;
   np.scrim.onclick = closeNowPlaying;
+  $('bar-player-expand').onclick = openNowPlaying;
+  $('bar-queue').onclick = () => { openNowPlaying(); $('np-queue').click(); };
 
   // 点击/回车「正在播放」区打开弹窗；Enter 与 Space 都要能用（role=button）。
   if (ui.stageBtn) {

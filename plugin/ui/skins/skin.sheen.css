@@ -677,3 +677,10 @@
     padding: 16px;
   }
 }
+
+/* Optional mini panel leaves the browsing grid unobstructed by default. */
+[data-skin="sheen"] body:not(.sheen-mini-open) .stage { display: none; }
+[data-skin="sheen"] body.sheen-mini-open .stage { display: flex; transform: none; opacity: 1; visibility: visible; pointer-events: auto; }
+[data-skin="sheen"] .sheen-player-handle { position: fixed; right: 24px; bottom: var(--skin-stage-foot); z-index: 59; width: 44px; height: 44px; background: var(--panel-solid); box-shadow: var(--skin-shadow); }
+[data-skin="sheen"] body:not(.sheen-mini-open) .app { padding-right: var(--skin-pad); }
+@media (min-width: 1241px) { [data-skin="sheen"] body.sheen-mini-open .app { padding-right: calc(min(420px, 32vw) + var(--skin-gap) + var(--skin-pad)); } }

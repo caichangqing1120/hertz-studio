@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 「星座」世界：近黑星空、呼吸星光、轨迹粒子、立体网格与星座骨架。
+// 「星座」世界：近黑星空、流动星尘、轮廓边光与星座骨架。
 //
-// 背景和辉光按 renderOrder 绘制；实体面片使用深度测试和写入：
+// 背景、星尘和辉光按 renderOrder 绘制；微弱底面不写入深度：
 //   -1000 天空穹顶      纵向三段渐变 + 顶点级 FBM 星云 + 屏幕暗角
 //    -900 星场           细密星点（加法混合）
 //    -890 星云斑块       大尺度柔斑
 //    -880 星光点缀       四芒星闪烁（大颗亮星）
 //    -100 形象图柔光     造型表面点云，大点径低透明 → 半透明的「体量」
-//     -90 形象图网格     有前后表面及侧壁的低多边形体积，受光照影响
-//     -82 网格边宽晕     低多边形辉光
-//     -80 网格边细芯     矢量清晰的实线
-//     -78 网格顶点       三角形顶点上的亮点
+//     -90 形象图底面     微弱受光体积，主体由星尘呈现
+//     -82 轮廓边宽晕     外轮廓和孔洞的柔光
+//     -80 轮廓边细芯     沿轮廓的细线
+//     -78 表面点缀       极低亮度的表面星点
 //     -10 主粒子池       汇聚/停留/散开
 //      10 星座连线晕     宽丝带柔光
 //      11 星座连线芯     细丝带，矢量清晰
@@ -38,6 +38,22 @@ const FIELD_COUNTS = { low: 3000, medium: 5200, high: 8200 };
 const SPARKLE_COUNTS = { low: 70, medium: 112, high: 160 };
 const NEBULA = 36;
 const DISC_SLOTS = 18;   // 单座骨架最多 18 个星点（当前最大 15，留余量）
+
+// 主体与辉光分别定色；次序与 ZODIAC 一致。
+const SIGN_COLORS = [
+  ['#d96b66', '#ffbaa2'], // 白羊：珊瑚红
+  ['#73b890', '#b9f1c4'], // 金牛：翡翠绿
+  ['#ddb36d', '#ffedb2'], // 双子：香槟金
+  ['#a7bfd0', '#e8efff'], // 巨蟹：月光银
+  ['#e6ab51', '#ffe49b'], // 狮子：琥珀金
+  ['#a0bb76', '#e1edac'], // 处女：浅草绿
+  ['#c794b9', '#f6d0e7'], // 天秤：玫瑰粉
+  ['#b76d94', '#f5aecb'], // 天蝎：红紫
+  ['#9889d2', '#d7c8ff'], // 射手：星云紫
+  ['#66b3a6', '#b0e9d3'], // 摩羯：青玉
+  ['#5da5cf', '#b3e5fa'], // 水瓶：冰蓝
+  ['#8c87bf', '#d6ccfa'], // 双鱼：淡紫
+];
 
 // —— 天空穹顶 ——
 // 星云噪声在顶点上算（球面 64×40，两千多个顶点），片元只做插值与混合：
@@ -183,10 +199,11 @@ const SHAPE_VERT = [
   '  float arc = 0.0;',
   '  if(uState == 1) {',
   '    p = aShape;',
-  '    vec3 n = normalize(aShape+vec3(0.0001));',
-  '    p += n*sin(uTime*1.4+aPhase)*0.028*uMotion;',
+  '    p += vec3(sin(uTime*0.72+aPhase),cos(uTime*0.49+aPhase*1.7),',
+  '              sin(uTime*0.55+aPhase*0.6))*0.028*uMotion;',
   '    ahead = p;',
-  '    vAlpha = 0.42;',
+  '    float shimmer = sin(aShape.x*0.8+aShape.y*0.45-uTime*1.15+aPhase*0.1);',
+  '    vAlpha = 0.72+shimmer*0.16*uMotion;',
   '  } else {',
   '    p = flight(k); ahead = flight(min(1.0,k+0.012));',
   '    arc = sin(k*3.14159265);',
@@ -200,7 +217,7 @@ const SHAPE_VERT = [
   '  vStretch = uState == 1 ? 1.0 : 1.0+(2.0+arc*5.0)*uMotion;',
   '  float tw = 1.0+uTwinkle*sin(uTime*1.9+aPhase)*0.35;',
   '  float boost = 1.0+(uBoost-1.0)*(0.55+aShine*0.45);',
-  '  float size = uState == 1 ? 0.16+aShine*0.24 : (0.35+aShine*0.65)*(1.0+arc*1.8*uMotion);',
+  '  float size = uState == 1 ? 0.34+aShine*0.95 : (0.35+aShine*0.65)*(1.0+arc*1.8*uMotion);',
   '  gl_PointSize = clamp(size*tw*boost*(46.0/max(1.0,-mv.z))*uPixelRatio,0.6,34.0);',
   '  vShine = aShine; vCore = clamp(aShine,0.0,1.0);',
   '  gl_Position = clip;',
@@ -210,6 +227,9 @@ const SHAPE_VERT = [
 const SHAPE_FRAG = [
   'precision mediump float;',
   'uniform vec3 uAccent;',
+  'uniform vec3 uBody;',
+  'uniform vec3 uRim;',
+  'uniform float uAccentMix;',
   'varying float vAlpha;',
   'varying float vShine;',
   'varying float vCore;',
@@ -221,12 +241,12 @@ const SHAPE_FRAG = [
   '  float along = dot(q,dir);',
   '  float across = dot(q,vec2(-dir.y,dir.x));',
   '  float d = length(vec2(along,across*vStretch));',
-  '  float halo = smoothstep(0.5,0.10,d);',
-  '  float core = smoothstep(0.14,0.0,d);',
+  '  float halo = exp(-d*d*22.0)*0.22;',
+  '  float core = exp(-d*d*240.0);',
   '  float tail = mix(1.0,smoothstep(-0.5,0.15,along),clamp(vStretch-1.0,0.0,1.0));',
-  '  float a = halo*halo*vAlpha*(0.38+tail*0.30);',
-  '  vec3 base = mix(vec3(0.31,0.74,1.0),vec3(0.92,0.97,1.0),vCore);',
-  '  vec3 col = mix(base,uAccent,clamp((vShine-0.9)*1.2,0.0,0.3));',
+  '  float a = min(1.0,halo+core)*vAlpha*(0.45+tail*0.25);',
+  '  vec3 base = mix(uBody,uRim,vCore);',
+  '  vec3 col = mix(base,uAccent,clamp((vShine-0.9)*1.2,0.0,uAccentMix));',
   '  col += core*vCore*0.3;',
   '  gl_FragColor = vec4(col,a);',
   '}',
@@ -243,13 +263,14 @@ const FIELD_VERT = [
   'uniform float uSizeScale;',
   'uniform float uAlpha;',
   'uniform float uTwinkle;',
+  'uniform vec3 uTint;',
   'varying vec3 vColor;',
   'varying float vAlpha;',
   'void main() {',
-  '  vColor = aColor;',
+  '  vColor = aColor*uTint;',
   '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
   '  float breath = sin(uTime*(0.34+0.12*sin(aPhase))+aPhase);',
-  '  float tw = 1.0-uTwinkle*0.32+uTwinkle*0.30*breath;',
+  '  float tw = 1.0-uTwinkle*0.24+uTwinkle*0.34*breath;',
   '  gl_PointSize = clamp(aSize * uSizeScale * tw * (1.0 / max(1.0, -mv.z)) * uPixelRatio, 1.0, 512.0);',
   '  vAlpha = aAlpha * tw * uAlpha;',
   '  gl_Position = projectionMatrix * mv;',
@@ -283,9 +304,11 @@ const GLINT_VERT = [
   'varying float vBright;',
   'void main() {',
   '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
-  '  float tw = 1.0+uTwinkle*0.20*sin(uTime*(0.42+0.09*sin(aPhase))+aPhase);',
+  '  float breath = sin(uTime*(0.42+0.09*sin(aPhase))+aPhase);',
+  '  float flare = pow(max(0.0,breath),8.0);',
+  '  float tw = 1.0+uTwinkle*(0.20*breath+0.10*flare);',
   '  gl_PointSize = clamp(aSize * uSizeScale * tw * (1.0 / max(1.0, -mv.z)) * uPixelRatio, 1.0, 320.0);',
-  '  vBright = aBright*uBrightness*(1.0+uTwinkle*0.27*sin(uTime*0.44+aPhase));',
+  '  vBright = aBright*uBrightness*(1.0+uTwinkle*(0.27*sin(uTime*0.44+aPhase)+0.16*flare));',
   '  gl_Position = projectionMatrix * mv;',
   '}',
 ].join('\n');
@@ -324,6 +347,9 @@ function makeShapeMaterial(THREE) {
       uVariant: { value: 0 },
       uK: { value: 0 },
       uAccent: { value: new THREE.Color('#b9d3ff') },
+      uBody: { value: new THREE.Color(1, 1, 1) },
+      uRim: { value: new THREE.Color(1, 1, 1) },
+      uAccentMix: { value: 0 },
     },
     vertexShader: SHAPE_VERT,
     fragmentShader: SHAPE_FRAG,
@@ -342,6 +368,7 @@ function makeFieldMaterial(THREE) {
       uSizeScale: { value: 1 },
       uAlpha: { value: 1 },
       uTwinkle: { value: 1 },
+      uTint: { value: new THREE.Color(1, 1, 1) },
     },
     vertexShader: FIELD_VERT,
     fragmentShader: FIELD_FRAG,
@@ -450,7 +477,7 @@ export function createWorld(THREE, scene, opts) {
     fieldCol[i * 3 + 1] = tone*(pick>.90 ? .88 : .96);
     fieldCol[i * 3 + 2] = tone*(pick>.90 ? .70 : 1.0);
     // 尺寸：绝大多数是细砂，少数明显大颗（3 次幂拉开长尾）。
-    fieldSize[i] = .65 + Math.pow(frnd(), 4.0) * 3.5;
+    fieldSize[i] = .75 + Math.pow(frnd(), 4.0) * 4.0;
     fieldPhase[i] = frnd() * Math.PI * 2;
     fieldAlpha[i] = 0.30 + frnd() * 0.66;
   }
@@ -511,7 +538,7 @@ export function createWorld(THREE, scene, opts) {
     sPos[i * 3 + 1] = u * r * 0.85;
     sPos[i * 3 + 2] = Math.sin(t) * s * r;
     // 大颗的极少：长尾分布，避免「满天都是大星」的廉价感。
-    sSize[i] = 1.5 + Math.pow(srnd(), 3.5) * 7;
+    sSize[i] = 1.65 + Math.pow(srnd(), 3.5) * 7.8;
     sBright[i] = 0.34 + srnd() * 0.66;
     sPhase[i] = srnd() * Math.PI * 2;
   }
@@ -534,29 +561,29 @@ export function createWorld(THREE, scene, opts) {
   root.add(figureGroup);
 
   const lights = new THREE.Group();
-  lights.add(new THREE.AmbientLight('#6685b1',.65));
-  const keyLight = new THREE.DirectionalLight('#b8e8ff',3.2);
+  lights.add(new THREE.AmbientLight('#b4b4c5',.65));
+  const keyLight = new THREE.DirectionalLight('#fff4e3',3.2);
   keyLight.position.set(-5,6,8);lights.add(keyLight);
-  const rimLight = new THREE.DirectionalLight('#59e5c4',2.4);
+  const rimLight = new THREE.DirectionalLight('#c4daf1',2.4);
   rimLight.position.set(4,1,-5);lights.add(rimLight);
-  const fillLight = new THREE.DirectionalLight('#d19ac7',1.1);
+  const fillLight = new THREE.DirectionalLight('#e0cadb',1.1);
   fillLight.position.set(5,-3,4);lights.add(fillLight);
   scene.add(lights);
 
   const shapeMat = makeShapeMaterial(THREE);
   const meshMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#54b7c8'),
-    emissive: new THREE.Color('#103c50'),
+    color: new THREE.Color('#ffffff'),
+    emissive: new THREE.Color('#000000'),
     emissiveIntensity: .35,
     roughness: .42,
     metalness: .18,
     flatShading: true,
     vertexColors: true,
     transparent: true,
-    opacity: 0.44,
+    opacity: 0.005,
     side: THREE.DoubleSide,
     depthTest: true,
-    depthWrite: true,
+    depthWrite: false,
     toneMapped: false,
   });
   const ribbonMat = (color, opacity) => new THREE.MeshBasicMaterial({
@@ -569,22 +596,34 @@ export function createWorld(THREE, scene, opts) {
     blending: THREE.AdditiveBlending,
     toneMapped: false,
   });
-  // 形象图网格边：细芯 + 宽晕两级丝带。原来是 LineBasicMaterial —— WebGL 下
-  // linewidth 恒为 1px，1024 宽的舞台上那根线细到看不见，点云一盖就没了。
-  // 芯色是青白（B>G>R）而不是纯白：参考图量出来线色 #afd2ef~#d5e1f5，
-  // 用白色加法叠密了会整片过曝（L>235 占比一度是参考图的 5 倍）。
-  const edgeCoreMat = ribbonMat('#afd2ef', 0.25);
-  const edgeHaloMat = ribbonMat('#2fb9ff', 0.055);
+  // 两级轮廓丝带保留细肢与孔洞；主星骨架比轮廓更亮。
+  const edgeCoreMat = ribbonMat('#ffffff', 0.28);
+  const edgeHaloMat = ribbonMat('#ffffff', 0.075);
   const nodeMat = makeFieldMaterial(THREE);
   nodeMat.uniforms.uSizeScale.value = 52;
-  const haloMat = ribbonMat('#3fb9ff', 0.20);
-  const coreMat = ribbonMat('#e2f5ff', 0.90);
+  const haloMat = ribbonMat('#ffffff', 0.20);
+  const coreMat = ribbonMat('#ffffff', 0.90);
   const hazeMat = makeFieldMaterial(THREE);
-  hazeMat.uniforms.uSizeScale.value = 190;
-  const discMat = makeGlintMaterial(THREE, '#dff1ff');
-  discMat.uniforms.uSizeScale.value = 280;
+  hazeMat.uniforms.uSizeScale.value = 120;
+  const discMat = makeGlintMaterial(THREE, '#ffffff');
+  discMat.uniforms.uSizeScale.value = 300;
   disposables.push(shapeMat, meshMat, edgeCoreMat, edgeHaloMat, nodeMat,
     haloMat, coreMat, hazeMat, discMat);
+
+  const white = new THREE.Color('#ffffff');
+  const signColors = SIGN_COLORS.map(([bodyHex, glowHex]) => {
+    const body = new THREE.Color(bodyHex), glow = new THREE.Color(glowHex);
+    // 自定义 shader 直接输出显示色；内置材质由 three 转换线性色。
+    return {
+      body, glow, emissive: body.clone().multiplyScalar(.18),
+      edge: body.clone().lerp(white, .55), core: glow.clone().lerp(white, .82),
+      particle: body.clone().lerp(glow, .2).convertLinearToSRGB(),
+      particleRim: body.clone().lerp(glow, .55).convertLinearToSRGB(),
+      haze: body.clone().lerp(glow, .35).convertLinearToSRGB(),
+      node: glow.clone().lerp(white, .5).convertLinearToSRGB(),
+      star: glow.clone().lerp(white, .3).convertLinearToSRGB(),
+    };
+  });
 
   const seeds = buildSeeds(count);
   const poolPhase = new Float32Array(count);
@@ -603,13 +642,11 @@ export function createWorld(THREE, scene, opts) {
     const alpha = new Float32Array(figureCount);
     for (let i = 0; i < figureCount; i += 1) {
       const tone = 0.55 + hr() * 0.45;
-      col[i * 3] = tone * 0.52;
-      col[i * 3 + 1] = tone * 0.80;
-      col[i * 3 + 2] = tone * 1.0;
-      // 大部分是均匀的柔雾，少数颗粒大一圈 → 半透明形象图里透出「颗粒感」。
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = tone;
+      // 只补充体积感，保持主粒子的亮核可分辨。
       size[i] = 0.8 + Math.pow(hr(), 2.4) * 2.4;
       phase[i] = hr() * Math.PI * 2;
-      alpha[i] = 0.008 + hr() * 0.020;
+      alpha[i] = 0.003 + hr() * 0.008;
     }
     return softAttrs(THREE, col, size, phase, alpha);
   })();
@@ -628,9 +665,7 @@ export function createWorld(THREE, scene, opts) {
     const alpha = new Float32Array(FIGURE_MESH_POINTS);
     for (let i = 0; i < FIGURE_MESH_POINTS; i += 1) {
       const tone = 0.70 + nr() * 0.30;
-      col[i * 3] = tone * 0.60;
-      col[i * 3 + 1] = tone * 0.86;
-      col[i * 3 + 2] = tone * 1.0;
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = tone;
       size[i] = 0.30 + Math.pow(nr(), 1.8) * 0.55;
       phase[i] = nr() * Math.PI * 2;
       alpha[i] = 0.25 + nr() * 0.35;
@@ -689,12 +724,12 @@ export function createWorld(THREE, scene, opts) {
     meshes.push(mg);
     disposables.push(mg);
 
-    // 网格边：细芯与宽晕两套丝带 + 顶点亮点
+    // 渲染轮廓边光；完整内部网格仍由纯几何层保留。
     const ecg = new THREE.BufferGeometry();
-    ecg.setAttribute('position', new THREE.BufferAttribute(fig.edgeCore, 3));
+    ecg.setAttribute('position', new THREE.BufferAttribute(fig.contourCore, 3));
     edgeCores.push(ecg);
     const ehg = new THREE.BufferGeometry();
-    ehg.setAttribute('position', new THREE.BufferAttribute(fig.edgeHalo, 3));
+    ehg.setAttribute('position', new THREE.BufferAttribute(fig.contourHalo, 3));
     edgeHalos.push(ehg);
     const ngeo = softGeometry(THREE, fig.nodes, nodeShare);
     nodeSets.push(ngeo);
@@ -780,6 +815,18 @@ export function createWorld(THREE, scene, opts) {
     const idx = ((i % SIGN_COUNT) + SIGN_COUNT) % SIGN_COUNT;
     if (idx === current) return ZODIAC[idx];
     current = idx;
+    const color = signColors[idx];
+    meshMat.color.copy(color.body);
+    meshMat.emissive.copy(color.emissive);
+    edgeCoreMat.color.copy(color.edge);
+    edgeHaloMat.color.copy(color.glow);
+    coreMat.color.copy(color.core);
+    haloMat.color.copy(color.glow);
+    shapeMat.uniforms.uBody.value.copy(color.particle);
+    shapeMat.uniforms.uRim.value.copy(color.particleRim);
+    hazeMat.uniforms.uTint.value.copy(color.haze);
+    nodeMat.uniforms.uTint.value.copy(color.node);
+    discMat.uniforms.uColor.value.copy(color.star);
     points.geometry = pools[idx];
     haze.geometry = hazes[idx];
     mesh.geometry = meshes[idx];
@@ -794,14 +841,15 @@ export function createWorld(THREE, scene, opts) {
 
   function setPixelRatio(pr) {
     shapeMat.uniforms.uPixelRatio.value = pr;
-    [fieldMat, nebulaMat, hazeMat].forEach((m) => { m.uniforms.uPixelRatio.value = pr; });
+    [fieldMat, nebulaMat, hazeMat, nodeMat].forEach((m) => { m.uniforms.uPixelRatio.value = pr; });
     sparkleMat.uniforms.uPixelRatio.value = pr;
     discMat.uniforms.uPixelRatio.value = pr;
   }
 
   function setPalette(palette) {
     if (!palette || !palette.accent) return;
-    shapeMat.uniforms.uAccent.value = new THREE.Color(palette.accent);
+    shapeMat.uniforms.uAccent.value.set(palette.accent).convertLinearToSRGB();
+    shapeMat.uniforms.uAccentMix.value = .10;
   }
 
   function smooth01(v) {
@@ -848,10 +896,10 @@ export function createWorld(THREE, scene, opts) {
 
     // 造型自转改成「以播放时间为唯一输入」的微摆：seek 到任意时刻画面一致，
     // 暂停时冻结；微摆展示立体侧面，同时保持剪影可识别。
-    const sway = reduced ? 0.04 : 0.43;
+    const sway = reduced ? 0.04 : 0.27;
     root.rotation.y = Math.sin(time * 0.30) * sway + Math.sin(time * 0.085 + 1.3) * sway * 0.34;
     root.rotation.x = Math.sin(time * 0.19) * (reduced ? 0 : 0.11);
-    const pulse = 1 + onset * 0.05 + bass * 0.02;
+    const pulse = 1 + onset * 0.02 + bass * 0.012;
     root.scale.setScalar(state === 'gather' ? pulse * (0.92 + k * 0.08) : pulse);
 
     // 形象图 / 连线：随生命周期淡入淡出（每帧只算一次，九层共用）。
@@ -859,10 +907,10 @@ export function createWorld(THREE, scene, opts) {
     figAlpha = figureOpacity(state, k);
     hazeMat.uniforms.uAlpha.value = figAlpha;
     hazeMat.uniforms.uTime.value = time;
-    meshMat.opacity = 0.44 * figAlpha;
-    edgeCoreMat.opacity = 0.25 * figAlpha;
-    edgeHaloMat.opacity = (0.055 + bass * 0.06) * figAlpha;
-    nodeMat.uniforms.uAlpha.value = figAlpha;
+    meshMat.opacity = 0.005 * figAlpha;
+    edgeCoreMat.opacity = 0.28 * figAlpha;
+    edgeHaloMat.opacity = (0.075 + bass * 0.035) * figAlpha;
+    nodeMat.uniforms.uAlpha.value = figAlpha * 0.045;
     nodeMat.uniforms.uTime.value = time;
     nodeMat.uniforms.uTwinkle.value = reduced ? 0.25 : 1;
     coreMat.opacity = (0.90 + bass * 0.06) * figAlpha;

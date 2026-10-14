@@ -263,17 +263,11 @@ ok(/var stageTheme = 'starfall'/.test(STAGE3D_JS), '默认档是星落');
 ok(!/value\.stageTheme === 'classic'/.test(STAGE3D_JS),
   '恢复白名单不认 classic：存过它的偏好直接落回默认档，不做旧值映射');
 
-// 吸顶标题栏必须自己盖得住内容。半透明玻璃 + backdrop-filter 实测糊不住同一个
-// 滚动容器里滑过来的兄弟节点（星落 alpha=0.12、iOS 0.15，滚 149px 就有两行压在
-// 标题下透出来），所以底色要铺到不透明。
-for (const [name, css, glass] of [['星落', THEME, '--st-glass-strong'], ['iOS', THEME_IOS, '--io-glass-strong']]) {
-  const body = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const head = body.match(new RegExp('\\.s3d\\[data-stage-theme="[a-z]+"\\] \\.s3d-settings-heading \\{([^}]*)\\}'));
-  ok(head && /background:[^;]*color-mix\(in srgb, var\(--s3d-bg\)/.test(head[1]),
-    `${name} 的吸顶标题栏铺的是不透明底（由舞台底色提亮）`);
-  ok(head && !new RegExp('background:\\s*var\\(' + glass + '\\)').test(head[1]),
-    `${name} 的吸顶标题栏不再复用面板那层半透明玻璃`);
-}
+const sharedDrawer = read(path.join(WEB, 'space3d.css'));
+ok(/\.sp-sheet h2\s*\{[^}]*position:\s*sticky[^}]*background:\s*var\(--bg\)/.test(sharedDrawer),
+  '共享设置抽屉使用不透明吸顶标题栏');
+ok(/class="sp-sheet" id="s3d-settings"/.test(HTML), '声场复用三维空间的设置抽屉');
+ok(!/\.s3d-settings\b/.test(THEME + THEME_IOS), '舞台主题不覆盖共享设置抽屉');
 
 // ---------------------------------------------------------------------------
 

@@ -124,7 +124,6 @@ async function main() {
     // 先 move 是为了唤醒会自动打烊的 chrome。
     const openSettingsKey = async () => {
       await page.mouse.move(500, 200);
-      await page.hover('#s3d-head-trigger');
       await page.waitForFunction(() => Number(
         getComputedStyle(document.getElementById('s3d-settings-toggle')).opacity) === 1);
     };
