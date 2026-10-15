@@ -264,7 +264,7 @@ async function auditLayout(page, width) {
       controls: ids.map(id => {
         const el = document.getElementById(id), r = rect(el);
         const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        return { id, ...r, hit: !!hit && el.contains(hit) };
+        return { id, display: getComputedStyle(el).display, ...r, hit: !!hit && el.contains(hit) };
       }) };
   });
   report.geometry.push(value);
@@ -274,6 +274,9 @@ async function auditLayout(page, width) {
   for (const container of value.containers) assert.ok(container.scroll <= container.client + 1,
     width + ' ' + container.id + ' has no horizontal overflow: ' + JSON.stringify(container));
   for (const control of value.controls) {
+    // 经典皮肤摘掉顶栏的设置齿轮（导航里已有同一入口，见 skin.classic.css），
+    // 它按设计不占位，也就不该出现在顶栏可达清单里。
+    if (control.id === 'settings-entry' && control.display === 'none') continue;
     assert.ok(control.width >= (control.id === 'progress' ? 50 : 28) && control.height >= (control.id === 'progress' ? 8 : 30)
       && control.x >= -1 && control.right <= width + 1 && control.hit,
     width + ' ' + control.id + ' is reachable: ' + JSON.stringify(control));

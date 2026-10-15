@@ -12,24 +12,46 @@
   gap: 8px;
 }
 
+/* 侧栏的第一行，不是顶栏那颗控件：所以它不挂 `.iconbtn`（那套描边+底色是顶栏的语言），
+   度量整套照抄 `.rail-item`——12px 内衬、同尺寸图标、同圆角，图标才落进下面导航那一列。
+   标签「导航」与图标居中的断点，跟着各皮肤隐藏 `.rail-item span` 的那几档走。 */
 .rail-toggle { display: none; }
 [data-skin="classic"] .rail-toggle,
 [data-skin="ios"] .rail-toggle {
   display: flex;
   align-items: center;
-  justify-content: center;
-  align-self: flex-end;
-  flex: 0 0 36px;
-  width: 40px;
-  min-width: 40px;
-  height: 36px;
-  padding: 0;
-  margin-bottom: 8px;
-  border-radius: 6px;
+  justify-content: flex-start;
+  gap: 12px;
+  align-self: stretch;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: 34px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 46%, transparent);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
 }
-.rail-toggle svg { width: 18px; height: 18px; fill: none; transform: rotate(90deg); }
-[data-rail-state="collapsed"] .rail-toggle { align-self: center; }
+/* classic 的 .rail-item 带 1px 透明边框，这里同值才不会把图标列顶偏 1px */
+[data-skin="classic"] .rail-toggle { border: 1px solid transparent; }
+[data-skin="classic"] .rail-toggle svg { width: 21px; height: 21px; }
+[data-skin="ios"] .rail-toggle svg { width: 20px; height: 20px; }
+.rail-toggle svg { fill: none; flex: none; transform: rotate(90deg); }
+[data-skin="classic"] .rail-toggle:hover { background: var(--hover); color: var(--text); }
+[data-rail-state="collapsed"] .rail-toggle { justify-content: center; padding-inline: 0; }
+[data-rail-state="collapsed"] .rail-toggle span { display: none; }
 [data-rail-state="collapsed"] .rail-toggle svg { transform: rotate(-90deg); }
+@media (max-width: 1100px) {
+  [data-skin="classic"] .rail-toggle { justify-content: center; padding-inline: 0; }
+  [data-skin="classic"] .rail-toggle span { display: none; }
+}
 @media (max-width: 620px) {
   [data-skin="ios"] .rail-toggle { display: none; }
 }

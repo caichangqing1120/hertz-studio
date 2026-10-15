@@ -207,7 +207,8 @@ async function openViaRail(page, skin) {
 
     await page.screenshot({ path: path.join(SHOT_DIR, 'settings-sheet-classic.png') });
 
-    // --- 6) 持久化 + 顶栏齿轮入口重开停在同类 ---
+    // --- 6) 持久化 + 导航入口重开停在同类 ---
+    // 经典皮肤把顶栏齿轮摘了（见 skin.classic.css），入口换成侧栏那条。
     const persisted = await page.evaluate(() => {
       const btn = [...document.querySelectorAll('.skset-nav .skset-link')]
         .find((b) => b.textContent === '快捷键');
@@ -217,7 +218,7 @@ async function openViaRail(page, skin) {
     eq(persisted, 'keys', '选中分类写进了 localStorage');
     await page.click('.skset-modal-close');
     await page.waitForFunction(() => { const m = document.querySelector('.skset-modal'); return m && m.hidden; });
-    await page.click('#settings-entry');
+    await page.click('.rail-item[data-view="settings"]');
     await page.waitForFunction(() => {
       const m = document.querySelector('.skset-modal');
       return m && !m.hidden && document.querySelector('.skset-link.is-active');

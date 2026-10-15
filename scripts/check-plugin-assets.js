@@ -119,6 +119,9 @@ function checkWebView2Base() {
   eq(assetUrl(opts, '/stanza/stanza.css'),
     `http://dbx-plugin.localhost/${PLUGIN_ID}/stanza/stanza.css`,
     '歌词模块资源解析到 ui 根下的 stanza/');
+  eq(assetUrl(opts, '/space-scene-preview/coast.jpg'),
+    `http://dbx-plugin.localhost/${PLUGIN_ID}/space-scene-preview/coast.jpg`,
+    '三维场景预览解析到插件 ui 根');
   ok(!assetUrl(opts, '/wallpapers/x.jpg').includes('stage-themes'),
     '宿主多算出来的 entryDirectory（stage-themes）没有留在结果里');
 }
@@ -131,6 +134,9 @@ function checkNativeSchemeBase() {
     '自定义协议下同样解析到 ui 根');
   ok(!got.startsWith('null'), '没有退化成 "null/..."（非特殊协议的 URL.origin 是字符串 "null"）');
   ok(!got.includes('stage-themes'), '自定义协议下也没有留下 entryDirectory');
+  eq(assetUrl({ baseURI: base, inDbx: true }, '/space-scene-preview/coast.jpg'),
+    `dbx-plugin://localhost/${PLUGIN_ID}/space-scene-preview/coast.jpg`,
+    '原生协议下三维场景预览保留插件 id');
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +194,7 @@ function checkSingleOwner() {
   // 各模块的 assetUrl 都必须转调 hertzHost，不能自己另写一份。
   // stage3d.js 用的是 global.hertzHost（那个文件里 global 就是 window），
   // 所以这里认的是「转调 hertzHost.assetUrl、拿不到就恒等」这个不变量，不是拼写。
-  for (const name of ['theme-studio.js', 'stage3d.js', 'online.js']) {
+  for (const name of ['theme-studio.js', 'stage3d.js', 'online.js', 'space3d.js']) {
     const text = read(path.join(WEB, name));
     ok(/(?:window|global)\.hertzHost\s*\?\s*(?:window|global)\.hertzHost\.assetUrl\(url\)\s*:\s*url/.test(text),
       `${name} 的 assetUrl 转调 hertzHost.assetUrl`);
@@ -232,7 +238,7 @@ function checkDeclaredAssetsExist() {
 
   // 这些目录会被打进 .dbxp（dbx-plugin.toml 的 include = ["assets","ui"]），
   // 少一个就是运行时 404，而构建期一声不响。
-  for (const dir of ['wallpapers', 'platform-icons', 'skins', 'stanza', 'stage-themes']) {
+  for (const dir of ['wallpapers', 'platform-icons', 'skins', 'stanza', 'stage-themes', 'space-scene-preview']) {
     ok(fs.existsSync(path.join(WEB, dir)) && fs.readdirSync(path.join(WEB, dir)).length > 0,
       `plugin/ui/${dir}/ 存在且非空`);
   }

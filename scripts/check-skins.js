@@ -28,6 +28,7 @@ const WEB = path.join(ROOT, 'plugin', 'ui');
 const SKINS = path.join(WEB, 'skins');
 const read = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 const SKINS_JS = read(path.join(SKINS, 'skins.js'));
+const CLASSIC = read(path.join(SKINS, 'skin.classic.css'));
 const SHEEN = read(path.join(SKINS, 'skin.sheen.css'));
 const WORKBENCH = read(path.join(SKINS, 'skin.workbench.css'));
 const LIUNIAN = read(path.join(SKINS, 'skin.liunian.css'));
@@ -180,21 +181,23 @@ function checkCatalog() {
 
   section('隐藏的皮肤：目录里还在，界面上不给入口');
 
-  // workbench 是隐藏的：CATALOG 里留着定义（apply 能切过去，排障与老用户都
-  // 不会被困住），但三处宿主一律不渲染它。判据取**渲染结果**，不是源码里有没有
-  // 那个字段——字段写了但宿主忘了过滤，界面上照样会出现。
+  // workbench 与 ios（OS风，与经典同一套读法故下架）都是隐藏的：CATALOG 里留着
+  // 定义（apply 能切过去，排障与老用户都不会被困住），但三处宿主一律不渲染它。
+  // 判据取**渲染结果**，不是源码里有没有那个字段——字段写了但宿主忘了过滤，
+  // 界面上照样会出现。
   const shown = sandbox.Skins.list().map((s) => s.id);
-  ok(shown.indexOf('workbench') < 0, 'Skins.list() 里没有 workbench（命令面板靠它建命令）');
+  for (const hiddenId of ['workbench', 'ios']) {
+    ok(shown.indexOf(hiddenId) < 0, `Skins.list() 里没有 ${hiddenId}（命令面板靠它建命令）`);
+    sandbox.Skins.apply(hiddenId);
+    eq(root.getAttribute('data-skin'), hiddenId, `apply() 仍能把隐藏的 ${hiddenId} 切出来（排障用）`);
+    sandbox.Skins.apply('classic');
+  }
   ok(shown.indexOf('classic') >= 0 && shown.indexOf('sheen') >= 0,
     '其余皮肤不受影响（隐藏一套不是把整张清单关掉）');
   sandbox.Skins.render();
   const cardIds = listHost.children.map((r) => r.getAttribute('data-skin-id'));
-  ok(cardIds.indexOf('workbench') < 0, '设置页那组卡片里没有 workbench');
+  ok(cardIds.indexOf('workbench') < 0 && cardIds.indexOf('ios') < 0, '设置页那组卡片里没有隐藏的皮肤');
   ok(cardIds.indexOf('sheen') >= 0, '设置页那组卡片照旧渲染其余皮肤');
-  // 隐藏不等于删掉：排障时仍要能把它调出来，否则"隐藏"就成了不可逆的删除。
-  sandbox.Skins.apply('workbench');
-  eq(root.getAttribute('data-skin'), 'workbench', 'apply() 仍能把隐藏的皮肤切出来（排障用）');
-  sandbox.Skins.apply('classic');
 
   // 界面上没有入口，开页就不能停在它上面——否则用户换不回来，只能去清
   // localStorage。回落的同时要把存档冲掉，不然下次开页又读回同一套。
@@ -305,20 +308,21 @@ function checkSkinEntry() {
 
   const rows = skinMenu.children;
   eq(rows.length, sandbox.Skins.list().length, '弹层行数等于对外可见的皮肤数（不是各存一份清单）');
-  ok(!rows.some((r) => r.getAttribute('data-skin-id') === 'workbench'), '顶栏弹层里没有 workbench');
+  ok(!rows.some((r) => r.getAttribute('data-skin-id') === 'workbench' || r.getAttribute('data-skin-id') === 'ios'),
+    '顶栏弹层里没有隐藏的皮肤（workbench / OS风）');
   ok(rows.every((r) => r.getAttribute('role') === 'menuitemradio'), '每行都是 menuitemradio（单选语义）');
   const on = rows.filter((r) => r.getAttribute('aria-checked') === 'true');
   eq(on.length, 1, '只标记一个当前项');
   eq(on[0] && on[0].getAttribute('data-skin-id'), 'classic', '当前项就是当前皮肤');
 
-  const pick = rows.filter((r) => r.getAttribute('data-skin-id') === 'ios')[0];
+  const pick = rows.filter((r) => r.getAttribute('data-skin-id') === 'sheen')[0];
   pick.onclick();
-  eq(root.getAttribute('data-skin'), 'ios', '点弹层里的行真的换了皮肤');
+  eq(root.getAttribute('data-skin'), 'sheen', '点弹层里的行真的换了皮肤');
   eq(skinMenu.hidden, true, '选完收起弹层');
   eq(skinBtn.getAttribute('aria-expanded'), 'false', 'aria-expanded 收回 false');
   const listOn = listHost.children.filter((r) => (r.className || '').indexOf('is-on') >= 0);
   eq(listOn.length, 1, '设置页那组也只剩一个高亮（重绘收在 apply 里，不是只改点到的那处）');
-  eq(listOn[0] && listOn[0].getAttribute('data-skin-id'), 'ios', '设置页高亮跟着切到的那套');
+  eq(listOn[0] && listOn[0].getAttribute('data-skin-id'), 'sheen', '设置页高亮跟着切到的那套');
 
   // 一颗按钮只能有一个绑定者。check-assets 的「一条一主」只扫 plugin/ui 顶层，
   // skins/ 子目录不在它范围内，所以这条得自己钉住。
@@ -601,6 +605,14 @@ function checkIosSkin() {
   ok(HTML.indexOf('id="settings-entry"') > 0, '业务 HTML 仍保留 #settings-entry（iOS 只是 CSS 层不显示）');
   ok(/rail-item" data-view="settings"/.test(HTML), '侧栏保留设置入口（摘掉顶栏齿轮后仍可达）');
 
+  // 同一件事在另外四套「导航里已经带设置条目」的皮肤里也成立：经典（侧栏底部）、
+  // 浮光与潮汐（顶部导航末尾）、黑胶（横向抽屉末尾）。工作台与流年留着顶栏齿轮。
+  for (const [id, src, name] of [['classic', CLASSIC, '经典'], ['sheen', SHEEN, '浮光'],
+    ['chaoxi', CHAOXI, '潮汐'], ['heijiao', HEIJIAO, '黑胶']]) {
+    ok(new RegExp('\\[data-skin="' + id + '"\\]\\s*#settings-entry\\s*\\{\\s*display:\\s*none').test(stripCssComments(src)),
+      name + ' 摘掉顶栏的设置齿轮（导航里已有同一入口）');
+  }
+
   // 显示名与持久化键是两件事：name 只进设置列表，localStorage 靠 id。
   // 钉死"id 仍是 ios"是为了防止有人连 id 一起改，那会让已经存了
   // vmusic.skin='ios' 的用户切皮肤时静默回落到 classic。
@@ -688,8 +700,8 @@ function checkSheenTopbarLayout() {
   // 右侧图标区宽度随连接状态文案变化（"服务已连接" / "重连中 (13s)"），
   // 所以上限必须留足余量，否则文案一变长就压上去。
   const railMax = (railRule.match(/max-width:\s*([^;]+);/) || [])[1] || '';
-  ok(/100vw/.test(railMax) && /430px/.test(railMax),
-    `胶囊为右侧图标区留足 430px（max-width=${railMax.trim()}）`);
+  ok(/100vw/.test(railMax) && /560px/.test(railMax),
+    `胶囊为右侧图标区留足 560px（max-width=${railMax.trim()}）`);
 
   // 窄屏必须把让位加回来：胶囊在 ≤900px 退回"顶栏下方独占一行"，
   // 那时 .view 的绝对 padding 是唯一防线，胶囊会盖住第一行内容。
@@ -843,7 +855,11 @@ function checkCoverage() {
   //     1200 就压上胶囊了。所以只有浮光在 ≤1240px 摘掉这颗（皮肤列表在设置页
   //     里仍然可达）。别的皮肤没有这颗胶囊，要求它们各写一条只等于制造死代码。
   // The mini-panel handle belongs to sheen's floating-panel lifecycle.
-  const GEOMETRY_OPTIONAL = /^\.(dv-name|dv-sub|dv-num|dv-src|topsearch|stage-lyrics|disc-wrap|stage-title|stage-artist|sheen-player-handle)$|^#skin-picker$/;
+  //  f) 顶栏的设置齿轮（#settings-entry）：摘不摘是各皮肤自己的入口取舍 ——
+  //     经典/浮光/潮汐/黑胶/iOS/清风/轨道的导航里已经有「设置」条目，顶栏那颗
+  //     是同一个目标的第二份，摘掉；工作台与流年留着它。要求五套皮肤各写一条
+  //     只会逼着两套把入口删掉（那是改设计，不是补覆盖）。
+  const GEOMETRY_OPTIONAL = /^\.(dv-name|dv-sub|dv-num|dv-src|topsearch|stage-lyrics|disc-wrap|stage-title|stage-artist|sheen-player-handle)$|^#skin-picker$|^#settings-entry$/;
   const isGeometry = (s) => !GEOMETRY_OPTIONAL.test(s) && !/^[^\s]*\s/.test(s);
 
   const geometryGap = (from, to, fromName, toName) => {
@@ -1000,6 +1016,49 @@ function checkLiunianNavigation() {
   ok(navBlock, '中栏顶部构建胶囊导航');
   ok(navBlock && /'library'[\s\S]{0,60}'online'[\s\S]{0,60}'playlists'[\s\S]{0,60}'favorites'[\s\S]{0,60}'queue'[\s\S]{0,60}'settings'/.test(navBlock[0]),
     '胶囊导航含首页/在线/歌单/收藏/队列/设置六项');
+
+  // 2b) 导航的观感是「一排独立细描边药丸」，不是「一颗容器胶囊 + 里面的裸文字项」。
+  //     容器若又长出描边/底色，或条目丢掉自带描边，就只有当前项像按钮、其余读作
+  //     标签 —— 不报错、不崩、元素一个不少，静态断言是唯一钉得住的地方。
+  //     只取**第一条**同名规则：媒体查询里还有 .ln-nav / .ln-nav-item 的覆盖
+  //     （≤1000 的 sticky 底色、≤620 的内距），拼起来看会把 base 判成失败。
+  const lnNavCss = stripCssComments(LIUNIAN);
+  const lnRule = (sel) => {
+    const re = new RegExp(`\\[data-skin="liunian"\\]\\s+${sel.replace(/\./g, '\\.')}\\s*\\{([^}]*)\\}`);
+    const m = re.exec(lnNavCss);
+    return m ? m[1] : '';
+  };
+
+  const navRow = lnRule('.ln-nav');
+  ok(/background:\s*transparent/.test(navRow) && /border:\s*0\b/.test(navRow)
+    && /border-radius:\s*0\b/.test(navRow),
+    '导航行自身不再画胶囊（透明底 + 无描边 + 无圆角）');
+  ok(/overflow-x:\s*auto/.test(navRow) && /gap:\s*8px/.test(navRow),
+    '导航行是横向滚动的纯布局行（窄屏滑动，不压扁不换行）');
+  ok(!/\.ln-nav\s*\{[^}]*var\(--panel\)/.test(lnNavCss),
+    '没有哪条规则把面板底色还给导航容器');
+
+  const navPill = lnRule('.ln-nav-item');
+  ok(/border:\s*1px solid var\(--field-border\)/.test(navPill),
+    '每个导航项自带 1px 细描边（药丸按钮的本体）');
+  ok(/border-radius:\s*999px/.test(navPill) && /white-space:\s*nowrap/.test(navPill),
+    '导航项是药丸形，且文字不折行');
+  ok(/background:\s*transparent/.test(navPill),
+    '未选中项只有描边、不铺底色');
+
+  const navHover = lnRule('.ln-nav-item:hover');
+  ok(/background:\s*var\(--hover\)/.test(navHover)
+    && /border-color:\s*var\(--field-border-strong\)/.test(navHover),
+    '悬停填色并加重描边');
+
+  const navOn = lnRule('.ln-nav-item.active');
+  ok(/background:\s*var\(--accent\)/.test(navOn) && /color:\s*var\(--accent-ink\)/.test(navOn),
+    '选中项沿用皮肤统一的「实心 + 深字」翻色');
+
+  const navFocus = lnRule('.ln-nav-item:focus-visible');
+  ok(/outline:\s*2px solid var\(--brand\)/.test(navFocus)
+    && /outline-offset:\s*-2px/.test(navFocus),
+    '键盘焦点环画在盒内（容器是滚动容器，外扩的环会被裁掉）');
 
   // 3) 右栏包裹器：上搜索面板 + 下舞台。
   ok(/make\('div', 'ln-right', app\)/.test(LIUNIAN_JS), '创建右栏包裹器');

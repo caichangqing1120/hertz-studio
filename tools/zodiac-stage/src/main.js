@@ -84,12 +84,11 @@ export function probe() {
 
 let st = null;
 
-export function mount(canvas, opts = {}) {
-  if (st) unmount();
+function createStage(canvas, opts = {}, context = null) {
   const quality = QUALITY[opts.quality] ? opts.quality : 'high';
-  let renderer = null;
+  let renderer = context && context.renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    if (!renderer) renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   } catch (_) {
     return false;
   }
@@ -101,9 +100,10 @@ export function mount(canvas, opts = {}) {
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.info.autoReset = false;
 
-  const scene = new THREE.Scene();
+  const scene = context ? context.scene : new THREE.Scene();
   scene.background = new THREE.Color(BG_COLOR);
-  const camera = new THREE.PerspectiveCamera(FOV_BASE, 1, 0.1, 400);
+  const camera = context ? context.camera : new THREE.PerspectiveCamera(FOV_BASE, 1, 0.1, 400);
+  Object.assign(camera, { fov: FOV_BASE, near: 0.1, far: 400 });
   camera.position.set(0, 0, fitDistance(FIG_ASPECT));
   const cameraTarget = camera.clone();
 
@@ -112,7 +112,8 @@ export function mount(canvas, opts = {}) {
     glow: 1, speed: 1, reduced: !!opts.reduced,
     palette: opts.palette || {},
   };
-  const world = createWorld(THREE, scene, { quality });
+  const world = createWorld(THREE, scene, { quality: context ? 'high' : quality, scope: context && context.scope });
+  if (context) context.scope.defer(() => world.dispose());
   world.setPalette(prefs.palette);
   const audio = {
     raw: null, onset: false,
@@ -170,16 +171,23 @@ export function mount(canvas, opts = {}) {
     canvas.style.touchAction = '';
   }
 
-  st = {
+  const stage = {
     canvas, renderer, scene, camera, cameraTarget, control: null, world, quality, prefs, audio, rig,
     raf: 0, lastFrame: 0, lastRender: 0, lastTime: -1,
     time: 0, sceneTime: 0, playing: false, dirty: true,
     width: 0, height: 0, pr: 1,
     timeline: { index: -1, state: 'gather', t: 0 },
-    warmed: false,
+    warmed: !!context,
     bindInput, unbindInput,
   };
-  bindInput();
+  return stage;
+}
+
+export function mount(canvas, opts = {}) {
+  if (st) unmount();
+  st = createStage(canvas, opts);
+  if (!st) return false;
+  st.bindInput();
   st.raf = requestAnimationFrame(tick);
   return true;
 }
@@ -187,7 +195,7 @@ export function mount(canvas, opts = {}) {
 // 预热：把 12 座的全部 attribute 缓冲与着色器程序都上传一次（一次性 12 帧），
 // 之后换座只换对象引用、不再申请 GPU 资源 —— stats() 里的 geometries/textures
 // 才是有意义的「无泄漏」判据，而不是每次换座都往上跳的数字。
-function warmup() {
+function warmup(st) {
   const keep = st.timeline.index >= 0 ? st.timeline.index : 0;
   for (let i = 0; i < SIGN_COUNT; i += 1) {
     st.world.setSign(i);
@@ -322,7 +330,13 @@ function tick(now) {
   if (!st) return;
   st.raf = requestAnimationFrame(tick);
   if (!st.playing && !st.dirty && now - st.lastRender < PAUSE_RENDER_MS) return;
-  const dt = st.lastFrame ? Math.min((now - st.lastFrame) / 1000, st.playing ? 0.1 : 0.25) : 0.016;
+  updateStage(st, now);
+  st.renderer.info.reset();
+  st.renderer.render(st.scene, st.camera);
+}
+
+function updateStage(st, now, suppliedDt) {
+  const dt = suppliedDt === undefined ? st.lastFrame ? Math.min((now - st.lastFrame) / 1000, st.playing ? 0.1 : 0.25) : 0.016 : suppliedDt;
   st.lastFrame = now;
   const prefs = st.prefs;
   const time = st.time;
@@ -331,7 +345,7 @@ function tick(now) {
   // 首帧拿到真实尺寸后再预热：否则按 1×1 上传的缓冲后面还要重传一遍。
   if (!st.warmed && st.width > 0) {
     st.warmed = true;
-    warmup();
+    warmup(st);
   }
 
   // 频带包络：seek 落位，否则快攻慢放；暂停时目标归零。
@@ -393,8 +407,51 @@ function tick(now) {
 
   st.dirty = cameraMoving;
   st.lastRender = now;
-  st.renderer.info.reset();
-  st.renderer.render(st.scene, camera);
+}
+
+export function createScene(context) {
+  const stage = createStage(context.renderer.domElement, { quality: context.quality.mode, interactive: false }, context);
+  if (!stage) throw new Error('Zodiac world initialization failed');
+  let reduced = !!context.params.reduced;
+  return {
+    update(frame) {
+      stage.prefs.reduced = reduced || !!frame.reduced;
+      const frozen = stage.prefs.reduced || frame.playing === false;
+      if (!frozen) stage.time = Number(frame.sceneTime ?? frame.time) || 0;
+      stage.playing = !!frame.playing;
+      stage.audio.raw = frame.bands || null;
+      stage.audio.onset = !frozen && !!frame.onset;
+      const dt = frozen ? 0 : Math.max(0, Math.min(frame.dynamicDt ?? frame.dt ?? .016, .1));
+      updateStage(stage, Number(frame.now) || 0, dt);
+      if (stage.prefs.sign >= 0) {
+        stage.world.setSign(stage.prefs.sign);
+        stage.world.update(stage.sceneTime, { bass: stage.audio.bass, onset: stage.audio.onsetLevel,
+          cycle: 0, reduced: stage.prefs.reduced, glow: stage.prefs.glow, dt,
+          state: 'hold', k: 1, cameraPos: stage.camera.position });
+      }
+    },
+    resize(width, height) {
+      stage.width = width; stage.height = height;
+      stage.camera.aspect = width / height; stage.camera.updateProjectionMatrix();
+      stage.rig.distFit = fitDistance(width / height); stage.rig.dist = orbitDistance(stage.rig);
+      stage.world.setPixelRatio(stage.renderer.getPixelRatio());
+    },
+    setParams(params) {
+      stage.prefs.glow = params.glow; stage.prefs.speed = params.speed; reduced = !!params.reduced; stage.prefs.reduced = reduced;
+      stage.prefs.sign = params.sign === 'cycle' ? -1 : ZODIAC.findIndex(sign => sign.id === params.sign);
+      stage.world.setFieldVisible(params.field);
+    },
+    setQuality(profile) { stage.world.setQuality(profile.mode); stage.world.setPixelRatio(stage.renderer.getPixelRatio()); },
+    setRig(pose) {
+      stage.control = pose;
+      if (!pose) return;
+      const target = stage.cameraTarget;
+      if (pose.position) { target.position.fromArray(pose.position); target.rotation.set(pose.pitch, pose.yaw, pose.roll || 0, 'YXZ'); }
+      else { const cp = Math.cos(pose.pitch); target.position.set(pose.tx + Math.sin(pose.yaw) * cp * pose.dist, pose.ty + Math.sin(pose.pitch) * pose.dist, pose.tz + Math.cos(pose.yaw) * cp * pose.dist); target.lookAt(pose.tx, pose.ty, pose.tz); target.rotateZ(pose.roll || 0); }
+      target.fov = pose.fov;
+    },
+    dispose() {},
+  };
 }
 
 export function stats() {

@@ -299,7 +299,7 @@ section('自由镜头位姿持久化形状');
     'WASD/QE/Space/Shift/Ctrl 移动键集合');
 }
 
-// —— 9. 机位基线表（space3d.js 注册表逐字对齐 §6.1/§12.4）—— //
+// —— 9. Shared plugin definitions own camera baselines. —— //
 section('机位基线表：注册表是唯一 owner');
 {
   const s3dPath = path.join(WEB, 'space3d.js');
@@ -307,31 +307,19 @@ section('机位基线表：注册表是唯一 owner');
     ok(false, 'space3d.js 尚未落地，基线表检查待其实现后生效');
   } else {
   const s3dSrc = fs.readFileSync(s3dPath, 'utf8');
-  const m = s3dSrc.match(/SOURCE_BASELINES\s*=\s*\{([\s\S]*?)\};/);
-  ok(!!m, 'space3d.js 里有 SOURCE_BASELINES 表');
-  if (m) {
-    const got = {};
-    const re = /p(\d+)\s*:\s*\[([^\]]+)\]/g;
-    let mm;
-    while ((mm = re.exec(m[1]))) got['p' + mm[1]] = mm[2].split(',').map(Number);
-    // 源值逐字来自 Mineradio 01-scene/01-orbit-free-camera.js:208-227。
-    const EXPECT = {
-      p1: [0, 0.03, 6.2], p2: [0, 0.15, 7.0], p3: [0, 0.05, 8.0], p4: [0, 0.04, 6.5],
-      p6: [0.18, 0.10, 7.4], p9: [-0.08, 0.12, 7.4], p10: [0, 0.02, 7.15],
-      p11: [0.10, 0.11, 7.0], p12: [-0.12, 0.18, 7.35]
-    };
-    Object.keys(EXPECT).forEach((k) => {
-      ok(!!got[k], '基线表含 ' + k);
-      if (got[k]) {
-        near(got[k][0], EXPECT[k][0], 0, k + ' theta');
-        near(got[k][1], EXPECT[k][1], 0, k + ' phi');
-        near(got[k][2], EXPECT[k][2], 0, k + ' radius');
-      }
-    });
-    ok(!got.p5 && !got.p7 && !got.p8 && !got.p13, 'p5/p7/p8/p13 不在表（§6.1 的取舍）');
-    ok(SC.internals && !/baselineForPreset|PRESET_BASELINE/.test(s3dSrc),
-      'SpaceCamera 内没有按预设 id 索引的第二张基线表（§12.4）');
-  }
+  ok(!/SOURCE_BASELINES\s*=|PRESET_BASELINE/.test(s3dSrc), '空间不维护第二份插件机位表');
+  ok(/camera\.setBaseline\(/.test(s3dSrc) && /baseline\.lookAt/.test(s3dSrc), '注册机位注视点经空间相机消费');
+  const vm = require('node:vm');
+  const bundle = fs.readFileSync(path.join(WEB, 'vendor/space-stage.js'), 'utf8');
+  const sandbox = { console, AbortController, setTimeout, clearTimeout };
+  sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
+  const api = vm.runInNewContext(bundle + ';SpaceStagePure', sandbox);
+  api.catalog().forEach(d => {
+    const sc = fresh();
+    sc.setBaseline(Object.assign({}, d.camera, { look: d.camera.lookAt }));
+    near(sc.baseline().theta, d.camera.theta, 1e-9, d.id + ' theta');
+    near(sc.baseline().radius, d.camera.radius, 1e-9, d.id + ' radius');
+  });
   }
 }
 

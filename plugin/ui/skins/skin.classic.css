@@ -5,6 +5,9 @@
 [data-skin="classic"] .rail { border: 0; border-radius: 0; box-shadow: none; padding: 20px 12px; background: var(--panel-solid); }
 [data-skin="classic"] .rail-item { display: flex; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 12px; }
 [data-skin="classic"] .rail-item span { display: inline; }
+/* 顶栏齿轮与侧栏底部的「设置」条目指向同一个视图，摘掉顶栏那颗（ios/orbit 同款）。
+   只藏不删：节点与 app.js 的 ui.settingsEntry 引用留着，快捷键 4 仍能开设置。 */
+[data-skin="classic"] #settings-entry { display: none; }
 [data-skin="classic"] .column { border: 0; border-radius: 0; box-shadow: none; background: var(--bg); }
 [data-skin="classic"] .view { padding: 24px; }
 [data-skin="classic"] .stage { display: none; }

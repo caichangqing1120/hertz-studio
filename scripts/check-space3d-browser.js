@@ -428,9 +428,9 @@ async function main() {
     await wake(); const radius = await page.evaluate(() => Space3D.stats().camera.radius);
     await page.mouse.wheel(0, -600);
     await page.waitForFunction(before => Math.abs(Space3D.stats().camera.radius - before) > 0.05, radius);
-    await page.click('#sp-close'); await page.waitForFunction(() => !Space3D.isActive());
+    await page.click('#sp-return-2d'); await page.waitForFunction(() => !Space3D.isActive());
     await page.click('#space3d-entry'); await page.waitForFunction(() => Space3D.isActive());
-    await page.click('#sp-close'); await page.click('[data-view="settings"]');
+    await page.click('#sp-return-2d'); await page.click('[data-view="settings"]');
     await page.locator('.skset-nav button').filter({ hasText: '窗口与舞台' }).click();
     await page.locator('#set-space3d-btn').scrollIntoViewIfNeeded(); await page.click('#set-space3d-btn');
     await page.waitForFunction(() => Space3D.isActive());
@@ -740,7 +740,7 @@ async function main() {
 
     await page.evaluate(() => { Space3D.close(); window.__spaceBlockGL = true; Space3D.open('immersive'); });
     await page.waitForSelector('#sp-fallback:not([hidden])'); assert.ok(await page.locator('#sp-fallback').innerText(), 'context failure is visible');
-    await wake(); await page.click('#sp-close'); assert.equal(await page.evaluate(() => Space3D.isActive()), false, 'failure retains a working exit');
+    await wake(); await page.click('#sp-return-2d'); assert.equal(await page.evaluate(() => Space3D.isActive()), false, 'failure retains a working exit');
     await page.evaluate(() => { window.__spaceBlockGL = false; Space3D.open('immersive'); }); await drawField('silk');
     assert.ok(await page.locator('#sp-fallback').evaluate(el => el.hidden), 'reopening recovers after a context allocation failure');
     await page.evaluate(() => { window.__spaceZodiacAvailable = StageZodiac.available; StageZodiac.available = () => false; Space3D.configure({ cinema: false }); });

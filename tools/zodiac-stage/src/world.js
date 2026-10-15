@@ -4,7 +4,7 @@
 // 「星座」世界：近黑星空、流动星尘、轮廓边光与星座骨架。
 //
 // 背景、星尘和辉光按 renderOrder 绘制；微弱底面不写入深度：
-//   -1000 天空穹顶      纵向三段渐变 + 顶点级 FBM 星云 + 屏幕暗角
+//   -1000 天空穹顶      预烘焙银河尘埃 + 屏幕暗角
 //    -900 星场           细密星点（加法混合）
 //    -890 星云斑块       大尺度柔斑
 //    -880 星光点缀       四芒星闪烁（大颗亮星）
@@ -25,7 +25,7 @@
 
 import {
   ZODIAC, SIGN_COUNT, buildShape, buildCloud, buildSeeds, buildFigureMesh,
-  buildConstellation, CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
+  buildConstellation, CONSTELLATION, CONSTELLATION_Z, FIGURE_Z, FIGURE_MESH_POINTS,
   transitionStyle,
 } from './zodiac.js';
 import { clamp, seededRandom } from './util.js';
@@ -34,10 +34,11 @@ import { clamp, seededRandom } from './util.js';
 // 同样的粒子数摊在更大的面积上会显稀 —— 三个池子跟着上调一档。
 const SHAPE_COUNTS = { low: 2600, medium: 4200, high: 6000 };
 const FIGURE_COUNTS = { low: 1000, medium: 1700, high: 2600 };
-const FIELD_COUNTS = { low: 3000, medium: 5200, high: 8200 };
+const FIELD_COUNTS = { low: 28000, medium: 64000, high: 120000 };
 const SPARKLE_COUNTS = { low: 70, medium: 112, high: 160 };
 const NEBULA = 36;
 const DISC_SLOTS = 18;   // 单座骨架最多 18 个星点（当前最大 15，留余量）
+const STAR_SLOTS = DISC_SLOTS + Math.max(...CONSTELLATION.map(s => s.lines.length));
 
 // 主体与辉光分别定色；次序与 ZODIAC 一致。
 const SIGN_COLORS = [
@@ -56,37 +57,69 @@ const SIGN_COLORS = [
 ];
 
 // —— 天空穹顶 ——
-// 星云噪声在顶点上算（球面 64×40，两千多个顶点），片元只做插值与混合：
-// 全屏 FBM 在集显上会直接吃掉帧预算，而星云本身就是大尺度的柔斑，
-// 顶点插值完全够用。
-const SKY_VERT = (oct) => [
+// Bake periodic dust once: no per-frame FBM cost or vertex interpolation facets.
+function galaxyTexture(THREE, width) {
+  const height = width / 2;
+  const pixels = new Uint8Array(width * height * 4);
+  const hash = (x, y, period) => {
+    const wrapped = ((x % period) + period) % period;
+    let h = Math.imul(wrapped + 193, 374761393) ^ Math.imul(y + 571, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  const noise = (x, y, period) => {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    let fx = x - ix, fy = y - iy;
+    fx *= fx * (3 - 2 * fx); fy *= fy * (3 - 2 * fy);
+    const a = hash(ix, iy, period), b = hash(ix + 1, iy, period);
+    const c = hash(ix, iy + 1, period), d = hash(ix + 1, iy + 1, period);
+    return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+  };
+  const fbm = (u, v, frequency) => {
+    let sum = 0, weight = .5;
+    for (let octave = 0; octave < 6; octave++) {
+      sum += noise(u * frequency, v * frequency, frequency) * weight;
+      frequency *= 2; weight *= .5;
+    }
+    return sum;
+  };
+  const grain = seededRandom('zodiac-galactic-dust');
+  const normalLength = Math.hypot(.52, .84, .16);
+  for (let y = 0; y < height; y++) {
+    const v = (y + .5) / height;
+    const sinPhi = Math.sin(v * Math.PI), dy = Math.cos(v * Math.PI);
+    for (let x = 0; x < width; x++) {
+      const u = (x + .5) / width, theta = u * Math.PI * 2;
+      const dx = -Math.cos(theta) * sinPhi, dz = Math.sin(theta) * sinPhi;
+      const broad = fbm(u, v, 12), detail = fbm(u, v + .37, 48);
+      const latitude = (.52 * dx + .84 * dy + .16 * dz) / normalLength + .20;
+      const band = Math.exp(-Math.pow(latitude + (broad - .5) * .24, 2) * 38);
+      const lane = 1 - Math.pow(clamp((detail - .30) / .36), 1.3) * .94;
+      const dust = band * (.25 + broad * .9) * lane * (.68 + grain() * .64);
+      const core = band * Math.pow(detail, 3) * .11;
+      const k = (y * width + x) * 4;
+      pixels[k] = Math.round(255 * (dust * .125 + core));
+      pixels[k + 1] = Math.round(255 * (dust * .080 + core * .83));
+      pixels[k + 2] = Math.round(255 * (dust * .142 + core * .95));
+      pixels[k + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(pixels, width, height);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const SKY_VERT = [
   'varying float vY;',
-  'varying vec2 vNeb;',
-  'varying float vGalaxy;',
+  'varying vec2 vUv;',
   'varying vec3 vNdc;',
-  'uniform float uTime;',
-  'float hash31(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453123); }',
-  'float noise3(vec3 p) {',
-  '  vec3 i = floor(p); vec3 f = fract(p); f = f*f*(3.0-2.0*f);',
-  '  float a = mix(mix(hash31(i), hash31(i+vec3(1.0,0.0,0.0)), f.x),',
-  '                mix(hash31(i+vec3(0.0,1.0,0.0)), hash31(i+vec3(1.0,1.0,0.0)), f.x), f.y);',
-  '  float b = mix(mix(hash31(i+vec3(0.0,0.0,1.0)), hash31(i+vec3(1.0,0.0,1.0)), f.x),',
-  '                mix(hash31(i+vec3(0.0,1.0,1.0)), hash31(i+vec3(1.0,1.0,1.0)), f.x), f.y);',
-  '  return mix(a, b, f.z);',
-  '}',
-  'float fbm(vec3 p) {',
-  '  float a = 0.5; float s = 0.0;',
-  `  for (int i = 0; i < ${oct}; i++) { s += a * noise3(p); p *= 2.03; a *= 0.5; }`,
-  '  return s;',
-  '}',
   'void main() {',
-  '  vec3 dir = normalize(position);',
-  '  vY = dir.y;',
-  '  vNeb = vec2(',
-  '    fbm(dir * 7.0 + vec3(0.0, uTime * 0.0006, 0.0)),',
-  '    fbm(dir * 23.0 - vec3(uTime * 0.0004, 0.0, 0.0)));',
-  '  float latitude = dot(dir,normalize(vec3(-0.42,0.86,0.25)));',
-  '  vGalaxy = exp(-pow(latitude + (vNeb.x-0.5)*0.10,2.0)*65.0);',
+  '  vY = normalize(position).y;',
+  '  vUv = vec2(uv.x,1.0-uv.y);',
   '  vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
   '  vNdc = pos.xyw;',
   '  gl_Position = pos;',
@@ -98,22 +131,17 @@ const SKY_FRAG = [
   'uniform vec3 uTop;',
   'uniform vec3 uMid;',
   'uniform vec3 uBot;',
-  'uniform vec3 uNeb1;',
-  'uniform vec3 uNeb2;',
+  'uniform sampler2D uGalaxy;',
   'uniform float uNeb;',
   'uniform float uVignette;',
   'varying float vY;',
-  'varying vec2 vNeb;',
-  'varying float vGalaxy;',
+  'varying vec2 vUv;',
   'varying vec3 vNdc;',
   'void main() {',
   '  float y = clamp(vY * 0.5 + 0.5, 0.0, 1.0);',
   '  vec3 col = mix(uBot, uMid, smoothstep(0.0, 0.58, y));',
   '  col = mix(col, uTop, smoothstep(0.46, 1.0, y));',
-  // 银河尘埃保留淡灰色纹理和暗带。
-  '  float dust = smoothstep(0.25,0.72,vNeb.x)*smoothstep(0.2,0.72,vNeb.y);',
-  '  float lane = 1.0-smoothstep(0.34,0.53,vNeb.y)*0.65;',
-  '  col += (uNeb1*dust*lane + uNeb2*pow(vNeb.y,4.0))*vGalaxy*uNeb;',
+  '  col += texture2D(uGalaxy,vUv).rgb*uNeb;',
   // 暗角：屏幕边缘压暗才有纵深，也让画面中心的造型更跳出来。
   '  vec2 ndc = vNdc.xy / max(1e-4, vNdc.z);',
   '  col *= 1.0 - uVignette * smoothstep(0.28, 1.18, length(ndc * vec2(0.84, 1.0)));',
@@ -121,20 +149,18 @@ const SKY_FRAG = [
   '}',
 ].join('\n');
 
-function makeSkyMaterial(THREE, oct) {
+function makeSkyMaterial(THREE, width) {
   return new THREE.ShaderMaterial({
     uniforms: {
-      uTime: { value: 0 },
       // 近黑夜空，层次来自星点和低亮度尘埃。
       uTop: { value: new THREE.Color(0.006,0.007,0.011) },
       uMid: { value: new THREE.Color(0.010,0.011,0.015) },
       uBot: { value: new THREE.Color(0.003,0.004,0.006) },
-      uNeb1: { value: new THREE.Color(0.10,0.096,0.088) },
-      uNeb2: { value: new THREE.Color(0.042,0.048,0.061) },
+      uGalaxy: { value: galaxyTexture(THREE, width) },
       uNeb: { value: 1.00 },
-      uVignette: { value: 0.54 },
+      uVignette: { value: 0.30 },
     },
-    vertexShader: SKY_VERT(oct),
+    vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
     side: THREE.BackSide,
     depthTest: false,
@@ -202,8 +228,8 @@ const SHAPE_VERT = [
   '    p += vec3(sin(uTime*0.72+aPhase),cos(uTime*0.49+aPhase*1.7),',
   '              sin(uTime*0.55+aPhase*0.6))*0.028*uMotion;',
   '    ahead = p;',
-  '    float shimmer = sin(aShape.x*0.8+aShape.y*0.45-uTime*1.15+aPhase*0.1);',
-  '    vAlpha = 0.72+shimmer*0.16*uMotion;',
+  '    float wave = pow(max(0.0,sin(aShape.x*1.6-uTime*3.1+aSeed*0.8)),12.0);',
+  '    vAlpha = 0.448+wave*1.12*uMotion;',
   '  } else {',
   '    p = flight(k); ahead = flight(min(1.0,k+0.012));',
   '    arc = sin(k*3.14159265);',
@@ -296,19 +322,26 @@ const GLINT_VERT = [
   'attribute float aSize;',
   'attribute float aBright;',
   'attribute float aPhase;',
+  'attribute float aRunner;',
+  'attribute vec3 aTarget;',
   'uniform float uTime;',
   'uniform float uPixelRatio;',
   'uniform float uSizeScale;',
   'uniform float uBrightness;',
   'uniform float uTwinkle;',
+  'uniform float uFlow;',
   'varying float vBright;',
   'void main() {',
-  '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+  '  float runner = step(0.5,aRunner);',
+  '  float progress = fract((uTime-2.15)*0.2-(aRunner-1.0)*0.073);',
+  '  vec3 p = mix(position,aTarget,progress*runner);',
+  '  vec4 mv = modelViewMatrix * vec4(p, 1.0);',
   '  float breath = sin(uTime*(0.42+0.09*sin(aPhase))+aPhase);',
   '  float flare = pow(max(0.0,breath),8.0);',
   '  float tw = 1.0+uTwinkle*(0.20*breath+0.10*flare);',
   '  gl_PointSize = clamp(aSize * uSizeScale * tw * (1.0 / max(1.0, -mv.z)) * uPixelRatio, 1.0, 320.0);',
   '  vBright = aBright*uBrightness*(1.0+uTwinkle*(0.27*sin(uTime*0.44+aPhase)+0.16*flare));',
+  '  vBright *= mix(1.0,uFlow*smoothstep(0.0,0.08,progress)*(1.0-smoothstep(0.92,1.0,progress)),runner);',
   '  gl_Position = projectionMatrix * mv;',
   '}',
 ].join('\n');
@@ -387,6 +420,7 @@ function makeGlintMaterial(THREE, color) {
       uSizeScale: { value: 1 },
       uBrightness: { value: 1 },
       uTwinkle: { value: 1 },
+      uFlow: { value: 1 },
       uColor: { value: new THREE.Color(color) },
     },
     vertexShader: GLINT_VERT,
@@ -427,6 +461,8 @@ function glintGeometry(THREE, pos, size, bright, phase) {
   geo.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
   geo.setAttribute('aBright', new THREE.BufferAttribute(bright, 1));
   geo.setAttribute('aPhase', phase);
+  geo.setAttribute('aRunner', new THREE.BufferAttribute(new Float32Array(size.length), 1));
+  geo.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(pos.length), 3));
   return geo;
 }
 
@@ -438,17 +474,29 @@ export function createWorld(THREE, scene, opts) {
   const sparkleCount = SPARKLE_COUNTS[quality];
   const lowQ = quality === 'low';
   const disposables = [];
+  if (opts.scope) {
+    disposables.push = (...resources) => { resources.forEach(resource => opts.scope.track(resource)); return Array.prototype.push.apply(disposables, resources); };
+  }
+  let activeQuality = quality;
+  function setQuality(mode) {
+    activeQuality = SHAPE_COUNTS[mode] ? mode : quality;
+    scene.traverse(object => {
+      if (!object.isPoints || !object.geometry) return;
+      const total = object.geometry.getAttribute('position').count;
+      object.geometry.setDrawRange(0, Math.max(1, Math.floor(total * Math.min(1, SHAPE_COUNTS[activeQuality] / count))));
+    });
+  }
 
   // =========================================================================
   // 1) 天空穹顶（常驻，不受星云开关影响）
   // =========================================================================
   const skyGeo = new THREE.SphereGeometry(140, lowQ ? 40 : 64, lowQ ? 26 : 40);
-  const skyMat = makeSkyMaterial(THREE, lowQ ? 2 : 4);
+  const skyMat = makeSkyMaterial(THREE, lowQ ? 512 : quality === 'medium' ? 1024 : 2048);
   const sky = new THREE.Mesh(skyGeo, skyMat);
   sky.frustumCulled = false;
   sky.renderOrder = -1000;
   scene.add(sky);
-  disposables.push(skyGeo, skyMat);
+  disposables.push(skyGeo, skyMat, skyMat.uniforms.uGalaxy.value);
 
   // =========================================================================
   // 2) 星场 + 星云斑块 + 星光点缀（背景星云开关控制整组）
@@ -456,6 +504,11 @@ export function createWorld(THREE, scene, opts) {
   const fieldGroup = new THREE.Group();
   scene.add(fieldGroup);
 
+  // Match the sky shader's galactic latitude for every background layer.
+  const galaxyNormal = new THREE.Vector3(0.52, 0.84, 0.16).normalize();
+  const galaxyTangent = new THREE.Vector3(0.84, -0.52, 0).normalize();
+  const galaxyBitangent = new THREE.Vector3().crossVectors(galaxyNormal, galaxyTangent);
+  const galaxyFrame = new THREE.Matrix4().makeBasis(galaxyTangent, galaxyNormal, galaxyBitangent);
   const frnd = seededRandom('zodiac-field-3');
   const fieldPos = new Float32Array(fieldCount * 3);
   const fieldCol = new Float32Array(fieldCount * 3);
@@ -463,26 +516,28 @@ export function createWorld(THREE, scene, opts) {
   const fieldPhase = new Float32Array(fieldCount);
   const fieldAlpha = new Float32Array(fieldCount);
   for (let i = 0; i < fieldCount; i += 1) {
-    const u = frnd() < .48 ? (frnd()+frnd()+frnd()-1.5)*.14 : frnd()*2-1;
+    const inGalaxy = frnd() < .64;
+    const u = inGalaxy ? (frnd()+frnd()+frnd()-1.5)*.23-.20 : frnd()*2-1;
     const t = frnd() * Math.PI * 2;
-    const r = 22 + Math.pow(frnd(), 0.5) * 68;
+    const r = 65 + frnd() * 35;
     const s = Math.sqrt(1 - u * u);
     fieldPos[i * 3] = Math.cos(t) * s * r;
-    fieldPos[i * 3 + 1] = u*r*.8 + Math.cos(t)*s*r*.38;
+    fieldPos[i * 3 + 1] = u*r;
     fieldPos[i * 3 + 2] = Math.sin(t) * s * r;
     // 中性白为主，少量冷暖星点。
-    const tone = 0.50 + frnd() * 0.52;
+    const tone = 0.62 + frnd() * 0.38;
     const pick = frnd();
     fieldCol[i * 3] = tone*(pick>.90 ? 1.0 : pick<.12 ? .8 : .96);
     fieldCol[i * 3 + 1] = tone*(pick>.90 ? .88 : .96);
     fieldCol[i * 3 + 2] = tone*(pick>.90 ? .70 : 1.0);
-    // 尺寸：绝大多数是细砂，少数明显大颗（3 次幂拉开长尾）。
-    fieldSize[i] = .75 + Math.pow(frnd(), 4.0) * 4.0;
+    // A dense bed of pinpoints, with only a few brighter photographic stars.
+    fieldSize[i] = .55 + Math.pow(frnd(), 5.0) * 2.8;
     fieldPhase[i] = frnd() * Math.PI * 2;
-    fieldAlpha[i] = 0.30 + frnd() * 0.66;
+    fieldAlpha[i] = 0.18 + Math.pow(frnd(), 1.8) * 0.72;
   }
   const fieldGeo = softGeometry(THREE, fieldPos,
     softAttrs(THREE, fieldCol, fieldSize, fieldPhase, fieldAlpha));
+  fieldGeo.applyMatrix4(galaxyFrame);
   const fieldMat = makeFieldMaterial(THREE);
   fieldMat.uniforms.uSizeScale.value = 96;
   const fieldPoints = new THREE.Points(fieldGeo, fieldMat);
@@ -493,7 +548,7 @@ export function createWorld(THREE, scene, opts) {
 
   const nrnd = seededRandom('zodiac-nebula-3');
   const nebulaPalette = [
-    [0.22, 0.22, 0.23], [0.27, 0.26, 0.24], [0.18, 0.19, 0.21], [0.24, 0.24, 0.25],
+    [0.26, 0.18, 0.29], [0.29, 0.23, 0.25], [0.19, 0.20, 0.27], [0.26, 0.22, 0.29],
   ];
   const nPos = new Float32Array(NEBULA * 3);
   const nCol = new Float32Array(NEBULA * 3);
@@ -501,12 +556,12 @@ export function createWorld(THREE, scene, opts) {
   const nPhase = new Float32Array(NEBULA);
   const nAlpha = new Float32Array(NEBULA);
   for (let i = 0; i < NEBULA; i += 1) {
-    const u = nrnd() * 2 - 1;
+    const u = (nrnd()+nrnd()+nrnd()-1.5)*.20-.20;
     const t = nrnd() * Math.PI * 2;
     const r = 30 + nrnd() * 48;
     const s = Math.sqrt(1 - u * u);
     nPos[i * 3] = Math.cos(t) * s * r;
-    nPos[i * 3 + 1] = u * r * 0.65;
+    nPos[i * 3 + 1] = u * r;
     nPos[i * 3 + 2] = Math.sin(t) * s * r;
     const c = nebulaPalette[i % nebulaPalette.length];
     const tone = 0.45 + nrnd() * 0.55;
@@ -516,6 +571,7 @@ export function createWorld(THREE, scene, opts) {
     nAlpha[i] = 0.010 + nrnd() * 0.025;
   }
   const nebulaGeo = softGeometry(THREE, nPos, softAttrs(THREE, nCol, nSize, nPhase, nAlpha));
+  nebulaGeo.applyMatrix4(galaxyFrame);
   const nebulaMat = makeFieldMaterial(THREE);
   nebulaMat.uniforms.uSizeScale.value = 120;
   const nebulaPoints = new THREE.Points(nebulaGeo, nebulaMat);
@@ -538,7 +594,7 @@ export function createWorld(THREE, scene, opts) {
     sPos[i * 3 + 1] = u * r * 0.85;
     sPos[i * 3 + 2] = Math.sin(t) * s * r;
     // 大颗的极少：长尾分布，避免「满天都是大星」的廉价感。
-    sSize[i] = 1.65 + Math.pow(srnd(), 3.5) * 7.8;
+    sSize[i] = 1.2 + Math.pow(srnd(), 5.0) * 4.8;
     sBright[i] = 0.34 + srnd() * 0.66;
     sPhase[i] = srnd() * Math.PI * 2;
   }
@@ -652,8 +708,8 @@ export function createWorld(THREE, scene, opts) {
   })();
   const discPhaseAttr = (() => {
     const dr = seededRandom('zodiac-disc-1');
-    const phase = new Float32Array(DISC_SLOTS);
-    for (let i = 0; i < DISC_SLOTS; i += 1) phase[i] = dr() * Math.PI * 2;
+    const phase = new Float32Array(STAR_SLOTS);
+    for (let i = 0; i < STAR_SLOTS; i += 1) phase[i] = dr() * Math.PI * 2;
     return new THREE.BufferAttribute(phase, 1);
   })();
   // 网格顶点亮点的尺寸/亮度：十二座点数固定（FIGURE_MESH_POINTS），跨座共享。
@@ -745,9 +801,9 @@ export function createWorld(THREE, scene, opts) {
     disposables.push(hgeo, cgeo);
 
     // 星座星点
-    const dpos = new Float32Array(DISC_SLOTS * 3);
-    const dsize = new Float32Array(DISC_SLOTS);
-    const dbright = new Float32Array(DISC_SLOTS);
+    const dpos = new Float32Array(STAR_SLOTS * 3);
+    const dsize = new Float32Array(STAR_SLOTS);
+    const dbright = new Float32Array(STAR_SLOTS);
     const n = Math.min(line.nodes, DISC_SLOTS);
     for (let k = 0; k < n; k += 1) {
       dpos[k * 3] = line.x[k];
@@ -759,7 +815,16 @@ export function createWorld(THREE, scene, opts) {
       dbright[k] = 0.55 + line.m[k] * 0.85;
     }
     const dg = glintGeometry(THREE, dpos, dsize, dbright, discPhaseAttr);
-    dg.setDrawRange(0, n);
+    // Link runners share the prebuilt main-star geometry and its render pass.
+    CONSTELLATION[i].lines.forEach(([a,b], k) => {
+      const slot = DISC_SLOTS + k;
+      dpos.set([line.x[a],line.y[a],line.z[a]], slot * 3);
+      dg.getAttribute('aTarget').array.set([line.x[b],line.y[b],line.z[b]], slot * 3);
+      dg.getAttribute('aRunner').array[slot] = k + 1;
+      dsize[slot] = 0.6;
+      dbright[slot] = 0.7;
+    });
+    dg.setDrawRange(0, DISC_SLOTS + line.segments);
     discSets.push(dg);
     disposables.push(dg);
   }
@@ -836,6 +901,7 @@ export function createWorld(THREE, scene, opts) {
     lineHalo.geometry = halos[idx];
     lineCore.geometry = cores[idx];
     discs.geometry = discSets[idx];
+    setQuality(activeQuality);
     return ZODIAC[idx];
   }
 
@@ -873,7 +939,6 @@ export function createWorld(THREE, scene, opts) {
     const bass = c.bass || 0;
     const onset = c.onset || 0;
 
-    skyMat.uniforms.uTime.value = time;
     shapeMat.uniforms.uTime.value = time;
     shapeMat.uniforms.uBoost.value = 1 + bass * 0.6 + onset * 0.8;
     shapeMat.uniforms.uTwinkle.value = reduced ? 0.15 : 1;
@@ -918,11 +983,14 @@ export function createWorld(THREE, scene, opts) {
     discMat.uniforms.uBrightness.value = figAlpha * (1 + onset * 0.35);
     discMat.uniforms.uTime.value = time;
     discMat.uniforms.uTwinkle.value = reduced ? 0.25 : 1;
+    discMat.uniforms.uFlow.value = reduced ? 0.2 : 1;
     // 完全透明时整组跳过绘制：汇聚/散开阶段省掉九次 draw call。
     figureGroup.visible = figAlpha > 0.002;
 
     fieldGroup.rotation.y = time * (reduced ? 0 : 0.0022);
     fieldGroup.position.copy(c.cameraPos || { x: 0, y: 0, z: 0 });
+    sky.rotation.y = fieldGroup.rotation.y;
+    sky.position.copy(fieldGroup.position);
   }
 
   function setFieldVisible(v) { fieldVisible = !!v; fieldGroup.visible = fieldVisible; }
@@ -950,7 +1018,7 @@ export function createWorld(THREE, scene, opts) {
   }
 
   function dispose() {
-    disposables.forEach((d) => { d.dispose(); });
+    if (!opts.scope) disposables.forEach((d) => { d.dispose(); });
     scene.remove(root);
     scene.remove(fieldGroup);
     scene.remove(sky);
@@ -960,6 +1028,6 @@ export function createWorld(THREE, scene, opts) {
   setFieldVisible(true);
 
   return {
-    setSign, update, dispose, stats, setPalette, setPixelRatio, setFieldVisible,
+    setSign, update, dispose, stats, setPalette, setPixelRatio, setFieldVisible, setQuality,
   };
 }

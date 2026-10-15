@@ -170,7 +170,7 @@ export function createOcean() {
   mesh.position.y = SEA_LEVEL;
   mesh.frustumCulled = false;
   mesh.name = 'ocean';
-  return { mesh, uniforms };
+  return { mesh, uniforms, columns: xs.length, rows: zs.length };
 }
 
 // 每帧在 JS 中以双精度计算各波相位（distance 为行驶距离，t 为时间）

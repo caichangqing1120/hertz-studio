@@ -40,16 +40,28 @@ function check(value, message) { assert.ok(value, message); checks++; console.lo
       await page.evaluate(id => window.Skins.apply(id), skin);
       await page.waitForFunction(id => Array.from(document.querySelectorAll('link[data-skin-css]')).some(el => el.dataset.skinCss === id && !el.disabled && el.sheet), skin);
     };
-    for (const skin of ['classic', 'ios']) {
+    for (const skin of ['classic']) {
       await apply(skin);
       check(await toggle.isVisible(), skin + ' exposes sidebar toggle');
+      const queue = page.locator('.rail-item[data-view="queue"]');
+      const library = page.locator('.rail-item[data-view="library"]');
+      const iconCenter = target => target.locator('svg').evaluate(el => { const r = el.getBoundingClientRect(); return (r.left + r.right) / 2; });
+      const chromeless = el => { const cs = getComputedStyle(el); return cs.backgroundColor === 'rgba(0, 0, 0, 0)'
+        && (cs.borderTopWidth === '0px' || cs.borderTopColor === 'rgba(0, 0, 0, 0)'); };
+      check(await toggle.locator('span').isVisible(), skin + ' expanded toggle labels the section');
+      check(Math.abs(await iconCenter(toggle) - await iconCenter(library)) <= 1, skin + ' expanded toggle sits in the navigation icon column');
+      // hover 会给这行铺底色（两套皮肤都有），量基线前先把指针挪开并等过渡走完，
+      // 否则读到的是上一轮点击留下的 hover 态。
+      await page.mouse.move(4, 4);
+      await page.waitForTimeout(350);
+      check(await toggle.evaluate(chromeless), skin + ' expanded toggle carries no topbar chrome');
       const expanded = await width(), before = await columnWidth();
       check(expanded > 140 && await toggle.getAttribute('aria-expanded') === 'true', skin + ' starts expanded');
       await page.screenshot({ path: path.join(output, skin + '-expanded.png') });
       await toggle.click();
       check(await width() <= 76 && await columnWidth() > before + 80, skin + ' collapse gives space to content');
-      check(await toggle.getAttribute('aria-expanded') === 'false' && await toggle.getAttribute('title') === '\u5c55\u5f00\u4fa7\u8fb9\u680f', skin + ' toggle describes expansion');
-      const queue = page.locator('.rail-item[data-view="queue"]');
+      check(await toggle.getAttribute('aria-expanded') === 'false' && await toggle.getAttribute('title') === '展开导航', skin + ' toggle describes expansion');
+      check(!await toggle.locator('span').isVisible() && Math.abs(await iconCenter(toggle) - await iconCenter(queue)) <= 1, skin + ' collapsed toggle stays in the icon column');
       check(!await queue.locator('span').isVisible() && !!await queue.getAttribute('title'), skin + ' collapsed navigation keeps icon labels');
       await queue.click();
       check(await queue.evaluate(el => el.classList.contains('active')) && await page.locator('#view-queue').isVisible(), skin + ' collapsed navigation works');
@@ -72,12 +84,8 @@ function check(value, message) { assert.ok(value, message); checks++; console.lo
       await page.setViewportSize({ width: 1440, height: 900 });
       check(await width() <= 76, skin + ' manual collapse survives resize');
     }
-    await page.setViewportSize({ width: 390, height: 844 });
-    check(!await toggle.isVisible() && await page.locator('.rail-item[data-view="queue"] span').isVisible(), 'OS mobile keeps horizontal navigation');
-    await page.screenshot({ path: path.join(output, 'ios-mobile.png') });
-    await page.setViewportSize({ width: 1440, height: 900 });
-    check(await width() <= 76, 'OS returns to collapsed desktop');
-    await toggle.click();
+    // OS风已下架（隐藏），手机端那套横向导航不再是用户能落到的状态，这里只留
+    // 「每套皮肤各记各的收起偏好」这条仍然成立的判据。
     await apply('classic');
     check(await width() <= 76, 'classic remembers its own collapsed preference');
     await apply('ios');

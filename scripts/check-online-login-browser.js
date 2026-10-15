@@ -180,12 +180,12 @@ async function main() {
     const dead = await browser.newPage({ viewport: { width: 900, height: 760 } });
     await dead.setContent('<span id="online-account-face"></span><span id="online-account-dot"></span>' + html.slice(from, to));
     await dead.evaluate(() => {
-      window.polls = 0;
+      window.polls = 0; window.allowRejected = false;
       window.VMusicTransport = {
         async get(url) {
           if (url.endsWith('/sources')) return { sources: [{ id: 'qishui', label: '汽水音乐', caps: ['cookie_login', 'qr_login'] }] };
           if (url.includes('/account?')) throw { status: 401, code: 'auth_required', message: '未登录' };
-          if (url.includes('/qr/poll')) { window.polls += 1; return { state: window.polls === 1 ? 'waiting' : 'rejected' }; }
+          if (url.includes('/qr/poll')) { window.polls += 1; return { state: window.allowRejected ? 'rejected' : 'waiting' }; }
           return {};
         },
         async put() {},
@@ -201,7 +201,8 @@ async function main() {
     await dead.waitForFunction(() => window.polls >= 1);
     assert.match(await dead.locator('#qr-status').textContent(), /汽水音乐 App/,
       '扫码提示要指到真正能完成授权的 App：抖音只会回「请用汽水音乐 App 扫码」');
-    await dead.waitForFunction(() => window.polls >= 2);
+    await dead.evaluate(() => { window.allowRejected = true; });
+    await dead.waitForFunction(() => document.getElementById('qr-status').textContent.includes('cookie'));
     const rejected = await dead.locator('#qr-status').textContent();
     assert.match(rejected, /cookie/, '上游拒绝后要把用户指向 cookie 导入：' + rejected);
     const after = await dead.evaluate(() => window.polls);

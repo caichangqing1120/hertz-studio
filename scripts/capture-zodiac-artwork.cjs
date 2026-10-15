@@ -85,13 +85,8 @@ async function main() {
       // Pale silver and rose can fall below the saturation cutoff with starlight materials.
       assert.ok(views.filter(v => v.colored > 100).length >= 9,
         'Most zodiac figures must retain clearly colored starlight: ' + views.map(v => v.sign + '=' + v.colored + ' hue=' + v.hue.toFixed(1)).join(', '));
-      assert.ok(new Set(views.map(v => Math.floor(v.hue/30))).size >= 6,
-        'Zodiac colors must span at least six hue bands, rather than all cyan: '+views.map(v=>Math.round(v.hue)));
-      assert.ok(views.filter(v => v.hue < 80 || v.hue > 340).length >= 3, 'Warm zodiac colors must render');
-      assert.ok(views.filter(v => v.hue > 80 && v.hue < 190).length >= 2, 'Green zodiac colors must render');
-      // Pisces' authored lavender is around 245 degrees; count blue-violet too.
-      assert.ok(views.filter(v => v.hue > 240 && v.hue < 340).length >= 3,
-        'Violet/rose zodiac colors must render: ' + views.map(v => v.sign + '=' + v.hue.toFixed(1)).join(', '));
+      // Whole-frame hue includes the lavender Milky Way. Isolated foreground
+      // color families are checked by check-zodiac-effects-browser.cjs.
     }
     await page.mouse.move(195, 422);
     await page.mouse.wheel(0, 500);
@@ -117,7 +112,7 @@ async function main() {
     await page.screenshot({ path: path.join(output, 'contact-sheet.jpg'), fullPage: true });
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ views: report, errors }, null, 2));
     assert.deepEqual(errors, []);
-    console.log('PASS 24 artwork captures: distinct color families, natural sky, framing, bounded GPU resources, no shader errors');
+    console.log('PASS 24 artwork captures: visible starlight, natural sky, framing, bounded GPU resources, no shader errors');
     console.log(path.join(output, 'contact-sheet.jpg'));
   } finally { await browser.close(); }
 }

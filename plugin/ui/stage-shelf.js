@@ -45,11 +45,16 @@
     return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
   }
 
-  function StageShelf(root) {
-    var plane = root.querySelector('#s3d-shelf-plane');
+  function StageShelf(root, options) {
+    options = options || {};
+    var plane = root.querySelector('.s3d-shelf-plane');
     if (!plane) return null;
 
     var Stage = global.Stage;
+    var gateId = options.gateId || 'stage3d-shelf';
+    function chromeVisible() {
+      return options.isVisible ? options.isVisible() : root.classList.contains('s3d-chrome');
+    }
 
     // ---- 状态
     var items = [];                 // 完整队列，顺序与队列面板一致
@@ -92,7 +97,7 @@
     }
 
     function canRender() {
-      if (!active || mode === 'off' || !items.length || document.hidden || !root.classList.contains('s3d-chrome')) return false;
+      if (!active || mode === 'off' || !items.length || document.hidden || !chromeVisible()) return false;
       // 与窄屏 CSS 一致：队列展开时架子完全隐藏；设置面板仍保留实时预览。
       return !(narrowScreen && narrowScreen.matches && root.classList.contains('s3d-queue-open'));
     }
@@ -121,7 +126,7 @@
       var el = document.createElement('div');
       el.className = 's3d-sc';
       el.setAttribute('role', 'button');
-      el.setAttribute('tabindex', '-1');
+      el.setAttribute('tabindex', options.keyboard ? '0' : '-1');
       el.dataset.id = item.id;
       el.innerHTML =
         '<div class="s3d-sc-sheen" aria-hidden="true"></div>' +
@@ -162,6 +167,7 @@
       setText(el, '.s3d-sc-sub', item.artist || '未知艺术家');
       setText(el, '.s3d-sc-meta', item.album || (item.duration ? fmtDuration(item.duration) : ''));
       el.classList.toggle('is-current', !!item.playing);
+      if (global.Online) global.Online.syncVipTag(el.querySelector('.s3d-sc-cover'), item);
       syncCover(el, item.cover);
     }
 
@@ -171,6 +177,7 @@
       setText(el, '.s3d-sc-title', item.title || '未知曲目');
       setText(el, '.s3d-sc-sub', item.artist || '未知艺术家');
       el.classList.toggle('is-current', !!item.playing);
+      if (global.Online) global.Online.syncVipTag(el.querySelector('.s3d-sc-cover'), item);
       syncCover(el, item.cover);
     }
 
@@ -255,13 +262,17 @@
         down = null;
         // 同上：没捕获成功就没有要释放的，忽略即可。
         try { el.releasePointerCapture(e.pointerId); } catch (_) {}
-        if (cancelled || moved > CLICK_THRESHOLD || browseBands !== 0) return;
+        if (cancelled || blocked || !canRender() || moved > CLICK_THRESHOLD || browseBands !== 0) return;
         onCardTap(id);
       }
 
       el.addEventListener('pointerup', function (e) { finish(e, false); });
       el.addEventListener('pointercancel', function (e) { finish(e, true); });
       el.addEventListener('lostpointercapture', function (e) { finish(e, true); });
+      el.addEventListener('keydown', function (e) {
+        if (!canRender() || blocked || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault(); e.stopPropagation(); onCardTap(id);
+      });
       el._cancelDrag = function () { if (down) finish({ pointerId: down.id }, true); };
 
       el.addEventListener('mouseenter', function () { hoverId = id; });
@@ -324,7 +335,7 @@
     // ---- 数据 --------------------------------------------
 
     function setItems(list) {
-      if (!root.classList.contains('s3d-chrome')) clearDying();
+      if (!chromeVisible()) clearDying();
       var oldIndex = currentIndex();
       var oldCurrent = items[oldIndex];
       var oldBrowse = items[oldIndex + browseIndex];
@@ -375,7 +386,7 @@
         if (nextIds.has(id)) return;
         if (el._cancelDrag) el._cancelDrag();
         // 滚出窗口直接回收；真正离队的卡片才演出退出动画。
-        if (indexOfId(id) >= 0 || !active || blocked || document.hidden || !root.classList.contains('s3d-chrome') || mode === 'off' || reducedMotion()) {
+        if (indexOfId(id) >= 0 || !active || blocked || document.hidden || !chromeVisible() || mode === 'off' || reducedMotion()) {
           if (el.parentNode) el.parentNode.removeChild(el);
         } else {
           el._pose.dead = now;
@@ -647,6 +658,7 @@
       root.classList.toggle('s3d-shelf-on', on);
       root.setAttribute('data-shelf-mode', mode);
       plane.hidden = !on;
+      plane.inert = !on || blocked;
       // 只有舞台开合 / 模式切换才整排重跑召唤 stagger；切歌重推队列不重播，
       // 否则换歌瞬间整排卡片都会重新滑入，和封面流横移互相打架。
       if (on && respawn) {
@@ -667,6 +679,7 @@
       clearWindow();
       root.classList.remove('s3d-shelf-on');
       plane.hidden = true;
+      plane.inert = true;
     }
 
     function setMode(next) {
@@ -683,6 +696,7 @@
       blocked = !!on;
       if (blocked) { cancelDrags(); clearDying(); }
       root.classList.toggle('s3d-shelf-blocked', blocked);
+      plane.inert = blocked || !active || mode === 'off';
       if (!blocked && active && Stage && Stage.kick) Stage.kick();
     }
 
@@ -716,7 +730,7 @@
       hide();
       window.removeEventListener('blur', cancelDrags);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      if (Stage && Stage.removeGate) Stage.removeGate('stage3d-shelf');
+      if (Stage && Stage.removeGate) Stage.removeGate(gateId);
       root.removeEventListener('wheel', onWheelCapture, true);
       document.removeEventListener('pointermove', onPointerTrack, true);
       plane.innerHTML = '';
@@ -736,7 +750,7 @@
       plane.hidden = true;
       root.addEventListener('wheel', onWheelCapture, true);
       document.addEventListener('pointermove', onPointerTrack, { passive: true, capture: true });
-      if (Stage && Stage.gate) Stage.gate('stage3d-shelf', gateFps, frame);
+      if (Stage && Stage.gate) Stage.gate(gateId, gateFps, frame);
     }
 
     return {
@@ -751,6 +765,7 @@
 
   var api = null;
   global.StageShelf = {
+    create: StageShelf,
     init: function (root) {
       if (!api) api = StageShelf(root);
       return api;

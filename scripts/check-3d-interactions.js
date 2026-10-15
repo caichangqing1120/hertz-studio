@@ -89,7 +89,8 @@ const cardState = load('stage-shelf.js', ['bindCard', 'onWheelCapture'], {
   active: true, blocked: false, mode: 'side', CLICK_THRESHOLD: 10, items: [1, 2],
   hoverId: null, lastWheelAt: 0, WHEEL_COOLDOWN_MS: 180,
   plane: { contains: node => node === card },
-  nudgeBrowse: delta => nudges.push(delta), onCardTap: id => taps.push(id)
+  nudgeBrowse: delta => nudges.push(delta), onCardTap: id => taps.push(id),
+  canRender: () => true
 });
 const card = surface();
 cardState.bindCard(card, 'song');
@@ -119,7 +120,8 @@ cardState.onWheelCapture(pointer({ target: { closest: () => card }, deltaX: 40, 
 check(prevented === 1 && nudges.at(-1) === 1, 'horizontal wheel browses actual card');
 
 let chromeVisible = false;
-const shelfGate = load('stage-shelf.js', ['canRender', 'gateFps'], {
+const shelfGate = load('stage-shelf.js', ['chromeVisible', 'canRender', 'gateFps'], {
+  options: {},
   active: true, mode: 'side', blocked: false, items: [1], document: { hidden: false },
   narrowScreen: { matches: false },
   root: { classList: { contains: () => chromeVisible } }, reducedMotion: () => false,

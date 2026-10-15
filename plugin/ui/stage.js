@@ -1480,8 +1480,10 @@
 
     // 三维歌词场景的只读快照：行数组（{start_ms,text}）+ 当前行号。
     // 行号在歌词未定位时给 0，由消费方自行处理无歌词占位。
-    lyrics: function () {
-      return doc ? { lines: doc.lines, index: activeIdx < 0 ? 0 : activeIdx } : null;
+    lyrics: function (position) {
+      // Occluded DOM lyrics stop ticking; readers still resolve against playback time.
+      return doc ? { lines: doc.lines, index: Math.max(0, rawIndex(doc,
+        Number.isFinite(position) ? position : currentPos())) } : null;
     },
 
     // stanza 歌词模式：翻译行与每曲偏移（数据已在 doc 内，只读暴露，不复制）。

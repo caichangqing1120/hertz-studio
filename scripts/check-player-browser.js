@@ -90,8 +90,7 @@ async function ready(page) {
   }
 }
 
-async function scrollSurface(page, selector, message) {
-  const surface = page.locator(selector);
+async function scrollSurface(page, selector, message) {  const surface = page.locator(selector);
   await surface.evaluate(element => { element.scrollTop = 0; });
   const box = await surface.boundingBox();
   assert.ok(box && box.height > 60, message + ' has a visible scroll area');
@@ -102,12 +101,20 @@ async function scrollSurface(page, selector, message) {
   await surface.evaluate(element => { element.scrollTop = 0; });
 }
 
+// 顶栏的设置齿轮在经典/浮光/潮汐/黑胶/iOS 里被皮肤摘掉了（导航里已有同一入口），
+// 所以开设置要点当前皮肤里可见的那一颗。
+async function openSettings(page) {
+  const gear = page.locator('#settings-entry');
+  if (await gear.isVisible()) await gear.click();
+  else await page.locator('.rail-item[data-view="settings"]').click();
+}
+
 async function skins(page) {
   for (const skin of ['classic', 'sheen', 'workbench', 'liunian']) {
     for (const [width, height] of [[1440, 900], [1024, 700], [390, 844], [320, 640]]) {
       await page.setViewportSize({ width, height });
       await page.evaluate(value => Skins.apply(value), skin);
-      await page.locator('#settings-entry').click();
+      await openSettings(page);
       const label = `${skin} ${width}x${height}`;
       const owner = await page.locator('#view-settings').evaluate(element => {
         for (let node = element; node; node = node.parentElement) {
@@ -134,7 +141,7 @@ async function skins(page) {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => Skins.apply('classic'));
-  await page.locator('#settings-entry').click();
+  await openSettings(page);
   const settings = page.locator('#view-settings');
   const box = await settings.boundingBox();
   await page.mouse.move(box.x + box.width - 8, box.y + 24);
@@ -303,7 +310,7 @@ async function appearance(page, tracks) {
   await api('POST', '/v1/player/load', { track_id: tracks[0].id, queue: tracks.slice(0, 4).map(track => track.id) });
   await ready(page);
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--music-highlight'));
-  await page.locator('#settings-entry').click();
+  await openSettings(page);
   await page.locator('#set-cover-follow').uncheck();
   await until(() => api('GET', '/v1/settings'), value => value.cover_follow === false, 'cover preference saved');
   check(await page.evaluate(() => !document.documentElement.style.getPropertyValue('--music-highlight')
@@ -313,7 +320,7 @@ async function appearance(page, tracks) {
   await page.waitForFunction(() => !document.getElementById('set-cover-follow').checked);
   check(await page.evaluate(() => !document.documentElement.style.getPropertyValue('--music-highlight')
     && !document.getElementById('ambient').classList.contains('has-art')), 'cover follow preference survives refresh');
-  await page.locator('#settings-entry').click();
+  await openSettings(page);
   await page.locator('#set-cover-follow').check();
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--music-highlight'));
   check(true, 'cover follow re-enables without changing track');

@@ -271,6 +271,10 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="chaoxi"] .rail {
   padding-inline: var(--skin-pad);
 }
 
+/* 顶部导航末尾已经有「设置」条目，顶栏齿轮是同一个目标的第二份，摘掉（ios/orbit 同款）。
+   只藏不删：节点与 app.js 的 ui.settingsEntry 引用留着，快捷键 4 仍能开设置。 */
+[data-skin="chaoxi"] #settings-entry { display: none; }
+
 /* --- 晴空一族（glass / cel）下：顶栏/导航保持「通栏扁平条」，别变成浮卡 -- */
 /* 晴空族在 anime-ui.css 里把 .topbar/.rail/.column 统一画成 16px 圆角 + 整圈
    描边 + 阴影的**浮起卡片**（选择器 html:is([data-look=…]) :is(...) 特异性

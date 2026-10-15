@@ -154,11 +154,11 @@
 [data-skin="ios"] .topsearch:focus-within { outline: 2px solid var(--brand); outline-offset: 2px; box-shadow: none; }
 [data-skin="ios"] .topsearch input:focus-visible { outline: none; }
 @media (hover: hover) {
-  [data-skin="ios"] :is(.btn, .iconbtn, .btn-pill, .rail-item):hover:not(:disabled):not([aria-disabled="true"]) { background: var(--field-bg-hover); transform: none; }
+  [data-skin="ios"] :is(.btn, .iconbtn, .btn-pill, .rail-item, .rail-toggle):hover:not(:disabled):not([aria-disabled="true"]) { background: var(--field-bg-hover); transform: none; }
   [data-skin="ios"] .btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.06); }
   [data-skin="ios"] .rail-item.active:hover { background: var(--ios-selected); }
 }
-[data-skin="ios"] :is(.btn, .iconbtn, .btn-pill, .rail-item, .ctrl):active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.97); transition-duration: 80ms; }
+[data-skin="ios"] :is(.btn, .iconbtn, .btn-pill, .rail-item, .rail-toggle, .ctrl):active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.97); transition-duration: 80ms; }
 [data-skin="ios"] :is(button, [role="button"]):is(:disabled, [aria-disabled="true"]) { opacity: .42; cursor: default; transform: none; filter: none; box-shadow: none; }
 
 /* 设置分组：inset 分隔线；焦点环不被 overflow:hidden 切掉。 */

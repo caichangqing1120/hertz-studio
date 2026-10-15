@@ -321,6 +321,10 @@ html:is([data-look="glass"], [data-look="cel"])[data-skin="heijiao"] .rail {
 /* 横向栏里没有"把设置顶到底部"这回事，弹簧没有意义。 */
 [data-skin="heijiao"] .rail-spacer { display: none; }
 
+/* 抽屉末尾已经有「设置」条目，顶栏齿轮是同一个目标的第二份，摘掉（ios/orbit 同款）。
+   只藏不删：节点与 app.js 的 ui.settingsEntry 引用留着，快捷键 4 仍能开设置。 */
+[data-skin="heijiao"] #settings-entry { display: none; }
+
 /* 顶栏：左右内距与内容外壳同源，别再各留各的（否则 logo 左缘比下方内容卡
    各探出 8px，用户看到的"顶部和下面没对齐"就是这个）。 */
 [data-skin="heijiao"] .topbar {

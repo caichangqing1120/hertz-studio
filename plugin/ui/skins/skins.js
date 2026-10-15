@@ -59,6 +59,10 @@
       // 'ios'（持久化键 vmusic.skin 靠它，改名只动这一处）。
       name: 'OS风',
       note: 'macOS 式侧栏与工具栏、iOS 分组列表；小屏横向导航，支持浅色与深色主题',
+      // 隐藏：与经典是同一套读法（侧栏 + 全宽内容 + 底栏），两边走下来重叠的
+      // 控件（如侧栏收起）就得在两个地方各改一遍。定义与 CSS 都留着，
+      // 已设成它的老用户开页回落经典；排障仍可 apply('ios')。
+      hidden: true,
     },
     {
       id: 'qingfeng',
@@ -98,7 +102,7 @@
     document.documentElement.setAttribute('data-rail-state', supported ? state : '');
     button.hidden = !supported || (id === 'ios' && window.innerWidth <= 620);
     button.setAttribute('aria-expanded', String(state === 'expanded'));
-    var label = state === 'expanded' ? '收缩侧边栏' : '展开侧边栏';
+    var label = state === 'expanded' ? '收缩导航' : '展开导航';
     button.setAttribute('aria-label', label);
     button.title = label;
   }

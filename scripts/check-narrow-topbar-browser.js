@@ -60,7 +60,9 @@ function check(condition, label, details) {
         check(geometry.app.y >= geometry.topbar.bottom - 1, label + ' content below header', geometry);
         for (const b of geometry.buttons) {
           // Qingfeng exposes these actions through its own toolbar/menu.
-          if (b.w === 0 && (skin === 'qingfeng' || (skin === 'ios' && b.id === 'settings-entry') ||
+          // 经典/浮光/潮汐/黑胶与 iOS 一样把顶栏设置齿轮摘了（导航里已有同一入口）。
+          if (b.w === 0 && (skin === 'qingfeng' ||
+            (['ios', 'classic', 'sheen', 'chaoxi', 'heijiao'].includes(skin) && b.id === 'settings-entry') ||
             (skin === 'sheen' && b.id === 'skin-btn' && width <= 1100))) continue;
           check(b.w >= 30 && b.h >= 32 && b.x >= 0 && b.right <= width && b.hit,
             label + ' button reachable', b);

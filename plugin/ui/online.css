@@ -7,6 +7,49 @@
 .qr-modal{position:fixed;inset:0;z-index:100;display:flex;align-items:center;
   justify-content:center;background:rgba(4,5,7,.62);backdrop-filter:blur(6px)}
 .qr-modal[hidden]{display:none}
+.qr-space { position:absolute; background:rgba(0,0,0,.25); backdrop-filter:blur(4px); color:var(--sp-text); }
+.qr-space .qr-card { box-sizing:border-box; display:flex; flex-direction:column; width:min(960px,calc(100% - 48px)); max-width:none; max-height:calc(100% - 48px); overflow:hidden; padding:52px 0 0; border-radius:8px; text-align:left; background:var(--sp-glass-strong); border-color:var(--sp-line); box-shadow:0 24px 56px rgba(0,0,0,.22); backdrop-filter:blur(32px); animation:qs-reveal .4s var(--sp-ease); }
+.qr-space .qr-close { z-index:2; top:8px; right:12px; }
+.qs-scroll { min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:0 34px 34px; }
+.qs-graph { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:120px; align-items:center; min-height:270px; padding:20px 0 28px; }
+.qs-links { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.qs-links path { fill:none; stroke:var(--sp-accent); stroke-width:2; opacity:.65; }
+.qs-links .qs-link { stroke-dasharray:1; }
+.qs-links .qs-signal { stroke:var(--sp-text); stroke-width:2.5; stroke-dasharray:5 28; opacity:.85; animation:qs-flow 1.8s linear infinite; }
+.qs-drag { stroke-dasharray:5 5; animation:qs-flow 1s linear infinite; }
+.qs-graph.is-dragging .qs-link, .qs-graph.is-dragging .qs-signal { opacity:.2; }
+.qs-graph.is-drop-target .qs-hub { border-color:var(--sp-accent); background:var(--sp-line-soft); transform:translateY(-3px); }
+.qs-graph.is-connected .qs-in, .qr-space .qr-source.active .qs-out { background:var(--sp-accent); box-shadow:0 0 12px color-mix(in srgb,var(--sp-accent) 55%,transparent); }
+.qr-space .qr-sources { position:relative; display:grid; grid-template-columns:minmax(0,1fr); gap:10px; margin:0; }
+.qr-space .qr-source { position:relative; display:flex; align-items:center; gap:12px; text-align:left; width:100%; min-height:52px; height:auto; padding:12px 20px; border-radius:8px; background:var(--sp-glass); color:var(--sp-text); border:1px solid var(--sp-line); font-size:14px; }
+.qr-space .qr-source.active { border-color:var(--sp-accent); box-shadow:inset 0 1px 8px var(--sp-line-soft); }
+.qs-port { position:absolute; width:12px; height:12px; border:2px solid var(--sp-accent); border-radius:50%; background:var(--bg); top:50%; transform:translateY(-50%); }
+.qs-out { right:-7px; cursor:crosshair; touch-action:none; }
+.qs-in { left:-7px; }
+.qs-hub { position:relative; display:flex; flex-direction:column; align-items:center; padding:28px 16px 20px; border:1px solid var(--sp-line); border-radius:8px; background:var(--sp-glass); transition:transform .25s var(--sp-ease),border-color .25s,background .25s; }
+.qs-hub-mark { color:var(--sp-accent); font-size:32px; font-weight:700; margin-bottom:12px; }
+.qs-hub strong { font-size:16px; font-weight:600; }
+.qs-connection { display:block; color:var(--sp-muted); font-size:11px; margin-top:8px; }
+.qs-modes { display:flex; gap:8px; margin-top:24px; }
+.qs-modes button, .qs-actions button { padding:9px 16px; border:1px solid var(--sp-line); border-radius:6px; background:transparent; color:var(--sp-text); font:inherit; font-size:12px; cursor:pointer; }
+.qs-modes button[aria-pressed="true"], .qs-actions .qs-connect { background:var(--sp-line-soft); color:var(--sp-accent); border-color:var(--sp-accent); }
+.qs-modes button:disabled { opacity:.35; cursor:default; }
+.qs-drawer { border-top:1px solid var(--sp-line); padding:22px 0 0; animation:qs-reveal .35s var(--sp-ease); }
+.qr-space .qr-title { text-align:left; font-size:18px; color:var(--sp-text); letter-spacing:0; }
+.qr-space .qr-status { color:var(--sp-muted); font-size:12px; margin-top:12px; }
+.qr-space .qr-canvas { justify-content:flex-start; min-height:0; margin:16px 0; }
+.qr-space .qr-channels { justify-content:flex-start; }
+.qr-space .qr-cookie-fallback { max-width:none; color:var(--sp-text); }
+.qr-space .qr-cookie-fallback summary { display:none; }
+.qr-space .qr-cookie-fallback textarea { min-height:90px; }
+.qs-actions { display:flex; justify-content:space-between; gap:12px; margin-top:22px; }
+@keyframes qs-reveal { from {opacity:0;transform:translateY(12px)} to {opacity:1;transform:translateY(0)} }
+@keyframes qs-flow { to { stroke-dashoffset:-66; } }
+@media(max-width:640px) { .qr-space .qr-card { width:calc(100% - 24px);max-height:calc(100% - 24px); } .qs-scroll {padding:0 20px 22px} .qs-graph { gap:32px;min-height:220px;padding-top:0; } .qr-space .qr-source { min-height:44px;padding:10px;font-size:12px; } .qs-hub { padding:20px 8px 16px; } .qs-hub strong {font-size:12px} .qs-modes {flex-direction:column;width:100%;margin-top:14px} .qs-modes button {padding:7px} .qs-hub-mark {font-size:26px} }
+@media(prefers-reduced-motion:reduce) { .qr-space .qr-card, .qs-drawer, .qs-links path {animation:none} .qs-hub {transition:none} .qs-graph.is-drop-target .qs-hub {transform:none} .qs-links .qs-signal {display:none} }
+body:is(.reduce-motion,[data-rm~="ui"]) .qs-links path, body:is(.reduce-motion,[data-rm~="ui"]) .qs-drawer { animation:none; }
+body:is(.reduce-motion,[data-rm~="ui"]) .qs-signal { display:none; }
+body:is(.reduce-motion,[data-rm~="ui"]) .qs-hub { transition:none; transform:none; }
 
 /* 弹窗打开时隔离背景：.app 整体不可见也不可点（仍占位，不引起跳动）。
    这是 modal 的标准隔离，能杜绝页面内任何动画/transform 元素穿透遮挡。 */
@@ -23,8 +66,10 @@ html.qr-modal-open .app{visibility:hidden}
 .qr-close{position:absolute;top:6px;right:8px;width:36px;height:36px;
   display:flex;align-items:center;justify-content:center;
   border:0;border-radius:50%;background:transparent;
-  font-size:24px;line-height:1;cursor:pointer;color:var(--text,#eee)}
-.qr-close:hover{background:rgba(255,255,255,.08);opacity:.85}
+  font-size:24px;line-height:1;cursor:pointer;color:var(--text,#eee);
+  transition:transform .25s ease,background .2s,opacity .2s}
+.qr-close:hover{background:rgba(255,255,255,.08);opacity:.85;transform:rotate(90deg)}
+@media(prefers-reduced-motion:reduce){.qr-close{transition:none}.qr-close:hover{transform:none}}
 .qr-canvas{margin:14px auto;min-height:180px;display:flex;align-items:center;
   justify-content:center}
 .qr-canvas svg,.qr-canvas img{width:180px;height:180px;border-radius:8px;background:#fff;padding:6px}
@@ -168,6 +213,7 @@ html.qr-modal-open .app{visibility:hidden}
   color:#3a2a00;background:linear-gradient(135deg,#f5d97b,#e0b53f);letter-spacing:1px}
 
 .online-row .t-quality{display:flex;align-items:center;gap:6px}
+.s3d-sc-cover > .vip-tag{position:absolute;right:6px;bottom:6px;z-index:2;margin:0;letter-spacing:0}
 
 /* Progressive search keeps provider progress separate from the song list. */
 .search-summary{padding:12px 4px;color:var(--muted);font-size:12px;line-height:1.6}

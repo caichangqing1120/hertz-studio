@@ -33,6 +33,8 @@ const OVERLAY_HTML: &str = include_str!("../../../plugin/ui/overlay.html");
 //
 // 这张表只负责「名字 → 字节」。哪张配哪套主题、标签叫什么、亮度多少，全部
 // 归 theme-studio.js 管——那些是观感问题，改配色不该动 Rust。
+mod space_previews;
+
 const WALLPAPERS: &[(&str, &[u8])] = &[
     (
         "celestial-sky.jpg",
@@ -154,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(ui_asset_router())
         .route("/wallpapers/{name}", get(wallpaper))
         .route("/platform-icons/{name}", get(platform_icon))
+        .route("/space-scene-preview/{name}", get(space_preview))
         .route(
             "/",
             get({
@@ -568,9 +571,22 @@ async fn wallpaper(Path(name): Path<String>) -> axum::response::Response {
     }
 }
 
-/// 平台徽标字节出口。与壁纸同一套白名单寻址：名字查不到就是 404，
-/// `{name}` 只匹配单段路径，穿越既到不了磁盘也不在表里。图标按音源 id
-/// 命名、内容不可变，缓存策略与壁纸一致（immutable）。
+/// Registered scene screenshots are embedded and refreshed with the application.
+async fn space_preview(Path(name): Path<String>) -> axum::response::Response {
+    match space_previews::PREVIEWS.iter().find(|(n, _)| *n == name) {
+        Some((_, bytes)) => (
+            [
+                (axum::http::header::CONTENT_TYPE, "image/jpeg"),
+                (axum::http::header::CACHE_CONTROL, "no-cache"),
+            ],
+            *bytes,
+        )
+            .into_response(),
+        None => (axum::http::StatusCode::NOT_FOUND, "no such scene preview").into_response(),
+    }
+}
+
+/// 平台徽标白名单出口，内容不可变，缓存策略与壁纸一致。
 async fn platform_icon(Path(name): Path<String>) -> axum::response::Response {
     match PLATFORM_ICONS.iter().find(|(n, _)| *n == name) {
         Some((_, bytes)) => (

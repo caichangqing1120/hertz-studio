@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="creative.css">
 <link rel="stylesheet" href="stage3d.css">
 <link rel="stylesheet" href="space3d.css">
+<link rel="stylesheet" href="space-home.css">
 <link rel="stylesheet" href="space-layers.css">
 <!-- 动画绘景 SVG 舞台层：画稿与关键帧在 creative-anime.css，这里只管舞台集成侧。
      新层排在舞台基础层之后，同特异性争议整块胜出。 -->
@@ -60,6 +61,7 @@
 <link rel="stylesheet" href="skins/skin.qingfeng.css" data-skin-css="qingfeng" disabled>
 <link rel="stylesheet" href="skins/skin.chaoxi.css" data-skin-css="chaoxi" disabled>
 <link rel="stylesheet" href="skins/skin.heijiao.css" data-skin-css="heijiao" disabled>
+<link rel="stylesheet" href="skins/skin.orbit.css" data-skin-css="orbit" disabled>
 </head>
 <body>
 <script>
@@ -118,6 +120,11 @@
     <circle cx="5" cy="9.5" r="2.5"/><circle cx="19" cy="8.5" r="2.5"/>
     <circle cx="12" cy="14.5" r="2.5" fill="currentColor" stroke="none"/>
   </symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 9V3H8v6l-2 3v2h12v-2l-2-3M12 14v7"/></symbol>
+  <symbol id="i-lyrics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18V5l5-1v13M3 6h9M3 10h9M3 14h5"/><circle cx="14" cy="18" r="2"/><circle cx="19" cy="17" r="2"/></symbol>
+  <symbol id="i-fullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5"/></symbol>
+  <symbol id="i-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.48M7.76 16.24a6 6 0 0 1 0-8.48M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></symbol>
+  <symbol id="i-rss" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="12" cy="7.5" r="3.5"/>
     <path d="M5 20v-1c0-3 3.1-5.5 7-5.5s7 2.5 7 5.5v1Z"/>
@@ -225,6 +232,9 @@
     <circle cx="14" cy="13.5" r="1.7" fill="currentColor" stroke="none"/>
     <circle cx="19.5" cy="5.5" r="1.7" fill="currentColor" stroke="none"/>
   </symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m12 19-7-7 7-7M5 12h14"/>
+  </symbol>
   <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
     <!-- 整体右移 1：原图形贴到 x=0，在一排居中绘制的图标里会明显偏左。 -->
@@ -243,6 +253,9 @@
           stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 2.6l8.1 4.7v9.4L12 21.4 3.9 16.7V7.3z"/>
     <path d="M12 12l8.1-4.7M12 12v9.4M12 12L3.9 7.3"/>
+  </symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1Z"/>
   </symbol>
   <!-- 三维空间：星环轨道。独立于 i-cube（沉浸声场）——两枚按钮在顶栏相邻，
        复用符号会出现两个一样立方体；i-orbit 已被「自动 360° 环转」占用。 -->
@@ -411,8 +424,9 @@
 
   <!-- 导航轨：四个一级目的地，选中态常驻，不再依赖记忆 -->
   <nav class="rail" id="rail" aria-label="主导航">
-    <button type="button" class="iconbtn rail-toggle" id="rail-toggle" aria-label="收缩侧边栏" title="收缩侧边栏" aria-controls="rail" aria-expanded="true" hidden>
+    <button type="button" class="rail-toggle" id="rail-toggle" aria-label="收缩导航" title="收缩导航" aria-controls="rail" aria-expanded="true" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+      <span>导航</span>
     </button>
     <button class="rail-item active" data-view="library" aria-label="曲库">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-library"/></svg>
@@ -2095,6 +2109,7 @@
 <!-- 黑胶同款：唱片卡的歌词展开 + 唱片拖转旋钮。必须在 app.js 初始化
      皮肤宿主之前加载（registerLifecycle 要先于 Skins.init）。 -->
 <script defer src="skins/skin.heijiao.js"></script>
+<script defer src="skins/skin.orbit.js"></script>
 <script defer src="themes.js"></script>
 <script defer src="anime-interactions.js"></script>
 <script defer src="perf-probe.js"></script>
@@ -2143,88 +2158,105 @@
 <script defer src="stanza/stanza-sonnet-fx.js"></script>
 <script defer src="stanza/stanza-sonnet.js"></script>
 <script defer src="stanza/stanza-tempera.js"></script>
-<!-- 「三维空间」：与沉浸声场平行的全屏 3D 演出层（docs/design/space3d-mode.md）。
-     互斥规则：开空间即关声场，开声场即关空间，任何时刻只有一个自有上下文存活。
-     效果网格由 space3d.js 填充（来源 + Stage3D.effectCatalog() 派生的粒子场）；
-     歌词轨复用 .s3d-reading/.sl-* 的既有样式，stanza 走 .fl-* 的新宿主二次实例化。 -->
-<div class="sp" id="space3d" data-fx-zone="stage" aria-hidden="true" aria-modal="true" role="dialog" aria-label="三维空间" tabindex="-1">
+<!-- Home and stage share one Three.js background and one playback owner. -->
+<div class="sp" id="space3d" data-page="closed" data-fx-zone="stage" aria-hidden="true" aria-modal="true" role="dialog" aria-label="三维空间" tabindex="-1">
   <div class="sp-bg" id="sp-bg" aria-hidden="true"></div>
   <div class="sp-canvas" id="sp-canvas"></div>
+  <main id="sp-home" class="space-home" hidden></main>
   <div class="sp-vignette" aria-hidden="true"></div>
   <div class="s3d-reading sp-reading" id="sp-reading">
     <div class="s3d-eyebrow" id="sp-status">三维空间</div>
   </div>
-  <div class="fl-root sp-stanza" id="sp-stanza" hidden>
-    <div class="fl-bg" id="sp-fl-bg"></div>
-    <div class="fl-sonnet-layer" id="sp-fl-sonnet-stage"></div>
-    <div class="fl-lyric" id="sp-fl-lyric"></div>
-    <div class="fl-sub" id="sp-fl-sub"></div>
-  </div>
+  <div class="s3d-shelf" id="sp-shelf" role="region" aria-label="3D 歌单架"><div class="s3d-shelf-plane"></div></div>
   <div class="sp-head">
-    <div class="sp-brand"><span class="sp-brand-mark" aria-hidden="true">h<span>z</span></span><div>hertz studio<small>三 维 空 间</small></div></div>
-    <button class="sp-head-btn" id="sp-close" title="关闭 (Esc)" aria-label="关闭三维空间">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
-    </button>
+    <div class="sp-brand"><span class="sp-brand-mark" aria-hidden="true">h<span>z</span></span><div>Hertz Studio<small>三维空间</small></div></div>
+    <nav class="sp-nav" aria-label="空间导航">
+      <button id="sp-page-toggle" type="button" title="三维舞台" aria-label="三维舞台"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cube"/></svg></button>
+    </nav>
+    <button class="sp-head-btn" id="sp-account" title="登录音源" aria-label="登录音源"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg></button>
   </div>
-  <div class="sp-hint" id="sp-hint" role="status">自由镜头：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 · 鼠标转向 · <kbd>Q</kbd>/<kbd>E</kbd> 滚转 · <kbd>K</kbd> 回正 · <kbd>R</kbd> 退出</div>
+  <button class="sp-return" id="sp-return-2d" type="button" title="返回二维界面" aria-label="返回二维界面"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow-left"/></svg></button>
+  <div class="sp-stage-tools" id="sp-stage-tools" role="toolbar" aria-label="舞台显示控制">
+    <button class="sp-head-btn" id="sp-console-toggle" title="舞台控制台" aria-label="舞台控制台" aria-expanded="false" aria-controls="sp-sheet"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+    <button class="sp-head-btn" id="sp-stage-immersive" title="沉浸模式（Escape 或双击恢复）" aria-label="沉浸模式" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg></button>
+  </div>
   <div class="sp-bar" id="sp-bar" role="toolbar" aria-label="三维空间控制条">
-    <button class="sp-tbtn" id="sp-prev" title="上一首" aria-label="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-prev"/></svg></button>
-    <button class="sp-tbtn sp-play" id="sp-play" title="播放 (空格)" aria-pressed="false" aria-label="播放或暂停"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg></button>
-    <button class="sp-tbtn" id="sp-next" title="下一首" aria-label="下一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-next"/></svg></button>
+    <button class="sp-now" id="sp-stage-jump" title="切换首页与舞台" aria-label="切换首页与舞台"><span class="sp-cover-frame"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-disc"/></svg><img id="sp-cover" alt=""></span></button>
     <div class="sp-progress">
-      <span id="sp-track-title">选择一首歌</span>
+      <span id="sp-track-heading"><span id="sp-track-title">选择一首歌</span></span>
       <input id="sp-seek" type="range" min="0" max="1" step="100" value="0" aria-label="播放进度">
       <span id="sp-time">0:00 / 0:00</span>
-      <div id="sp-seek-particles" aria-hidden="true"></div>
     </div>
-    <i class="sp-sep" aria-hidden="true"></i>
-    <button class="sp-tbtn" id="sp-fx-toggle" title="效果" aria-expanded="false" aria-controls="sp-fx" aria-label="切换舞台来源与粒子场"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg></button>
-    <button class="sp-tbtn" id="sp-playlist-toggle" title="队列" aria-expanded="false" aria-controls="sp-playlist" aria-label="播放队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-playlist"/></svg></button>
+    <div class="sp-transport">
+      <button class="sp-tbtn" id="sp-prev" title="上一首" aria-label="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-prev"/></svg></button>
+      <button class="sp-tbtn sp-play" id="sp-play" title="播放" aria-pressed="false" aria-label="播放或暂停"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"/></svg></button>
+      <button class="sp-tbtn" id="sp-next" title="下一首" aria-label="下一首"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-next"/></svg></button>
+    </div>
+    <button class="sp-tbtn" id="sp-favorite" title="收藏" aria-label="收藏" aria-pressed="false" data-click-feedback="custom"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart-outline"/></svg></button>
+    <div class="sp-player-tools">
+      <button class="sp-tbtn" id="sp-volume-toggle" title="音量" aria-label="音量" aria-expanded="false" aria-controls="sp-volume-panel"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-volume"/></svg></button>
+      <button class="sp-tbtn" id="sp-playlist-toggle" title="播放队列" aria-expanded="false" aria-controls="sp-playlist" aria-label="播放队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-playlist"/></svg></button>
+      <button class="sp-tbtn" id="sp-more" title="更多" aria-label="更多播放控制" aria-expanded="false" aria-controls="sp-player-options"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg></button>
+      <button class="sp-tbtn" id="sp-collapse" title="收起播放器" aria-label="收起播放器"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+    </div>
   </div>
-  <div class="sp-fx" id="sp-fx"><div class="sp-fx-grid" id="sp-fx-grid"></div></div>
-  <button class="sp-fab" id="sp-fab" title="三维空间设置" aria-expanded="false" aria-controls="sp-sheet" aria-label="三维空间设置"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg></button>
+  <section class="sp-popover sp-player-options" id="sp-player-options" aria-label="更多播放控制" inert>
+    <button id="sp-mode" title="播放模式" aria-label="播放模式"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-repeat"/></svg><span>播放模式</span></button>
+    <button id="sp-lyric-button" aria-label="显示歌词" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lyrics"/></svg><span>显示歌词</span></button>
+    <button id="sp-fx-toggle" aria-expanded="false" aria-controls="sp-sheet" aria-label="三维场景"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg><span>三维场景</span></button>
+    <button id="sp-fab" aria-expanded="false" aria-controls="sp-sheet" aria-label="三维空间设置"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg><span>空间设置</span></button>
+    <button id="sp-autohide" aria-label="自动收起播放器" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pin"/></svg><span>自动收起</span></button>
+    <button id="sp-immersive" aria-label="沉浸模式" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-expand"/></svg><span>沉浸模式</span></button>
+  </section>
+  <section class="sp-popover sp-volume-panel" id="sp-volume-panel" aria-label="音量控制" inert>
+    <button id="sp-mute" title="静音" aria-label="静音"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-volume"/></svg></button>
+    <input id="sp-volume" type="range" min="0" max="100" step="1" value="80" aria-label="音量">
+  </section>
+  <button id="sp-player-handle" class="sp-player-handle" type="button" aria-label="展开播放器" title="展开播放器"><span></span></button>
   <aside class="sp-sheet" id="sp-sheet" aria-label="三维空间设置">
-    <h2>三维空间设置 <button class="sp-head-btn" id="sp-sheet-close" aria-label="收起设置" style="width:34px;height:34px"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></h2>
-    <label for="sp-source">舞台来源</label>
-    <select id="sp-source">
-      <option value="coast">海岸公路</option>
-      <option value="zodiac">星座</option>
-      <option value="creative">创意编排</option>
-      <option value="immersive">沉浸粒子场</option>
-      <!-- 「动画绘景」入口暂时下架（022095a）：保留 option 只加 hidden，
-           停在这个来源的偏好要能显示出来，也随时能切走。 -->
-      <option value="anime-svg" hidden>动画绘景</option>
-    </select>
-    <div id="sp-coast-tune" hidden>
-      <label for="sp-coast-tod">海岸时刻</label>
-      <input id="sp-coast-tod" type="range" min="0" max="1" step="0.01" value="0">
-      <label class="sp-check" for="sp-coast-interact"><input id="sp-coast-interact" type="checkbox" checked> 舞台交互（拖拽环绕 / 滚轮推拉）</label>
+    <h2>舞台控制台 <button class="sp-head-btn" id="sp-sheet-close" aria-label="收起设置"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></h2>
+    <div class="sp-console-tabs" role="tablist" aria-label="舞台控制分类">
+      <button id="sp-tab-stage" role="tab" aria-selected="true" aria-controls="sp-console-stage" tabindex="0" data-console-tab="stage">舞台</button>
+      <button id="sp-tab-lyrics" role="tab" aria-selected="false" aria-controls="sp-console-lyrics" tabindex="-1" data-console-tab="lyrics">歌词</button>
+      <button id="sp-tab-camera" role="tab" aria-selected="false" aria-controls="sp-console-camera" tabindex="-1" data-console-tab="camera">镜头</button>
+      <button id="sp-tab-display" role="tab" aria-selected="false" aria-controls="sp-console-display" tabindex="-1" data-console-tab="display">显示</button>
     </div>
-    <div id="sp-zodiac-tune" hidden>
-      <label class="sp-check" for="sp-zodiac-lines"><input id="sp-zodiac-lines" type="checkbox" checked> 星座连线</label>
-      <label class="sp-check" for="sp-zodiac-field"><input id="sp-zodiac-field" type="checkbox" checked> 背景星场</label>
-      <label class="sp-check" for="sp-zodiac-interact"><input id="sp-zodiac-interact" type="checkbox" checked> 交互旋转</label>
-    </div>
-    <label class="sp-check" for="sp-lyrics-toggle"><input id="sp-lyrics-toggle" type="checkbox" checked> 显示歌词 (L)</label>
-    <label for="sp-visual">歌词视觉</label>
-    <select id="sp-visual">
-      <option value="stage">舞台 3D 歌词轨</option>
-      <option value="classic">流光歌词</option>
-      <option value="cadenza">心象歌词</option>
-      <option value="sonnet">商籁歌词</option>
-      <option value="tempera">凝彩 · 色块歌词 MV</option>
-    </select>
-    <label class="sp-check" for="sp-cinema-toggle"><input id="sp-cinema-toggle" type="checkbox" checked> 电影镜头（漂移与节拍运镜）</label>
-    <p class="sp-note" id="sp-free-note">自由镜头：<b>R</b> 进入 / 退出，<b>K</b> 回正；双击复位视角，转台拖拽转的是整个世界。</p>
-    <button class="sp-btn-line" id="sp-focus" type="button">聚焦当前舞台</button>
-    <div id="sp-extra-controls"></div>
+    <div class="sp-console-scroll">
+    <section id="sp-stage-settings" hidden>
+      <section id="sp-console-stage" role="tabpanel" aria-labelledby="sp-tab-stage" tabindex="0">
+        <label for="sp-source">舞台场景</label><select id="sp-source"></select>
+        <details class="sp-scene-picker" open><summary>场景预设</summary><div class="sp-fx-grid" id="sp-fx-grid" role="group" aria-label="选择舞台场景"></div></details>
+        <div id="sp-scene-params"></div>
+      </section>
+      <section id="sp-console-lyrics" role="tabpanel" aria-labelledby="sp-tab-lyrics" tabindex="0" hidden>
+        <label class="sp-check" for="sp-lyrics-toggle"><input id="sp-lyrics-toggle" type="checkbox" checked> 显示歌词</label>
+        <label for="sp-lyric-style">歌词效果</label><select id="sp-lyric-style"></select>
+        <div id="sp-lyric-params"></div>
+      </section>
+      <section id="sp-console-camera" role="tabpanel" aria-labelledby="sp-tab-camera" tabindex="0" hidden>
+        <label class="sp-check" for="sp-cinema-toggle"><input id="sp-cinema-toggle" type="checkbox" checked> 电影镜头</label>
+        <div class="sp-camera-tools">
+          <button class="sp-head-btn" id="sp-reset-camera" title="复位镜头" aria-label="复位镜头"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-reset"/></svg></button>
+        </div>
+      </section>
+    </section>
+    <section id="sp-console-display" role="tabpanel" aria-labelledby="sp-tab-display" tabindex="0" hidden>
+    <label for="sp-quality">画质</label>
+    <select id="sp-quality"><option value="auto">自动</option><option value="low">轻量</option><option value="medium">标准</option><option value="high">高画质</option></select>
+    <p class="sp-note" id="sp-quality-status" role="status" hidden></p>
+    <label for="sp-shelf-mode">3D 歌单架</label>
+    <select id="sp-shelf-mode"><option value="side">右侧歌单架</option><option value="stage">舞台封面流</option><option value="off">关闭</option></select>
+    <label class="sp-check" for="sp-immersive-toggle"><input id="sp-immersive-toggle" type="checkbox"> 沉浸模式</label>
     <button class="sp-btn-line" id="sp-defaults" type="button">恢复空间默认</button>
+    </section>
+    </div>
   </aside>
   <aside class="sp-playlist" id="sp-playlist" aria-label="播放队列">
-    <h2>播放队列</h2>
+    <h2>播放队列 <button class="sp-head-btn" id="sp-playlist-close" aria-label="收起队列"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></h2>
     <div id="sp-playlist-body"></div>
   </aside>
-  <p class="sp-fallback" id="sp-fallback" hidden></p>
+  <p id="sp-loading" class="sp-loading" role="status" hidden>正在加载场景</p>
+  <div id="sp-failure" class="sp-failure" role="alert" hidden><p id="sp-error-message"></p><button id="sp-retry" type="button">重试</button><button id="sp-failure-home" type="button">返回首页</button></div>
 </div>
 
 <!-- 导演层：曲式编译（段落/副歌/句内画像 + 镜头语法）在前，元导演在后 -->
@@ -2249,6 +2281,8 @@
 <script defer src="space-camera.js"></script>
 <script defer src="space-post.js"></script>
 <script defer src="space-layers.js"></script>
+<script defer src="vendor/space-stage.js"></script>
+<script defer src="space-home.js"></script>
 <script defer src="space3d.js"></script>
 <!-- 沉浸粒子场渲染器（第二批）：着色器全部经 Stage3D.shaderCatalog() 只读导出，
      这里只持有 GL 上下文与后处理链；与 stage3d.js 无加载期依赖，只被调用。 -->
