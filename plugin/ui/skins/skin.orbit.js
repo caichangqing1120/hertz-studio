@@ -175,6 +175,16 @@
     var mobileName = make('span', 'orbit-mobile-brand', null, '星轨');
     document.querySelector('.topbar').prepend(mobileName);
     moves.relocate(document.querySelector('.topbar'), main, stage);
+    var topbar = document.querySelector('.topbar');
+    refs.navToggle = button(topbar, 'orbit-nav-toggle', 'iconbtn orbit-nav-toggle', '收起导航栏', 'arrow-left', function () {
+      var hidden = app.classList.toggle('orbit-nav-hidden');
+      refs.navToggle.setAttribute('aria-expanded', String(!hidden));
+      refs.navToggle.title = hidden ? '展开导航栏' : '收起导航栏';
+      refs.navToggle.setAttribute('aria-label', refs.navToggle.title);
+    });
+    refs.navToggle.setAttribute('aria-controls', 'rail');
+    refs.navToggle.setAttribute('aria-expanded', 'true');
+    topbar.prepend(refs.navToggle);
     var library = make('div', 'orbit-library-status', rail);
     make('span', '', library, '音乐库');
     refs.libraryCount = make('strong', '', library);
@@ -275,6 +285,8 @@
     listeners.forEach(function (remove) { remove(); });
     listeners = [];
     if (window.SkinSettingsSheet) window.SkinSettingsSheet.unmount();
+    var app = document.querySelector('.app');
+    if (app) app.classList.remove('orbit-nav-hidden');
     resetTilt();
     moves.restore();
     built.remove();

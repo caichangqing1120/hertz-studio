@@ -107,6 +107,10 @@ async function main() {
       'layout reuses the original library and stage nodes');
     check(await page.evaluate(theme => document.documentElement.dataset.theme === theme, theme), 'switching skin preserves theme');
     check(await page.locator('#cover').count() === 1 && await page.locator('#playpause').count() === 1, 'business node IDs remain unique');
+    const navToggle = page.locator('#orbit-nav-toggle');
+    check(await navToggle.count() === 1, 'navigation has an accessible expand/hide control outside the rail');
+    check(await navToggle.getAttribute('aria-controls') === 'rail' && await navToggle.getAttribute('aria-expanded') === 'true',
+      'navigation toggle identifies its target and expanded state');
     check(await page.locator('.orbit-depth').count() === 14, 'vinyl retains the original fourteen physical depth layers');
     check(await page.locator('.orbit-ring').count() === 0, 'record is one solid vinyl without exterior decorative rings');
     check(!await page.locator('#stage .stage-fx').isVisible(), 'original stage vignette does not frame the sculpted record');
@@ -203,6 +207,21 @@ async function main() {
       check(layout.column.height >= 100, width + 'px leaves room for library content');
       if (layout.queue.visible) check(layout.queue.bottom <= layout.bar.y + 1, width + 'px sidebar stays above player');
       await page.screenshot({ path:path.join(output, width + 'x' + height + '.png') });
+      await navToggle.click();
+      check(!await page.locator('#rail').isVisible() && await navToggle.getAttribute('aria-expanded') === 'false',
+        width + 'px hides navigation while keeping the expand control available');
+      const collapsed = await page.locator('.orbit-main').boundingBox();
+      check(width > 620 ? collapsed.width > layout.main.width + 50 : collapsed.y < layout.main.y - 40,
+        width + 'px reclaims the hidden navigation space');
+      check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)
+        && await page.locator('#playpause').isVisible(), width + 'px hidden navigation keeps playback and page bounds intact');
+      if (width === 1600 || width === 320) {
+        await page.screenshot({ path:path.join(output, width + 'x' + height + '-nav-hidden.png') });
+      }
+      await navToggle.focus();
+      await page.keyboard.press('Enter');
+      check(await page.locator('#rail').isVisible() && await navToggle.getAttribute('aria-expanded') === 'true',
+        width + 'px keyboard expands navigation again');
     }
 
     await page.setViewportSize({ width:1600, height:1000 });
@@ -223,8 +242,11 @@ async function main() {
     await page.reload();
     await page.waitForFunction(() => window.Skins && Skins.currentId() === 'orbit' && document.querySelector('.orbit-main'));
     check(true, 'reload restores 星轨');
+    await navToggle.click();
     const recovery = await page.evaluate(() => {
       Skins.apply('classic');
+      const navClean = !document.querySelector('#orbit-nav-toggle, .orbit-nav-hidden')
+        && getComputedStyle(document.getElementById('rail')).display !== 'none';
       const stage = document.getElementById('stage'), column = document.getElementById('column');
       const stageParent = stage.parentNode, columnParent = column.parentNode;
       for (const id of ['orbit','orbit','sheen','orbit','heijiao','orbit','liunian','orbit','qingfeng','orbit','classic']) Skins.apply(id);
@@ -235,10 +257,11 @@ async function main() {
       let failed = false;
       try { Skins.apply('orbit'); } catch (error) { failed = /orbit mount probe/.test(error.message); }
       finally { window.MutationObserver = Observer; }
-      return { clean, failed, restored:Skins.currentId() === 'classic' && stage.parentNode === stageParent
+      return { clean, failed, navClean, restored:Skins.currentId() === 'classic' && stage.parentNode === stageParent
         && column.parentNode === columnParent && !document.querySelector('.orbit-main, .orbit-queue, .orbit-anchor') };
     });
     check(recovery.clean, 'repeated selection and cross-skin switching restore original nodes');
+    check(recovery.navClean, 'switching away from hidden navigation restores the original rail and removes the toggle');
     check(recovery.failed && recovery.restored, 'partial mount failure cleans resources and restores previous skin');
     await page.evaluate(() => Skins.apply('orbit'));
     await page.evaluate(async () => {
