@@ -106,7 +106,8 @@ export function createCoverParticles(ctx) {
       // Keep the whole square visible on portrait without changing the user's camera.
       sheet.scale.setScalar(Math.min(1, aspect / 1.08));
       sheet.rotation.set(Math.sin(time * .15) * .018, Math.sin(time * .12) * .035, 0);
-      group.scale.setScalar(p.scale ?? 1);
+      group.scale.setScalar((p.scale ?? 1) * (p.cue === 'chorus' ? 1.08 : 1));
+      group.rotation.set(p.cue === 'bridge' ? .06 : 0, 0, p.director ? Math.sin((frame.sceneTime ?? 0) * .08) * .04 : 0);
       pointer.update(frame, p.pointerStrength ?? 1);
     },
     resize(w, h) { aspect = w / Math.max(1, h); height = h; },

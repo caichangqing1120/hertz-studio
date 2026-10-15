@@ -53,7 +53,12 @@ const scripts = ['vendor/space-stage.js', 'space-camera.js', 'stanza/stanza-util
       for (const mode of ['classic', 'cadenza', 'sonnet', 'tempera']) {
         await page.evaluate(mode => { fixture.position = 1800; fixture.playing = true; Space3D.setLyricStyle('lyric-' + mode); draw(2); }, mode);
         const selector = '#sp-stanza .fl-' + mode;
-        await page.waitForSelector(selector, { state: 'visible', timeout: 3000 });
+        try { await page.waitForSelector(selector, { state: 'visible', timeout: 3000 }); }
+        catch (error) {
+          console.error(await page.evaluate(() => ({ stats: Space3D.stats(), prefs: Space3D.preferences(),
+            classes: document.getElementById('space3d').className, markup: document.getElementById('sp-stanza').outerHTML })), errors);
+          throw error;
+        }
         if (mode === 'sonnet' || mode === 'tempera') {
           await page.waitForSelector(selector + ' canvas', { timeout: 15000 });
           await page.evaluate(() => draw(5));

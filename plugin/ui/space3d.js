@@ -225,7 +225,7 @@
     lockRequest++;
     if (document.pointerLockElement === root && document.exitPointerLock) document.exitPointerLock();
     if (pointer != null && root.hasPointerCapture && root.hasPointerCapture(pointer)) root.releasePointerCapture(pointer);
-    dragging = false; pointer = null; point = null;
+    dragging = false; pointer = null; point = null; frame.pointer.active = false;
     if (camera) { camera.clearInput(); camera.setRotating(false); if (camera.isFreeActive()) camera.freeToggle(); }
     root.classList.remove('sp-dragging');
   }

@@ -137,7 +137,7 @@ void main(){
  vec4 mv=modelViewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv;
  float focus=1.0-smoothstep(14.0,52.0,-mv.z);
  float size=uSize*uPixel*(.86+aSeed*.36+vGlow*.3+uTreble*uResponse*.08)*uHeight*.045/max(2.0,-mv.z);
- gl_PointSize=clamp(size,.85,5.4);vAlpha*=mix(.42,1.0,focus);
+ gl_PointSize=clamp(size*mix(1.0,1.38,uRefined),1.0,5.4);vAlpha*=mix(.42,1.0,focus);
 }`;
 const particleFragment = `
 uniform sampler2D uCover;uniform float uHasCover,uArtwork,uRefined;varying vec3 vColor;varying vec2 vCover;varying float vAlpha,vGlow;
@@ -145,8 +145,9 @@ void main(){float r=length(gl_PointCoord-.5);if(r>.5)discard;
  vec3 sampled=texture2D(uCover,clamp(vCover,.002,.998)).rgb;
  vec3 c=mix(vColor,sampled,uHasCover*mix(.36,1.0,uArtwork));
  c*=1.08+vGlow*.25;
- float core=1.0-smoothstep(.08,.33,r),halo=exp(-r*r*20.0)*.2;
- float alpha=mix(1.0-smoothstep(.18,.5,r),core*.8+halo,uRefined)*vAlpha;
+ c=mix(c,sqrt(max(c,vec3(0.0))),uRefined*.4);
+ float core=1.0-smoothstep(.16,.42,r),halo=exp(-r*r*20.0)*.09;
+ float alpha=clamp(mix(1.0-smoothstep(.18,.5,r),(core+halo)*1.85,uRefined)*vAlpha,0.0,.98);
  gl_FragColor=vec4(c,alpha);
  #include <colorspace_fragment>
 }`;
@@ -207,8 +208,8 @@ export function createParticles(ctx, kind, palette = [0x67d9cf, 0xfb7298, 0x8fb9
       uniforms.uMotion.value = p.speed ?? .6; uniforms.uResponse.value = p.reactivity ?? .7;
       uniforms.uPixel.value = ctx.renderer?.getPixelRatio() || 1;
       uniforms.uSize.value = p.pointSize ?? (kind === 'cover' ? 1.7 : 1);
-      group.scale.setScalar(p.scale ?? 1);
-      if (p.director) group.rotation.z = Math.sin(time * .08) * .05;
+      group.scale.setScalar((p.scale ?? 1) * (p.cue === 'chorus' ? 1.08 : 1));
+      group.rotation.set(p.cue === 'bridge' ? .06 : 0, 0, p.director ? Math.sin(time * .08) * .04 : 0);
       if (p.cue === 'chorus') uniforms.uResponse.value *= 1.3;
       if (refined) pointer.update(frame, (p.pointerStrength ?? 1) * .65);
       if (resources) {
