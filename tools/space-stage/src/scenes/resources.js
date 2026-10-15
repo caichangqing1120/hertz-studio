@@ -46,11 +46,15 @@ export function createSpatialResources(THREE, onInvalidate, resolveCover = url =
         if (typeof Image !== 'undefined') {
           const img = new Image(); img.crossOrigin = 'anonymous'; img.decoding = 'async';
           let canceled = false;
+          const fail = () => {
+            if (canceled || disposed || signal?.aborted || !entry.refs) return;
+            entry.failed = true; onInvalidate?.();
+          };
           entry.cancel = () => { canceled = true; img.onload = img.onerror = null; img.src = ''; };
           img.onload = () => {
             if (canceled || disposed || signal?.aborted || !entry.refs) return;
             const el = canvas(768, 768), ctx = el?.getContext('2d');
-            if (!ctx) return;
+            if (!ctx) { fail(); return; }
             try {
               const side = Math.min(img.naturalWidth, img.naturalHeight);
               ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 768, 768);
@@ -58,13 +62,13 @@ export function createSpatialResources(THREE, onInvalidate, resolveCover = url =
               entry.texture.userData.spaceShared = true;
               entry.texture.minFilter = THREE.LinearMipmapLinearFilter;
               onInvalidate?.();
-            } catch { entry.failed = true; }
+            } catch { fail(); }
           };
-          img.onerror = () => { entry.failed = true; };
+          img.onerror = fail;
           Promise.resolve().then(() => resolveCover(key)).then(url => {
             if (canceled || disposed || signal?.aborted || !entry.refs) return;
-            if (url) img.src = url; else entry.failed = true;
-          }).catch(() => { if (!canceled) entry.failed = true; });
+            if (url) img.src = url; else fail();
+          }).catch(fail);
         }
       }
       if (!entry) return null;

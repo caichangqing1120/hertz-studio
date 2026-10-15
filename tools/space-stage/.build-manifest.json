@@ -6,9 +6,9 @@
   "tools/space-stage/src/scenes/cover-particles.js": "9b9558e24fe56e48",
   "tools/space-stage/src/scenes/cover-sphere.js": "d6c6c6c045615974",
   "tools/space-stage/src/scenes/factories.js": "8b3df5aa4e2fe971",
-  "tools/space-stage/src/scenes/index.js": "2e1ea77956c982cc",
+  "tools/space-stage/src/scenes/index.js": "6103eba481af55e1",
   "tools/space-stage/src/scenes/particle-pointer.js": "c6087b41e7d1ef9a",
-  "tools/space-stage/src/scenes/resources.js": "bf5ba3236f68a00b",
+  "tools/space-stage/src/scenes/resources.js": "be8d254997fbc887",
   "tools/space-stage/src/scenes/text-layout.js": "f4d02e61cfb25335",
   "tools/space-stage/src/scenes/text.js": "6415c17b87351c39",
   "tools/space-stage/src/scope.js": "a1ddd8aa0ad10c55",
@@ -23,5 +23,5 @@
   "tools/zodiac-stage/src/util.js": "d6233b2afd9abd85",
   "tools/zodiac-stage/src/world.js": "c41dcb66a2420700",
   "tools/zodiac-stage/src/zodiac.js": "99a9c7fd8a352f9a",
-  "plugin/ui/vendor/space-stage.js": "59a1e41d5d51c4fe"
+  "plugin/ui/vendor/space-stage.js": "6dbc4b9b6a747516"
 }

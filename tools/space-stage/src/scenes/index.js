@@ -67,7 +67,8 @@ function definition([id, label, category, factory, aliases = []]) {
     camera: { theta: galaxy || towers ? .3 : 0, phi: id === 'cover-particles' ? 0 : terrain || towers ? .35 : galaxy ? .35 : .06, radius: tunnel ? 5 : lyrics ? 15 : galaxy ? 21 : terrain ? 22 : sphere ? 9.2 : id === 'cover-wall' ? 8 : id === 'cover-particles' ? 9.6 : 13,
       lookAt: terrain ? [0, -1, -2] : tunnel ? [0, 0, -4] : [0, 0, 0], fov: id === 'cover-particles' ? 54 : 58, minRadius: 3, maxRadius: 36, orbit: true, zoom: true },
     capabilities: { interaction: true, threejs: true, depth: true, lyrics, ownsLyrics: lyrics, ...(stanzaRenderer ? { stanzaRenderer } : {}), effects: true, director: true, cues: true, cover: id.includes('cover') },
-    quality: { low: { particles: 4000, drawCalls: 16 }, medium: { particles: 7000, drawCalls: 20 }, high: { particles: 10000, drawCalls: 24 } },
+    quality: id === 'cover-particles' ? { low: { particles: 9216, drawCalls: 16 }, medium: { particles: 20736, drawCalls: 20 }, high: { particles: 36864, drawCalls: 24 } } :
+      { low: { particles: 4000, drawCalls: 16 }, medium: { particles: 7000, drawCalls: 20 }, high: { particles: 10000, drawCalls: 24 } },
     create(ctx) {
       const primary = factory(ctx), effects = createEffects(ctx, ctx.layer === 'lyrics' ? [] : undefined); let params = ctx.params;
       return {

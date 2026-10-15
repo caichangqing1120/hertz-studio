@@ -72,7 +72,7 @@ const root = path.resolve(__dirname, '..'), output = path.join(root, 'output/pla
     }
     const canceled = await page.evaluate(async () => {
       current = 'proxy:late'; await host.select('cover-sphere'); frame(); await Promise.resolve(); await Promise.resolve();
-      await host.select('gravity-sphere'); pending(covers[0]); await new Promise(resolve => setTimeout(resolve, 50)); frame();
+      await host.select('gravity-sphere'); current = ''; pending(covers[0]); await new Promise(resolve => setTimeout(resolve, 50)); frame();
       return host.stats();
     });
     assert.equal(canceled.coverTextures, 0, 'late resolver cannot retain a canceled cover');
