@@ -39,7 +39,7 @@
 }
 [data-skin="orbit"] .rail { gap: 7px; padding: 24px 20px; }
 [data-skin="orbit"] .rail .brand { width: auto; justify-content: flex-start; padding: 0; flex: none; gap: 10px; }
-[data-skin="orbit"] .rail .brand-wordmark { display: flex; }
+[data-skin="orbit"] .rail .brand-wordmark { display: none; }
 [data-skin="orbit"] .brand-mark {
   display: flex; align-items: center; justify-content: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 14px; font-size: 20px;
   color: var(--accent-ink);
@@ -171,7 +171,7 @@
 [data-skin="orbit"] .orbit-depth { background: var(--record-base); box-shadow: inset 0 0 0 1px var(--record-groove); }
 [data-skin="orbit"] .orbit-depth:nth-child(even) { background: var(--record-groove); }
 [data-skin="orbit"] .orbit-rig .disc-wrap { width: 100%; height: 100%; aspect-ratio: 1; margin: 0; transform-style: preserve-3d; transform: translateZ(14px); }
-[data-skin="orbit"] .orbit-rig .disc { background-size: 36% 36%; background-color: var(--accent-2); border: 1px solid var(--record-base); box-shadow: inset 0 0 0 3px var(--record-base); animation: orbit-spin 5.5s linear infinite paused; }
+[data-skin="orbit"] .orbit-rig .disc { background-size: cover; background-color: var(--record-base); border: 1px solid var(--record-base); box-shadow: inset 0 0 0 3px var(--record-base); animation: orbit-spin 5.5s linear infinite paused; }
 [data-skin="orbit"] .orbit-rig .disc.is-empty { background-image: none; }
 [data-skin="orbit"] .orbit-rig .disc { filter: none; }
 [data-skin="orbit"] body.is-playing .orbit-rig .disc { animation-play-state: running; }
@@ -179,7 +179,7 @@
   content: ""; position: absolute; inset: 0; border: 0; border-radius: 50%;
   background: conic-gradient(from 20deg, transparent 8%, var(--record-glint) 14%, transparent 22% 55%, var(--record-glint) 64%, transparent 72%),
     repeating-radial-gradient(circle, var(--record-base) 0 2px, var(--record-groove) 2px 3px);
-  mask: radial-gradient(circle closest-side, transparent 0 33%, var(--record-base) 34%); opacity: 1; pointer-events: none;
+  mask: radial-gradient(circle closest-side, var(--record-base) 0 33%, transparent 34%); opacity: 1; pointer-events: none;
 }
 [data-skin="orbit"] .orbit-rig .disc::after { width: 3.5%; height: 3.5%; background: var(--orbit-lo); box-shadow: inset 1px 1px 2px var(--orbit-shadow); }
 [data-skin="orbit"] .orbit-rig .disc-ring,

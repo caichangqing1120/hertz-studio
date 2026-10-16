@@ -1030,6 +1030,11 @@ async function main() {
     eq(podcastSubscriptions.result?.body?.shows?.length, 0, '新数据目录初始无播客订阅');
     const podcastBlankSearch = await client.send('v1/podcasts/search', { op: 'GET', query: { q: '  ' } });
     eq(podcastBlankSearch.result?.status, 400, '播客空查询在网络请求前拒绝');
+    const podcastBadCountry = await client.send('v1/podcasts/search', {
+      op: 'GET', query: { q: 'Planet Money', country: 'ZZ' },
+    });
+    eq(podcastBadCountry.result?.status, 400, 'DBX 播客搜索校验目录地区');
+    eq(podcastBadCountry.result?.body?.error?.source, 'podcast', '地区校验错误保留播客来源');
     const podcastPrivateFeed = await client.send('v1/podcasts/feed', {
       op: 'GET', query: { url: 'http://127.0.0.1/private.xml' },
     });

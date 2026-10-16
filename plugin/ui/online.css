@@ -577,3 +577,14 @@ input.opl-filter{flex:none;width:190px;height:30px;padding:0 10px;
 .online-radio p { font-size:12px; margin:6px 0 0; overflow-wrap:anywhere; opacity:.75; }
 .online-radio-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .online-radio [hidden] { display:none; }
+.online-attribution { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:3px; font-size:11px; line-height:1.5; }
+.online-attribution a { color:var(--muted); text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere; }
+.online-attribution a:hover { color:var(--accent); }
+.set-row.jamendo-config { display:grid; grid-template-columns:96px minmax(140px,1fr) auto; margin-bottom:16px; }
+.set-row.jamendo-config > input { width:100%; min-width:0; }
+.jamendo-config > .hint, .jamendo-config > #jamendo-portal { grid-column:2 / -1; }
+.jamendo-config a { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+@media(max-width:560px) {
+  .set-row.jamendo-config { grid-template-columns:minmax(0,1fr) auto; }
+  .jamendo-config > label, .jamendo-config > .hint, .jamendo-config > #jamendo-portal { grid-column:1 / -1; width:auto; }
+}

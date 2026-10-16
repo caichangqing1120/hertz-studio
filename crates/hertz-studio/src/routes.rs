@@ -2912,6 +2912,8 @@ pub(crate) struct PodcastSearchQuery {
     pub q: String,
     #[serde(default = "podcast_search_limit")]
     pub limit: usize,
+    #[serde(default)]
+    pub country: Option<String>,
 }
 
 fn podcast_search_limit() -> usize {
@@ -2943,7 +2945,7 @@ async fn podcast_search(
 ) -> ApiResult<Json<crate::podcasts::SearchResult>> {
     tagged(
         "podcast",
-        crate::podcasts::search(&online_ctx(&state), &q.q, q.limit).await,
+        crate::podcasts::search(&online_ctx(&state), &q.q, q.limit, q.country.as_deref()).await,
     )
     .map(Json)
 }

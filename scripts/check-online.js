@@ -215,7 +215,7 @@ function makeTransport(routes) {
       })),
     } }]);
   }
-  const calls = { get: [], post: [] };
+  const calls = { get: [], post: [], put: [] };
   async function call(verb, url, body) {
     calls[verb.toLowerCase()].push({ url, body });
     const list = routes[verb] || [];
@@ -237,6 +237,7 @@ function makeTransport(routes) {
     calls,
     get(url) { return call('GET', url); },
     post(url, body) { return call('POST', url, body); },
+    put(url, body) { return call('PUT', url, body); },
   };
 }
 
@@ -801,6 +802,110 @@ async function loginScenario(pollStates, opts) {
   // 2. online.js 聚合 / 单源搜索
   // -------------------------------------------------------------------------
 
+  section('搜索优先已登录平台：启动恢复、类型能力、手动选择与聚合');
+  {
+    let finishAccount;
+    let signedIn = true;
+    const account = new Promise(resolve => { finishAccount = resolve; });
+    let finishSources;
+    let sourceRequests = 0;
+    const delayedSources = new Promise(resolve => { finishSources = resolve; });
+    const sources = [
+      { id: 'netease', label: '网易云音乐', caps: ['cookie_login', 'playlist_search', 'artist_search', 'album_search'] },
+      { id: 'qq', label: 'QQ音乐', caps: ['cookie_login'] },
+      { id: 'migu', label: '咪咕音乐', caps: ['cookie_login', 'playlist_search'] },
+    ];
+    const transport = makeTransport({ GET: [
+      { match: '/v1/online/sources', returns: () => sourceRequests++ === 0 ? delayedSources : { sources } },
+      { match: '/v1/settings', returns: { topAvatarSource: 'qq' } },
+      { match: '/v1/online/account?source=qq', returns: () => {
+        if (!signedIn) throw Object.assign(new Error('signed out'), { status: 401 });
+        return account;
+      } },
+      { match: '/v1/online/account?source=migu', returns: () => {
+        if (!signedIn) throw Object.assign(new Error('signed out'), { status: 401 });
+        return { nickname: '咪咕账号' };
+      } },
+      { match: '/v1/online/account?', throw: Object.assign(new Error('signed out'), { status: 401 }) },
+      { match: '/v1/online/search?', returns: url => ({ tracks: [T({
+        source: new URL('http://test' + url).searchParams.get('source'),
+        title: url.includes('source=netease') ? '晴天' : '晴天 Live',
+      })] }) },
+      { match: '/v1/online/playlists/search?', returns: { playlists: [], total: 0 } },
+      { match: '/v1/online/artists/search?', returns: { artists: [], total: 0 } },
+      { match: '/v1/online/albums/search?', returns: { albums: [], total: 0 } },
+    ] });
+    const env = makeSandbox({ transport });
+    const bound = bindOnline(env);
+    bound.ui.onlineSource.replaceChildren = function () {};
+    const online = env.sandbox.Online;
+    const login = env.sandbox.OnlineLogin;
+    const loadingSources = online.loadSources();
+    const restoring = login.init();
+    online.state.q = '晴天';
+    const pending = online.search();
+    await ticks();
+    const searches = () => transport.calls.get.filter(c => /\/search\?/.test(c.url));
+    eq(searches().length, 0, '首次搜索等待启动账号恢复，避免提前请求未登录默认源');
+    finishAccount({ nickname: 'QQ账号' });
+    await restoring;
+    await ticks();
+    eq(searches().length, 0, '账号先恢复时，首次搜索仍等待音源能力清单');
+    finishSources({ sources }); await loadingSources;
+    await pending;
+    ok(searches()[0].url.includes('source=qq'), '单曲优先顶栏选中的已登录平台');
+    eq(bound.ui.onlineSource.value, 'qq', '音源选择器与实际搜索同步');
+
+    for (const [kind, source] of [['playlist', 'migu'], ['artist', 'netease'], ['album', 'netease']]) {
+      online.setKind(kind);
+      await ticks(30);
+      const last = searches().at(-1).url;
+      ok(last.includes('source=' + source) && last.includes('/' + (kind === 'playlist' ? 'playlists' : kind === 'artist' ? 'artists' : 'albums') + '/search?'),
+        kind + ' 优先有能力的已登录平台，否则使用支持该类型的平台');
+      eq(online.state.kind, kind, kind + ' 不因默认平台缺能力而降回歌曲');
+    }
+
+    online.setKind('song'); await ticks(30);
+    signedIn = false; await login.init();
+    online.state.q = '退出后'; await online.search();
+    ok(searches().at(-1).url.includes('source=netease'), '全部退出后恢复默认音源');
+    signedIn = true; await login.init();
+    online.state.source = 'all'; online.state.q = '晴天'; await online.search();
+    eq(online.state.source, 'all', 'All 搜索保留跨源范围');
+    eq(online.state.tracks[0].source, 'qq', '聚合结果优先已登录且选为头像的平台');
+    eq(online.state.tracks[1].source, 'migu', '其他已登录平台排在未登录平台之前');
+    eq(online.state.tracks.length, 3, '聚合仍保留未登录平台的匹配结果');
+
+    env.doc.body = makeEl('body');
+    env.sandbox.addEventListener = function () {};
+    env.sandbox.innerWidth = 1280;
+    env.doc.getElementById('search').getBoundingClientRect = () => ({ width: 400, left: 200, bottom: 60 });
+    vm.runInContext(fs.readFileSync(path.join(WEB, 'topsearch.js'), 'utf8'), env.sandbox, { filename: 'topsearch.js' });
+    const top = env.sandbox.TopSearch;
+    top.bind({});
+    for (const [kind, source] of [['song', 'qq'], ['playlist', 'migu'], ['artist', 'netease'], ['album', 'netease']]) {
+      online.state.source = 'netease'; online.state.kind = kind;
+      top.state.kind = kind; top.close();
+      env.doc.getElementById('search').value = '顶栏' + kind;
+      top.onInput(); await ticks(30);
+      ok(searches().at(-1).url.includes('source=' + source), '顶栏 ' + kind + ' 与完整搜索共用平台优先级');
+    }
+    online.state.source = 'all'; online.state.kind = 'song';
+    top.state.kind = 'song'; top.close();
+    env.doc.getElementById('search').value = '顶栏综合';
+    top.onInput(); await ticks(30);
+    ok(searches().at(-1).url.includes('source=qq'), 'All 顶栏预览优先已登录平台');
+
+    online.state.q = ''; online.state.kind = 'song';
+    online.init(); await ticks(30);
+    bound.ui.onlineSource.value = 'netease'; bound.ui.onlineSource.onchange();
+    online.state.q = '手动选择'; await online.search();
+    ok(searches().at(-1).url.includes('source=netease'), '手动选源后优先级不覆盖用户选择');
+    top.close(); env.doc.getElementById('search').value = '顶栏手动选择';
+    top.onInput(); await ticks(30);
+    ok(searches().at(-1).url.includes('source=netease'), '顶栏同样尊重手动选源');
+  }
+
   section('媒体种类：播客不进入音乐搜索，队列仍显示播客来源');
   {
     const transport = makeTransport({ GET: [
@@ -898,6 +1003,69 @@ async function loginScenario(pollStates, opts) {
     await online.search();
     eq(transport.calls.get.length, calls, '相同查询使用会话缓存');
     eq(online.state.tracks.length, 31, '缓存包含已加载分页');
+  }
+
+  section('开放曲库分页：过滤文件后使用上游游标');
+  {
+    const transport = makeTransport({ GET: [{ match: '/v1/online/search?', returns(url) {
+      const offset = Number(new URL('http://local' + url).searchParams.get('offset'));
+      return offset === 0
+        ? { tracks: [T({ source: 'ccmixter' })], pagination: { next_offset: 20, has_more: true } }
+        : { tracks: [], pagination: { next_offset: 40, has_more: false } };
+    } }] });
+    const env = makeSandbox({ transport }); bindOnline(env);
+    const online = env.sandbox.Online;
+    online.state.source = 'ccmixter'; online.state.q = 'piano'; await online.search();
+    const more = () => findByClass(env.doc.getElementById('online-body'), 'search-source-status')[0].children.find(c => c.className === 'btn');
+    ok(!!more(), '过滤后不足20首仍可加载下一页');
+    if (more()) await more().onclick();
+    ok(transport.calls.get.some(c => c.url.includes('offset=20')), '游标按上游消费条数推进');
+    ok(!more(), '上游声明结束后停止翻页');
+  }
+
+  section('授权信息：结果行可查看来源与许可证，元数据保留授权');
+  {
+    const ref = { license_url: 'https://creativecommons.org/licenses/by-nc/4.0/', license_name: 'CC BY-NC 4.0', webpage_url: 'https://ccmixter.org/files/test/42' };
+    const transport = makeTransport({ GET: [{ match: '/v1/online/search?', returns: { tracks: [T({ source: 'ccmixter', ref })] } }] });
+    const env = makeSandbox({ transport }); bindOnline(env);
+    const online = env.sandbox.Online;
+    online.state.source = 'ccmixter'; online.state.q = 'music'; await online.search();
+    const row = online.row(T({ ref }), () => {});
+    const links = row.querySelector('.t-main').children.find(c => c.className === 'online-attribution');
+    ok(!!links && textOf(links).includes('CC BY-NC'), '许可证名称在行内可见');
+    eq(online.getMeta('online:ccmixter:1').ref && online.getMeta('online:ccmixter:1').ref.license_url, ref.license_url, '队列元数据保留许可证');
+    const bad = online.row(T({ ref: { license_url: 'javascript:alert(1)', webpage_url: 'data:text/html,x' } }), () => {});
+    ok(!bad.querySelector('.t-main').children.some(c => c.className === 'online-attribution'), '拒绝可执行链接');
+  }
+
+  section('Jamendo 配置：读取、保存、清除及写入失败');
+  {
+    let fail = false;
+    const transport = makeTransport({ GET: [
+      { match: '/v1/settings', returns: { jamendo_client_id: 'my-app' } },
+      { match: '/v1/online/sources', returns: { sources: [{ id: 'ccmixter', label: 'ccMixter', cats: [], caps: [] }] } },
+    ], PUT: [{ match: '/v1/settings', returns(url, body) { if (fail) throw new Error('save failed'); return { ok: true }; } }] });
+    const env = makeSandbox({ transport });
+    const bound = bindOnline(env);
+    bound.ui.onlineSource = env.doc.getElementById('online-source');
+    env.sandbox.Online.bind(Object.assign({}, { ui: bound.ui, state: env.onlineState, fmt: () => '', toast: (m, k) => env.spies.toasts.push({ msg: m, kind: k }), errText: (p, e) => p + ':' + e.message }));
+    env.sandbox.Online.init(); await ticks();
+    const input = env.doc.getElementById('jamendo-client-id');
+    const save = env.doc.getElementById('jamendo-save');
+    eq(input.value, 'my-app', '配置从服务端回填');
+    ok(typeof save.onclick === 'function', '设置有保存入口');
+    if (save.onclick) {
+      input.value = '  next-app  '; await save.onclick();
+      eq(transport.calls.put[0].body.jamendo_client_id, 'next-app', '保存用户自己的应用ID并去空格');
+      const refreshes = transport.calls.get.filter(c => c.url === '/v1/online/sources').length;
+      input.value = ''; await save.onclick();
+      eq(transport.calls.put[1].body.jamendo_client_id, '', '清空配置会停用 Jamendo');
+      fail = true; input.value = 'retry-app'; await save.onclick();
+      eq(save.disabled, false, '保存失败后可重试');
+      eq(input.value, 'retry-app', '保存失败保留输入');
+      eq(transport.calls.get.filter(c => c.url === '/v1/online/sources').length, refreshes + 1, '仅保存成功刷新音源');
+      ok(env.spies.toasts.some(t => t.kind === 'error'), '配置失败明确提示');
+    }
   }
 
   section('真实音源分页上限：酷狗满20条后仍能继续');

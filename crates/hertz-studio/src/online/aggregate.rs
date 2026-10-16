@@ -78,6 +78,7 @@ mod tests {
 
     fn page(source: &str) -> SearchPage {
         SearchPage {
+            pagination: None,
             source: source.into(),
             keyword: "x".into(),
             total: 1,

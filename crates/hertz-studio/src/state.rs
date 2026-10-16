@@ -4449,6 +4449,7 @@ pub(crate) mod tests {
         assert_eq!(origin.source, "qq");
         assert!(!relayed);
         let page = crate::online::SearchPage {
+            pagination: None,
             source: "qq".into(),
             keyword: String::new(),
             total: 1,
@@ -4629,6 +4630,7 @@ pub(crate) mod tests {
             tracks: Vec<crate::online::OnlineTrack>,
         ) -> crate::online::SearchPage {
             crate::online::SearchPage {
+                pagination: None,
                 source: source.into(),
                 keyword: "稻香".into(),
                 total: tracks.len(),

@@ -6,16 +6,12 @@
 //! Creative Commons 授权的音乐社区，接口是公开文档化的、无需凭据，直链就是
 //! 普通 mp3。接它的理由是：它是**能合法播放**的第二曲库，而不是因为它歌多。
 //!
-//! ## 为什么 id 是路径而不是数字
-//!
-//! 它的 query 接口只能按关键词检索，没有「按 id 取一首歌」的入口。所以搜索
-//! 结果里唯一能长期指代一首歌的东西就是它的直链路径，这里就把它当作 id：
-//! `content/<作者>/<文件名>.mp3`。 [`audio_url`] 因此是这条链路上唯一的信任
-//! 边界——它必须自己校验形状，不接受任意 URL，否则前端传什么我们就去取什么。
+//! 使用 upload_id 标识作品，通过公开 query API 的 ids 参数回查详情和音频。
+//! 历史收藏中的 content/<作者>/<文件名>.mp3 仍通过原有路径白名单播放。
 
 use super::{
-    client, ApiError, ApiResult, Ctx, OnlineDetail, OnlineTrack, SearchPage, SearchQuery,
-    StreamInfo,
+    client, ApiError, ApiResult, Ctx, OnlineDetail, OnlineTrack, SearchPage, SearchPagination,
+    SearchQuery, StreamInfo,
 };
 
 const ORIGIN: &str = "https://ccmixter.org";
@@ -36,38 +32,21 @@ pub async fn search(ctx: &Ctx, q: &SearchQuery) -> ApiResult<SearchPage> {
     let limit = q.limit.clamp(1, 60);
     let offset = q.offset.min(480);
 
-    let resp = client()?
-        .get(QUERY)
-        .query(&[
-            ("f", "json"),
-            ("search_type", "tracks"),
-            ("q", term),
-            ("limit", &limit.to_string()),
-            ("offset", &offset.to_string()),
-        ])
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| ApiError::internal(format!("连接 CCmixter 失败: {e}")))?;
-    if !resp.status().is_success() {
-        return Err(ApiError::internal(format!(
-            "CCmixter 返回 {}",
-            resp.status()
-        )));
-    }
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| ApiError::internal(format!("CCmixter 响应解析失败: {e}")))?;
-
+    let mut url = super::const_url(QUERY)?;
+    url.query_pairs_mut().extend_pairs([
+        ("f", "json"),
+        ("search_type", "all"),
+        ("search", term),
+        ("limit", &limit.to_string()),
+        ("offset", &offset.to_string()),
+    ]);
+    let body = super::http::get_json(&client()?, url.as_str(), Default::default()).await?;
     let uploads = body
         .as_array()
-        .cloned()
-        .or_else(|| body.get("items").and_then(|v| v.as_array()).cloned())
-        .unwrap_or_default();
+        .ok_or_else(|| ApiError::upstream_rejected("CCmixter 搜索响应缺少曲目列表"))?;
 
     let mut tracks = Vec::with_capacity(uploads.len());
-    for upload in &uploads {
+    for upload in uploads {
         if let Some(t) = upload_track(upload) {
             tracks.push(t);
         }
@@ -80,24 +59,25 @@ pub async fn search(ctx: &Ctx, q: &SearchQuery) -> ApiResult<SearchPage> {
         total,
         tracks,
         warning: None,
+        pagination: Some(SearchPagination {
+            next_offset: offset + uploads.len(),
+            has_more: uploads.len() >= limit && offset + uploads.len() <= 480,
+        }),
     })
 }
 
 /// 把一条 upload 折成曲目。一首上传可能带多个文件（不同格式），取第一个能直链
 /// 播放的 mp3；一个都没有就整条丢掉，而不是挂一首点开必挂的歌。
 fn upload_track(upload: &serde_json::Value) -> Option<OnlineTrack> {
-    let files = upload.get("files")?.as_array()?;
-    let file = files.iter().find(|f| {
-        f.get("download_url")
-            .and_then(|u| u.as_str())
-            .is_some_and(|u| u.starts_with("http") && u.ends_with(".mp3"))
-    })?;
-
-    let url = file.get("download_url")?.as_str()?;
-    let id = url.strip_prefix(ORIGIN)?.strip_prefix('/')?;
-    if !is_safe_path(id) {
+    let id = upload.get("upload_id")?;
+    let id = id
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| id.as_u64().map(|n| n.to_string()))?;
+    if !valid_upload_id(&id) {
         return None;
     }
+    let (file, _) = playable_file(upload)?;
 
     // 时长在文件格式信息里，写作 m:ss；缺了就当不知道，而不是猜一个 0 让进度条
     // 看起来是坏歌。
@@ -118,7 +98,7 @@ fn upload_track(upload: &serde_json::Value) -> Option<OnlineTrack> {
 
     Some(OnlineTrack {
         source: "ccmixter".into(),
-        id: id.to_string(),
+        id,
         title: upload
             .get("upload_name")
             .and_then(|v| v.as_str())
@@ -132,8 +112,46 @@ fn upload_track(upload: &serde_json::Value) -> Option<OnlineTrack> {
         cover: None,
         playable: true,
         vip_only: false,
-        track_ref: serde_json::json!({}),
+        track_ref: serde_json::json!({
+            "license_url": upload.get("license_url").and_then(|v| v.as_str()),
+            "license_name": upload.get("license_name").and_then(|v| v.as_str()),
+            "webpage_url": upload.get("file_page_url").and_then(|v| v.as_str()),
+        }),
     })
+}
+
+fn valid_upload_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 20 && id.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn playable_file(upload: &serde_json::Value) -> Option<(&serde_json::Value, String)> {
+    upload.get("files")?.as_array()?.iter().find_map(|file| {
+        let raw = file.get("download_url")?.as_str()?;
+        let path = raw
+            .strip_prefix("https://ccmixter.org/")
+            .or_else(|| raw.strip_prefix("http://ccmixter.org/"))?;
+        audio_url(path).ok().map(|url| (file, url))
+    })
+}
+
+async fn lookup(id: &str) -> ApiResult<serde_json::Value> {
+    if !valid_upload_id(id) {
+        return Err(super::bad_request("CCmixter 的作品 id 必须是纯数字"));
+    }
+    let mut url = super::const_url(QUERY)?;
+    url.query_pairs_mut()
+        .extend_pairs([("f", "json"), ("ids", id)]);
+    let body = super::http::get_json(&client()?, url.as_str(), Default::default()).await?;
+    body.as_array()
+        .ok_or_else(|| ApiError::upstream_rejected("CCmixter 详情响应缺少曲目列表"))?
+        .iter()
+        .find(|item| {
+            item.get("upload_id").is_some_and(|value| {
+                value.as_str() == Some(id) || value.as_u64().is_some_and(|n| n.to_string() == id)
+            })
+        })
+        .cloned()
+        .ok_or_else(|| ApiError::upstream_rejected("CCmixter 未找到该作品（可能已下架）"))
 }
 
 fn audio_url(id: &str) -> ApiResult<String> {
@@ -163,11 +181,20 @@ fn is_safe_path(id: &str) -> bool {
         && ok_chars
 }
 
-/// 试听地址：CCmixter 的直链就是最终地址，不需要再解析一次。
+/// 新 ID 按 upload 回查文件；旧收藏继续接受经过白名单校验的站内路径。
 pub async fn stream(ctx: &Ctx, id: &str, _quality: u32) -> ApiResult<StreamInfo> {
     let _ = ctx;
+    let id = id.trim();
+    let url = if valid_upload_id(id) {
+        let upload = lookup(id).await?;
+        playable_file(&upload)
+            .map(|(_, url)| url)
+            .ok_or_else(|| ApiError::upstream_rejected("CCmixter 该作品没有可播放的 MP3"))?
+    } else {
+        audio_url(id)?
+    };
     Ok(StreamInfo {
-        url: audio_url(id)?,
+        url,
         source: "ccmixter".into(),
         id: id.to_string(),
         bitrate: None,
@@ -178,12 +205,19 @@ pub async fn stream(ctx: &Ctx, id: &str, _quality: u32) -> ApiResult<StreamInfo>
     })
 }
 
-/// 没有按 id 查详情的接口。返回错误而不是编一个空壳，调用方（补封面那条路径）
-/// 本来就按「拿不到就算了」处理。
 pub async fn detail(_ctx: &Ctx, id: &str) -> ApiResult<OnlineDetail> {
-    Err(super::bad_request(format!(
-        "CCmixter 没有单曲详情接口，元数据以搜索结果为准（id {id}）"
-    )))
+    let upload = lookup(id.trim()).await?;
+    let t = upload_track(&upload)
+        .ok_or_else(|| ApiError::upstream_rejected("CCmixter 该作品没有可播放的 MP3"))?;
+    Ok(OnlineDetail {
+        source: t.source,
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        duration_ms: t.duration_ms,
+        cover: t.cover,
+    })
 }
 
 /// 站内没有官方歌词，返回空文档而不是错误——前端的占位文案比一条红 toast 准。
@@ -220,9 +254,63 @@ mod tests {
         assert_eq!(t.duration_ms, 21_000);
         assert!(t.playable);
         assert!(t.cover.is_none());
-        // id 是站内路径，不含协议头
-        assert!(t.id.starts_with("content/"));
+        assert_eq!(t.id, "71185");
         assert!(!t.id.contains("https"));
+    }
+
+    #[test]
+    fn upload_identity_and_attribution_survive_normalization() {
+        let mut u = upload();
+        u["license_url"] = serde_json::json!("https://creativecommons.org/licenses/by/4.0/");
+        u["file_page_url"] =
+            serde_json::json!("https://ccmixter.org/files/gabriel_shelligton/71185");
+        let t = upload_track(&u).unwrap();
+        assert_eq!(t.id, "71185");
+        assert_eq!(t.track_ref["license_url"], u["license_url"]);
+        assert_eq!(t.track_ref["webpage_url"], u["file_page_url"]);
+    }
+
+    #[test]
+    fn unusable_first_file_does_not_hide_a_valid_mp3() {
+        let mut u = upload();
+        let good = u["files"][0].clone();
+        u["files"] = serde_json::json!([
+            {"download_url": "https://elsewhere.example/track.mp3"}, good
+        ]);
+        assert!(upload_track(&u).is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires access to the public ccMixter API"]
+    async fn live_search_respects_keywords_and_numeric_details() {
+        let dir = std::env::temp_dir().join(format!("hertz-ccmixter-{}", uuid::Uuid::new_v4()));
+        let ctx = Ctx {
+            db: vmusic_store::open(&dir).await.unwrap(),
+        };
+        let q = SearchQuery {
+            q: Some("zzhertznonexistent12345678".into()),
+            cat: None,
+            source: "ccmixter".into(),
+            limit: 2,
+            offset: 0,
+        };
+        assert!(search(&ctx, &q).await.unwrap().tracks.is_empty());
+        let q = SearchQuery {
+            q: Some("Vacation Ukulele Sample".into()),
+            limit: 10,
+            ..q
+        };
+        let page = search(&ctx, &q).await.unwrap();
+        assert!(page.tracks.iter().any(|t| t.id == "71185"));
+        let d = detail(&ctx, "71185").await.unwrap();
+        assert_eq!(d.title, "Vacation - Ukulele Sample");
+        assert!(stream(&ctx, "71185", 128)
+            .await
+            .unwrap()
+            .url
+            .contains("/content/"));
+        ctx.db.close().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

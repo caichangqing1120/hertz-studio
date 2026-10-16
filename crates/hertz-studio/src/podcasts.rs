@@ -86,13 +86,20 @@ fn unix_now() -> i64 {
 }
 
 /// Apple 公开节目目录没有 offset/全目录总量契约；这里仅返回本次命中的节目。
-pub async fn search(ctx: &online::Ctx, query: &str, limit: usize) -> ApiResult<SearchResult> {
+pub async fn search(
+    ctx: &online::Ctx,
+    query: &str,
+    limit: usize,
+    country: Option<&str>,
+) -> ApiResult<SearchResult> {
     let query = query.trim();
     if query.is_empty() || query.chars().count() > 120 {
         return Err(bad_request("请输入 1–120 个字符的节目名称").with_source("podcast"));
     }
     let limit = limit.clamp(1, 50);
-    let key = format!("{}:{limit}", query.to_lowercase());
+    let url = directory_url(query, country, limit)?;
+    // The complete upstream URL also isolates cached results by storefront.
+    let key = url.to_string();
     static CACHE: OnceLock<Mutex<SearchCache>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(SearchCache::default()));
     let cached = cache
@@ -102,13 +109,6 @@ pub async fn search(ctx: &online::Ctx, query: &str, limit: usize) -> ApiResult<S
     let mut shows = if let Some(shows) = cached {
         shows
     } else {
-        let mut url = public_url("https://itunes.apple.com/search")?;
-        url.query_pairs_mut()
-            .append_pair("term", query)
-            .append_pair("country", "CN")
-            .append_pair("media", "podcast")
-            .append_pair("entity", "podcast")
-            .append_pair("limit", &limit.to_string());
         let response = public_client()?
             .get(url)
             .timeout(Duration::from_secs(20))
@@ -143,6 +143,28 @@ pub async fn search(ctx: &online::Ctx, query: &str, limit: usize) -> ApiResult<S
         query: query.into(),
         shows,
     })
+}
+
+fn directory_url(query: &str, country: Option<&str>, limit: usize) -> ApiResult<reqwest::Url> {
+    let country = country.unwrap_or("CN").trim().to_ascii_uppercase();
+    if !matches!(
+        country.as_str(),
+        "CN" | "US" | "GB" | "CA" | "AU" | "DE" | "FR" | "JP" | "KR" | "HK" | "TW" | "SG"
+    ) {
+        return Err(bad_request("请选择支持的播客目录地区").with_source("podcast"));
+    }
+    let mut url = public_url("https://itunes.apple.com/search")?;
+    url.query_pairs_mut()
+        .append_pair("term", query)
+        .append_pair("country", &country)
+        .append_pair("media", "podcast")
+        .append_pair("entity", "podcast")
+        .append_pair("limit", &limit.to_string());
+    // Apple's regional search can treat form-encoded '+' literally. Keep actual
+    // plus signs as %2B and encode spaces as %20 for consistent storefront results.
+    let query = url.query().unwrap_or_default().replace('+', "%20");
+    url.set_query(Some(&query));
+    Ok(url)
 }
 
 pub async fn feed(

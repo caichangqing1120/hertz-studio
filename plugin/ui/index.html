@@ -635,12 +635,26 @@
          避开浏览器对第三方音乐接口的 CORS 限制。 -->
     <!-- 播客 -->
     <div class="view" id="view-podcasts" hidden>
-      <div class="col-head"><div class="col-head-left"><h2>播客</h2><span class="podcast-intro">中文节目 · 公开 RSS</span></div></div>
+      <div class="col-head"><div class="col-head-left"><h2>播客</h2><span class="podcast-intro">全球节目 · 公开 RSS</span></div></div>
       <p id="podcast-status" class="podcast-status" role="status" aria-live="polite"></p>
       <div class="podcast-scroll">
         <div id="podcast-browse">
           <form id="podcast-search" class="podcast-search" role="search">
-            <input id="podcast-query" type="search" aria-label="搜索播客节目" placeholder="搜索节目名或主播名…" maxlength="200" autocomplete="off">
+            <select id="podcast-country" aria-label="播客目录地区">
+              <option value="CN">中国大陆</option>
+              <option value="US">美国</option>
+              <option value="GB">英国</option>
+              <option value="CA">加拿大</option>
+              <option value="AU">澳大利亚</option>
+              <option value="DE">德国</option>
+              <option value="FR">法国</option>
+              <option value="JP">日本</option>
+              <option value="KR">韩国</option>
+              <option value="HK">中国香港</option>
+              <option value="TW">中国台湾</option>
+              <option value="SG">新加坡</option>
+            </select>
+            <input id="podcast-query" type="search" aria-label="搜索播客节目" placeholder="搜索节目名或主播名…" maxlength="120" autocomplete="off">
             <button class="btn primary" type="submit">搜索节目</button>
           </form>
           <div class="podcast-toolbar"><div class="podcast-tabs" aria-label="播客浏览">
@@ -658,7 +672,7 @@
           <div id="podcast-results" class="podcast-results"></div>
           <div id="podcast-empty" class="podcast-empty">
             <h3 id="podcast-empty-title">从一个感兴趣的节目开始</h3>
-            <p id="podcast-empty-text">搜索中文节目，也可以直接添加公开 RSS。</p>
+            <p id="podcast-empty-text">搜索节目名或主播名，也可以添加公开 RSS。</p>
             <div id="podcast-suggestions" class="podcast-suggestions">
               <button type="button" class="btn" data-podcast-query="故事FM">故事FM</button>
               <button type="button" class="btn" data-podcast-query="忽左忽右">忽左忽右</button>
@@ -1471,6 +1485,13 @@
            #cookie-rows）。清单来自 /v1/online/sources，所以加音源不用动这里。 -->
       <div class="set-group">
         <h2 class="set-title">在线音源</h2>
+        <div class="set-row jamendo-config">
+          <label for="jamendo-client-id">Jamendo 应用 ID</label>
+          <input id="jamendo-client-id" type="text" autocomplete="off" spellcheck="false" aria-label="Jamendo client_id">
+          <button id="jamendo-save" type="button" class="btn" disabled>保存</button>
+          <span id="jamendo-status" class="hint" role="status">读取配置中…</span>
+          <span id="jamendo-portal"></span>
+        </div>
         <div id="cookie-rows"></div>
         <p class="hint set-note">
           这里填的是<b>你自己</b>在该站点的登录 cookie，服务端只会把它作为 Cookie 头

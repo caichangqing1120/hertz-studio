@@ -110,6 +110,7 @@ pub async fn search(ctx: &Ctx, q: &SearchQuery) -> ApiResult<SearchPage> {
         total,
         tracks,
         warning: None,
+        pagination: None,
     })
 }
 

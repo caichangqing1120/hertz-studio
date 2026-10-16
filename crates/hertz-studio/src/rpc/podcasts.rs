@@ -14,7 +14,7 @@ pub async fn search(state: &Arc<AppState>, query: &Value) -> RpcResult {
     let q: PodcastSearchQuery = query_as(query)?;
     Reply::json(&tagged(
         "podcast",
-        podcasts::search(&online_ctx(state), &q.q, q.limit).await,
+        podcasts::search(&online_ctx(state), &q.q, q.limit, q.country.as_deref()).await,
     )?)
 }
 

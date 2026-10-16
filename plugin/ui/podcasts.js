@@ -9,6 +9,7 @@
   var subscriptionsRequest = 0;
   var subscriptionRevisions = new Map();
   var PAGE = 50;
+  var COUNTRY_KEY = 'hertz.podcasts.country';
   function el(id) { return document.getElementById(id); }
   function node(tag, className, text) {
     var n = document.createElement(tag);
@@ -79,7 +80,13 @@
     el('podcast-empty-title').textContent = st.tab === 'subscriptions' ? '收藏你的常听节目' : '从一个感兴趣的节目开始';
     el('podcast-empty-text').textContent = st.tab === 'subscriptions'
       ? '搜索节目并订阅，或添加发布者提供的公开 RSS 地址。'
-      : el('podcast-query').value.trim() ? '没有找到相关节目，换个节目名或主播名试试。' : '搜索中文节目，也可以直接添加公开 RSS。';
+      : el('podcast-query').value.trim() ? '没有找到相关节目，换个节目名、主播名或目录地区试试。' : '搜索节目名或主播名，也可以添加公开 RSS。';
+    var suggestions = el('podcast-country').value === 'CN'
+      ? ['故事FM', '忽左忽右', '声东击西'] : ['Planet Money', 'Global News Podcast', 'TED Talks Daily'];
+    document.querySelectorAll('[data-podcast-query]').forEach(function (button, index) {
+      button.dataset.podcastQuery = suggestions[index];
+      button.textContent = suggestions[index];
+    });
     el('podcast-suggestions').hidden = st.tab === 'subscriptions';
   }
   async function refreshSubscriptions() {
@@ -99,7 +106,8 @@
     el('podcast-query').value = query;
     renderShows(); status('正在搜索节目…');
     try {
-      var data = await T.get('/v1/podcasts/search?q=' + encodeURIComponent(query) + '&limit=30');
+      var data = await T.get('/v1/podcasts/search?q=' + encodeURIComponent(query) + '&limit=30'
+        + '&country=' + encodeURIComponent(el('podcast-country').value));
       if (mine !== st.epoch) return;
       st.shows = data.shows || [];
       status(st.shows.length ? '找到 ' + st.shows.length + ' 个节目 · 目录由 Apple Podcasts 提供' : '没有找到节目');
@@ -228,6 +236,17 @@
     H = host; T = window.VMusicTransport;
     if (bound) return;
     bound = true;
+    var country = el('podcast-country');
+    try {
+      var saved = localStorage.getItem(COUNTRY_KEY);
+      if (Array.from(country.options).some(function (option) { return option.value === saved; })) country.value = saved;
+    } catch (_) { /* Region selection still works without persistent storage. */ }
+    country.onchange = function () {
+      try { localStorage.setItem(COUNTRY_KEY, country.value); } catch (_) { /* Session preference remains usable. */ }
+      st.shows = [];
+      if (el('podcast-query').value.trim()) search(el('podcast-query').value);
+      else browse('discover');
+    };
     el('podcast-search').onsubmit = function (event) { event.preventDefault(); search(el('podcast-query').value); };
     el('podcast-import').onsubmit = function (event) { event.preventDefault(); importFeed(); };
     document.querySelectorAll('[data-podcast-tab]').forEach(function (button) {

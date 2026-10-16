@@ -100,6 +100,7 @@
     var cap = KIND_CAPS[kind];
     if (!cap) return true;
     if (!source || source === 'all') return false;
+    if (online() && online().searchSource) source = online().searchSource(kind, true);
     return sourceHasCap(source, cap);
   }
 
@@ -331,14 +332,16 @@
   }
 
   async function runPreview(q) {
-    var kind = effectiveKind();
-    if (kind === 'local' || !q) return;
-    var epoch = state.epoch;
+    if (effectiveKind() === 'local' || !q) return;
+    var epoch = ++state.epoch;
     var o = online();
     if (!o || !transport()) return;
-    // 聚合档（all）没有单端点可打：预览落回第一个可用音源（通常网易云），
-    // 「回车看全部」仍会进入在线页做真正的跨源聚合。
-    var source = o.state.source;
+    if (o.whenSearchReady) await o.whenSearchReady();
+    if (epoch !== state.epoch || q !== state.q) return;
+    var kind = effectiveKind();
+    renderChips();
+    // Preview and full search share account and capability priorities.
+    var source = o.searchSource ? o.searchSource(kind, true) : o.state.source;
     if (source === 'all') {
       var first = (o.sources() || [])[0];
       source = first ? first.id : 'netease';

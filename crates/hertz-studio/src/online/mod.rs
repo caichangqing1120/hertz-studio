@@ -203,6 +203,15 @@ pub struct SearchPage {
     /// 上游返回的错误或降级说明；为空表示一切正常
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Provider cursor before normalization/filtering; absent for legacy providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pagination: Option<SearchPagination>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchPagination {
+    pub next_offset: usize,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

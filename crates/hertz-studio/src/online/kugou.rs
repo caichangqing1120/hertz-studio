@@ -473,6 +473,7 @@ pub async fn search(ctx: &Ctx, q: &SearchQuery) -> ApiResult<SearchPage> {
         total,
         tracks,
         warning: None,
+        pagination: None,
     })
 }
 
@@ -1288,6 +1289,7 @@ pub async fn recommend_songs(ctx: &Ctx) -> ApiResult<super::SearchPage> {
         total: tracks.len(),
         tracks,
         warning: None,
+        pagination: None,
     })
 }
 

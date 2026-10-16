@@ -144,3 +144,23 @@ REST 路由表共 125 个「方法 + 路径」（`crates/hertz-studio/src/routes
 `main.rs` 上另有：GET `/ws`，GET `/wallpapers/{name}`，GET `/platform-icons/{name}`，GET `/space-scene-preview/{name}`，GET `/`，POST `/v1/auth/session`。
 
 <!-- api-routes:end -->
+
+## 播客目录搜索
+
+`GET /v1/podcasts/search?q=Planet%20Money&country=US&limit=30` 搜索指定地区的
+Apple Podcasts 节目目录。`country` 可省略，默认 `CN`；支持 `CN`、`US`、`GB`、
+`CA`、`AU`、`DE`、`FR`、`JP`、`KR`、`HK`、`TW`、`SG`，忽略大小写及首尾空格。
+不支持的地区返回 400。`limit` 默认 30，范围 1–50。缓存按地区、关键词和数量隔离，
+HTTP 与 DBX RPC 使用同一参数与结果。目录地区不是节目语言筛选，也不保证 RSS
+或音频在用户网络下可访问；订阅和单集身份不随搜索地区变化。
+
+## 在线搜索分页
+
+`GET /v1/online/search` 的 `tracks` 是归一化后的结果，Jamendo 与 ccMixter 另外返回
+可选的 `pagination: { next_offset, has_more }`。过滤无效文件或曲目后，`tracks.length`
+可能小于实际消耗的上游条数，调用方应按 `next_offset` 请求下一页，并以 `has_more`
+判断结束。没有该字段的音源保持原有分页方式；HTTP 与插件 RPC 使用同一响应结构。
+
+开放曲库的曲目 `ref` 可包含 `license_url`、`license_name`、`webpage_url`，缺失字段
+不代表无版权。Jamendo 应用 ID 使用现有 `PUT /v1/settings` 的 `jamendo_client_id`
+键配置，空字符串停用；音源清单在下次读取时反映配置变化。

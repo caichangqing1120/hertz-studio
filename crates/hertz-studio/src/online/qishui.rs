@@ -183,6 +183,7 @@ async fn pc_search(cookie: &str, term: &str, limit: usize, offset: usize) -> Api
         total,
         tracks: tracks.into_iter().take(limit).collect(),
         warning: None,
+        pagination: None,
     })
 }
 
@@ -313,6 +314,7 @@ async fn public_search(term: &str, limit: usize, offset: usize) -> ApiResult<Sea
         total,
         tracks,
         warning: Some("未登录汽水音乐，以下仅是可浏览的目录信息，需要登录后才能试听。".to_string()),
+        pagination: None,
     })
 }
 

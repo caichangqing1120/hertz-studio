@@ -342,6 +342,8 @@ body.skset-modal-open .topbar {
 .skset-pane > #view-settings > .set-group + .set-group { margin-top: 14px; }
 
 @media (max-width: 720px) {
+  .skset-layout { flex-direction: column; }
+
   .skset-modal-body {
     flex-direction: column;
     padding: 56px 18px 18px;

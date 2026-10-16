@@ -23,13 +23,13 @@
 
 use super::{
     bad_request, client, const_url, ApiError, ApiResult, Ctx, OnlineDetail, OnlineTrack,
-    SearchPage, SearchQuery, StreamInfo,
+    SearchPage, SearchPagination, SearchQuery, StreamInfo,
 };
 
 pub const ID: &str = "jamendo";
 /// settings 表里存 Jamendo client_id 的键（PUT /v1/settings 写入）。
 pub const CLIENT_ID_KEY: &str = "jamendo_client_id";
-const API: &str = "https://api.jamendo.com/v3.0/tracks";
+const API: &str = "https://api.jamendo.com/v3.0/tracks/";
 
 fn internal_store(e: vmusic_core::StoreError) -> ApiError {
     ApiError::internal(e.to_string())
@@ -67,21 +67,27 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) && id.len() <= 20
 }
 
-/// 调 tracks 端点。query 在 client_id/format 之外由调用方给。
-async fn tracks_call(
-    ctx: &Ctx,
-    extra: &[(&str, String)],
-) -> ApiResult<(serde_json::Value, Vec<serde_json::Value>)> {
-    let cid = client_id(ctx).await?;
+fn tracks_url(cid: &str, extra: &[(&str, String)]) -> ApiResult<reqwest::Url> {
     let mut url = const_url(API)?;
     {
         let mut p = url.query_pairs_mut();
-        p.append_pair("client_id", &cid)
-            .append_pair("format", "json");
+        p.append_pair("client_id", cid)
+            .append_pair("format", "json")
+            .append_pair("audioformat", "mp32")
+            .append_pair("type", "albumtrack+single");
         for (k, v) in extra {
             p.append_pair(k, v);
         }
     }
+    Ok(url)
+}
+
+/// All track operations include both singles and album tracks.
+async fn tracks_call(
+    ctx: &Ctx,
+    extra: &[(&str, String)],
+) -> ApiResult<(serde_json::Value, Vec<serde_json::Value>)> {
+    let url = tracks_url(&client_id(ctx).await?, extra)?;
     let body = super::http::get_json(&client()?, url.as_str(), Default::default()).await?;
     let status = body
         .pointer("/headers/status")
@@ -100,7 +106,7 @@ async fn tracks_call(
         .get("results")
         .and_then(|v| v.as_array())
         .cloned()
-        .unwrap_or_default();
+        .ok_or_else(|| ApiError::upstream_rejected("Jamendo 响应缺少曲目列表"))?;
     Ok((body, results))
 }
 
@@ -113,27 +119,46 @@ pub async fn search(ctx: &Ctx, q: &SearchQuery) -> ApiResult<SearchPage> {
         return Err(bad_request("Jamendo 只支持关键词检索，请输入歌名或歌手"));
     }
 
-    let limit = q.limit.clamp(1, 50).to_string();
-    let offset = q.offset.min(1000).to_string();
-    let (_, results) = tracks_call(
+    let limit = q.limit.clamp(1, 50);
+    let offset = q.offset.min(1000);
+    let (body, results) = tracks_call(
         ctx,
         &[
             ("search", term.to_string()),
-            ("limit", limit),
-            ("offset", offset),
+            ("limit", limit.to_string()),
+            ("offset", offset.to_string()),
+            ("fullcount", "true".to_string()),
         ],
     )
     .await?;
 
     let tracks: Vec<OnlineTrack> = results.iter().filter_map(map_track).collect();
-    let total = tracks.len();
+    let total = body
+        .pointer("/headers/results_fullcount")
+        .and_then(|v| v.as_u64())
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(offset + results.len());
+    let next_offset = offset + results.len();
 
     Ok(SearchPage {
         source: ID.into(),
         keyword: term.to_string(),
         total,
         tracks,
-        warning: None,
+        warning: body
+            .pointer("/headers/warnings")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string),
+        pagination: Some(SearchPagination {
+            next_offset,
+            has_more: results.len() >= limit
+                && next_offset <= 1000
+                && body
+                    .pointer("/headers/results_fullcount")
+                    .and_then(|v| v.as_u64())
+                    .is_none_or(|count| (next_offset as u64) < count),
+        }),
     })
 }
 
@@ -146,6 +171,9 @@ fn map_track(item: &serde_json::Value) -> Option<OnlineTrack> {
         Some(serde_json::Value::Number(n)) if !n.to_string().is_empty() => n.to_string(),
         _ => return None,
     };
+    if !valid_id(&id) {
+        return None;
+    }
 
     let title = item
         .get("name")
@@ -172,21 +200,23 @@ fn map_track(item: &serde_json::Value) -> Option<OnlineTrack> {
                 .or_else(|| v.as_u64())
         })
         .unwrap_or(0)
-        * 1000;
-    let cover = item
-        .get("album_image")
-        .or_else(|| item.get("image"))
-        .and_then(|v| v.as_str())
-        .filter(|s| s.starts_with("http"))
+        .saturating_mul(1000);
+    let cover = ["image", "album_image"]
+        .iter()
+        .find_map(|key| {
+            item.get(key)
+                .and_then(|v| v.as_str())
+                .filter(|s| http_url(s))
+        })
         .map(str::to_string);
     let audio = item
         .get("audio")
         .and_then(|v| v.as_str())
-        .is_some_and(|s| s.starts_with("http"));
+        .is_some_and(http_url);
 
     Some(OnlineTrack {
         source: ID.into(),
-        id,
+        id: id.clone(),
         title,
         artist,
         album,
@@ -194,8 +224,17 @@ fn map_track(item: &serde_json::Value) -> Option<OnlineTrack> {
         cover,
         playable: audio,
         vip_only: false,
-        track_ref: serde_json::json!({}),
+        track_ref: serde_json::json!({
+            "license_url": item.get("license_ccurl").and_then(|v| v.as_str()),
+            "webpage_url": item.get("shareurl").and_then(|v| v.as_str())
+                .map(str::to_string).unwrap_or_else(|| format!("https://www.jamendo.com/track/{id}")),
+        }),
     })
+}
+
+fn http_url(raw: &str) -> bool {
+    reqwest::Url::parse(raw)
+        .is_ok_and(|url| matches!(url.scheme(), "https" | "http") && url.host_str().is_some())
 }
 
 /// 取流：按 id 现查直链，不信任客户端带来的 URL。
@@ -206,10 +245,11 @@ pub async fn stream(ctx: &Ctx, id: &str, _quality: u32) -> ApiResult<StreamInfo>
     }
     let (_, results) = tracks_call(ctx, &[("id", id.to_string())]).await?;
     let audio = results
-        .first()
+        .iter()
+        .find(|t| map_track(t).is_some_and(|track| track.id == id))
         .and_then(|t| t.get("audio"))
         .and_then(|v| v.as_str())
-        .filter(|s| s.starts_with("http"))
+        .filter(|s| http_url(s))
         .ok_or_else(|| {
             ApiError::upstream_rejected("Jamendo 未返回该曲目的音频地址（可能已下架）")
         })?;
@@ -233,41 +273,18 @@ pub async fn detail(ctx: &Ctx, id: &str) -> ApiResult<OnlineDetail> {
     }
     let (_, results) = tracks_call(ctx, &[("id", id.to_string())]).await?;
     let t = results
-        .first()
+        .iter()
+        .filter_map(map_track)
+        .find(|t| t.id == id)
         .ok_or_else(|| ApiError::upstream_rejected("Jamendo 未找到该曲目（可能已下架）"))?;
     Ok(OnlineDetail {
-        source: ID.into(),
-        id: id.to_string(),
-        title: t
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("未知曲目")
-            .to_string(),
-        artist: t
-            .get("artist_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("未知艺术家")
-            .to_string(),
-        album: t
-            .get("album_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        duration_ms: t
-            .get("duration")
-            .and_then(|v| {
-                v.as_str()
-                    .and_then(|s| s.trim().parse::<u64>().ok())
-                    .or_else(|| v.as_u64())
-            })
-            .unwrap_or(0)
-            * 1000,
-        cover: t
-            .get("album_image")
-            .or_else(|| t.get("image"))
-            .and_then(|v| v.as_str())
-            .filter(|s| s.starts_with("http"))
-            .map(str::to_string),
+        source: t.source,
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        duration_ms: t.duration_ms,
+        cover: t.cover,
     })
 }
 
@@ -282,6 +299,23 @@ mod tests {
 
     fn fixture() -> serde_json::Value {
         serde_json::from_str(include_str!("../../tests/fixtures/jamendo_search.json")).unwrap()
+    }
+
+    #[test]
+    fn search_and_lookup_keep_the_same_catalog_and_encode_user_input() {
+        for extra in [
+            vec![("search", "piano & guitar 中文".to_string())],
+            vec![("id", "42".to_string())],
+        ] {
+            let url = tracks_url("my-app", &extra).unwrap();
+            let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(url.path(), "/v3.0/tracks/");
+            assert_eq!(params["type"], "albumtrack+single");
+            assert_eq!(params["audioformat"], "mp32");
+            assert_eq!(params["client_id"], "my-app");
+            assert_eq!(params[extra[0].0], extra[0].1);
+            assert_eq!(params.len(), 5);
+        }
     }
 
     #[test]
@@ -328,6 +362,34 @@ mod tests {
         // 数字形态的 id 也能折（上游文档两态都出现过）。
         let t = map_track(&serde_json::json!({"id": 42, "name": "n"})).unwrap();
         assert_eq!(t.id, "42");
+    }
+
+    #[test]
+    fn attribution_is_preserved_and_empty_album_cover_uses_track_image() {
+        let mut item = fixture()["results"][0].clone();
+        item["album_image"] = serde_json::json!("");
+        item["image"] = serde_json::json!("https://usercontent.jamendo.com/track.jpg");
+        item["shareurl"] = serde_json::json!("https://www.jamendo.com/track/1176055");
+        let t = map_track(&item).unwrap();
+        assert_eq!(
+            t.cover.as_deref(),
+            Some("https://usercontent.jamendo.com/track.jpg")
+        );
+        assert_eq!(t.track_ref["license_url"], item["license_ccurl"]);
+        assert_eq!(t.track_ref["webpage_url"], item["shareurl"]);
+    }
+
+    #[test]
+    fn malformed_ids_and_non_http_audio_are_not_playable() {
+        for id in [
+            serde_json::json!("abc"),
+            serde_json::json!(-5),
+            serde_json::json!(1.5),
+        ] {
+            assert!(map_track(&serde_json::json!({"id": id})).is_none());
+        }
+        let t = map_track(&serde_json::json!({"id": "42", "audio": "httpnot-a-url"})).unwrap();
+        assert!(!t.playable);
     }
 
     #[tokio::test]

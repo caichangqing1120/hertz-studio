@@ -219,6 +219,63 @@ fn directory_returns_shows_and_discards_invalid_feed_urls() {
 }
 
 #[test]
+fn directory_request_rejects_non_string_country() {
+    let result = serde_json::from_value::<crate::routes::PodcastSearchQuery>(serde_json::json!({
+        "q": "Planet Money", "country": 123
+    }));
+    assert!(
+        result.is_err(),
+        "country must be a string, not silently ignored"
+    );
+}
+
+#[test]
+fn directory_region_defaults_normalizes_and_encodes_exact_query() {
+    let old: crate::routes::PodcastSearchQuery =
+        serde_json::from_value(serde_json::json!({"q": "故事FM"})).unwrap();
+    assert!(old.country.is_none());
+    let url = directory_url(&old.q, old.country.as_deref(), old.limit).unwrap();
+    let params: HashMap<_, _> = url.query_pairs().into_owned().collect();
+    assert_eq!(params["country"], "CN");
+    assert_eq!(params["limit"], "30");
+
+    for code in [
+        "US", "GB", "CA", "AU", "DE", "FR", "JP", "KR", "HK", "TW", "SG", " us ",
+    ] {
+        let url = directory_url("news & 中文 + science", Some(code), 12).unwrap();
+        let params: HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(url.host_str(), Some("itunes.apple.com"));
+        assert_eq!(params["country"], code.trim().to_ascii_uppercase());
+        assert_eq!(params["term"], "news & 中文 + science");
+        assert!(
+            !url.as_str().contains('+'),
+            "Apple storefront queries need percent-encoded spaces"
+        );
+        assert!(url.as_str().contains("%20"));
+        assert!(
+            url.as_str().contains("%2B"),
+            "literal plus must remain distinct from spaces"
+        );
+        assert_eq!(params["entity"], "podcast");
+        assert_eq!(params["limit"], "12");
+    }
+    for code in ["", "USA", "ZZ", "US&country=CN", "美国"] {
+        let error = directory_url("news", Some(code), 10).unwrap_err();
+        assert_eq!(error.code, "bad_request");
+    }
+}
+
+#[test]
+fn directory_cache_keys_isolate_regions_and_share_normalized_codes() {
+    let mut cache = SearchCache::default();
+    let now = Instant::now();
+    let key = |country| directory_url("news", country, 10).unwrap().to_string();
+    cache.insert(key(None), vec![parsed(RSS).show], now);
+    assert!(cache.get(&key(Some("US")), now).is_none());
+    assert!(cache.get(&key(Some(" cn ")), now).is_some());
+}
+
+#[test]
 fn search_cache_expires_and_stays_bounded() {
     let mut cache = SearchCache::default();
     let now = Instant::now();
@@ -362,11 +419,21 @@ async fn feed_page_keeps_one_snapshot_when_refresh_commits_between_its_reads() {
 async fn invalid_inputs_are_rejected_before_network_and_missing_ids_are_not_found() {
     let (ctx, dir) = context().await;
     assert_eq!(
-        search(&ctx, "  ", 20).await.unwrap_err().code,
+        search(&ctx, "  ", 20, None).await.unwrap_err().code,
         "bad_request"
     );
     assert_eq!(
-        search(&ctx, &"字".repeat(121), 20).await.unwrap_err().code,
+        search(&ctx, &"字".repeat(121), 20, None)
+            .await
+            .unwrap_err()
+            .code,
+        "bad_request"
+    );
+    assert_eq!(
+        search(&ctx, "Planet Money", 20, Some("ZZ"))
+            .await
+            .unwrap_err()
+            .code,
         "bad_request"
     );
     assert_eq!(
@@ -527,10 +594,53 @@ async fn response_reader_rejects_oversize_headers_and_chunked_bodies() {
 }
 
 #[tokio::test]
+#[ignore = "访问海外 Apple 目录、NPR RSS，并只读取音频第一个 Range 块"]
+async fn live_overseas_directory_feed_and_audio_range() {
+    let (ctx, dir) = context().await;
+    let results = search(&ctx, "Planet Money", 10, Some("US")).await.unwrap();
+    let show = results
+        .shows
+        .iter()
+        .find(|show| show.title == "Planet Money")
+        .unwrap();
+    let page = feed(&ctx, &show.feed_url, 0, 2, true).await.unwrap();
+    assert!(!page.episodes.is_empty());
+    let stream = episode_stream(&ctx, &page.episodes[0].track.id)
+        .await
+        .unwrap();
+    let mut response = public_client()
+        .unwrap()
+        .get(public_url(&stream.url).unwrap())
+        .header(reqwest::header::RANGE, "bytes=0-1023")
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert!(!response.chunk().await.unwrap().unwrap().is_empty());
+    println!(
+        "US: {} shows; {}: {} episodes; audio {}",
+        results.shows.len(),
+        page.show.title,
+        page.total,
+        response.status()
+    );
+    let uk = search(&ctx, "The Rest Is History", 10, Some("GB"))
+        .await
+        .unwrap();
+    assert!(uk
+        .shows
+        .iter()
+        .any(|show| show.title.contains("The Rest Is History")));
+    println!("GB: {} shows", uk.shows.len());
+    cleanup(ctx, dir).await;
+}
+
+#[tokio::test]
 #[ignore = "访问 Apple 目录、三份真实中文 RSS，并只读取音频的第一个 Range 块"]
 async fn live_chinese_directory_feeds_and_public_audio_ranges() {
     let (ctx, dir) = context().await;
-    let results = search(&ctx, "故事FM", 3).await.unwrap();
+    let results = search(&ctx, "故事FM", 3, None).await.unwrap();
     assert!(!results.shows.is_empty());
     println!("directory: {} shows", results.shows.len());
     for url in [

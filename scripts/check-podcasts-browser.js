@@ -19,6 +19,8 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1040, height: 850 } });
     const errors = [];
     page.on('pageerror', err => errors.push(err.message));
+    await page.route('https://fixture.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));
+    await page.goto('https://fixture.test');
     await page.setContent(html.slice(start, end));
     for (const file of ['style.css', 'podcasts.css']) await page.addStyleTag({ content: read(file) });
     await page.addStyleTag({ content: 'body{padding:20px;overflow:auto}#view-podcasts{height:780px;width:100%;max-width:1000px;margin:auto}' });
@@ -41,6 +43,12 @@ async function main() {
             return result;
           }
           if (u.pathname.endsWith('/search')) {
+            if (u.searchParams.get('q') === 'regional') {
+              const country = u.searchParams.get('country');
+              const result = { query: 'regional', shows: [makeShow(country, country + ' catalog')] };
+              if (country === 'CN') return new Promise(resolve => { window.resolveRegion = () => resolve(result); });
+              return result;
+            }
             if (u.searchParams.get('q') === 'old') return new Promise(resolve => { window.resolveOld = () => resolve({ query: 'old', shows: [a] }); });
             if (u.searchParams.get('q') === 'failure') throw new Error('fixture search unavailable');
             return { query: u.searchParams.get('q'), shows: [b] };
@@ -79,6 +87,28 @@ async function main() {
       Podcasts.bind({ play: async (tracks, index) => plays.push({ ids: tracks.map(t => t.id), index }), toast() {} });
       return Podcasts.onViewEnter();
     });
+    assert.equal(await page.locator('#podcast-country').count(), 1, 'search has a region selector');
+    assert.equal(await page.locator('#podcast-country').inputValue(), 'CN', 'existing Chinese catalog is the default');
+    await page.locator('#podcast-query').fill('regional');
+    await page.locator('#podcast-search').evaluate(form => form.requestSubmit());
+    await page.waitForFunction(() => typeof resolveRegion === 'function');
+    await page.locator('#podcast-country').selectOption('US');
+    await page.locator('.podcast-show').filter({ hasText: 'US catalog' }).waitFor();
+    await page.evaluate(() => resolveRegion());
+    assert.match(await page.locator('.podcast-show').textContent(), /US catalog/, 'late CN search cannot replace US results');
+    assert.ok(await page.evaluate(() => calls.some(c => c[1].includes('country=US'))), 'request carries selected region');
+    await page.locator('#podcast-country').selectOption('GB');
+    await page.locator('.podcast-show').filter({ hasText: 'GB catalog' }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'regional form fits mobile');
+    for (const selector of ['#podcast-country', '#podcast-query', '#podcast-search button']) {
+      const box = await page.locator(selector).boundingBox();
+      assert.ok(box.width >= 70 && box.x >= 0 && box.x + box.width <= 390, selector + ' stays usable');
+    }
+    const regionalOutput = path.join(root, 'output', 'podcasts-browser'); fs.mkdirSync(regionalOutput, { recursive: true });
+    await page.screenshot({ path: path.join(regionalOutput, 'regions-mobile.png') });
+    await page.setViewportSize({ width: 1040, height: 850 });
+    await page.screenshot({ path: path.join(regionalOutput, 'regions-desktop.png') });
     await page.getByRole('button', { name: '我的订阅', exact: true }).click();
     await page.locator('.podcast-show').filter({ hasText: '故事FM' }).waitFor();
     await page.locator('#podcast-query').fill('old');
@@ -159,8 +189,20 @@ async function main() {
     await page.locator('#podcast-query').fill('failure');
     await page.locator('#podcast-search').evaluate(form => form.requestSubmit());
     await page.waitForFunction(() => document.getElementById('podcast-status').textContent.includes('fixture search unavailable'));
+    assert.equal(await page.locator('#podcast-country').inputValue(), 'GB', 'search failure preserves selected region');
+    await page.reload();
+    await page.setContent(html.slice(start, end));
+    await page.addScriptTag({ content: read('podcasts.js') });
+    await page.evaluate(() => Podcasts.bind({ play() {} }));
+    assert.equal(await page.locator('#podcast-country').inputValue(), 'GB', 'region survives a page reload');
+    await page.evaluate(() => localStorage.setItem('hertz.podcasts.country', 'ZZ'));
+    await page.reload();
+    await page.setContent(html.slice(start, end));
+    await page.addScriptTag({ content: read('podcasts.js') });
+    await page.evaluate(() => Podcasts.bind({ play() {} }));
+    assert.equal(await page.locator('#podcast-country').inputValue(), 'CN', 'obsolete saved region uses default');
     assert.deepEqual(errors, []);
-    console.log('Podcasts Chrome: subscriptions, stale searches, inert feed text, pagination, playback, RSS import, errors and narrow layout passed.');
+    console.log('Podcasts Chrome: regions, persistence, stale regional searches, subscriptions, inert feed text, pagination, playback, RSS import, errors and narrow layout passed.');
   } finally { await browser.close(); }
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });

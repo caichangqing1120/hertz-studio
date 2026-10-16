@@ -273,6 +273,47 @@
   // 直接复用曲库行的 .track 栅格与子元素类名，在线结果因此和本地曲库长得一样。
   // activate 由调用方给：搜索结果页用「整盘入队」，歌单抽屉用「整盘详情入队」，
   // 标记/置灰/VIP 闸门在这里统一做，调用方只管激活后干什么。
+  function externalLink(raw, label) {
+    var url;
+    try { url = new URL(raw); } catch (_) { return null; }
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
+    var link = document.createElement('a');
+    link.href = url.href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = label;
+    link.title = url.href;
+    link.onclick = function (e) {
+      e.stopPropagation();
+      if (window.hertzHost && window.hertzHost.isDbx) {
+        e.preventDefault();
+        var write = window.HertzClipboard && window.HertzClipboard.write;
+        Promise.resolve().then(function () {
+          if (!write) throw new Error('无法复制链接');
+          return write(url.href);
+        }).then(function () { H.toast('链接已复制'); }, function () { H.toast(url.href, 'info'); });
+      }
+    };
+    link.onkeydown = function (e) { e.stopPropagation(); };
+    return link;
+  }
+
+  function attribution(track) {
+    var ref = track.ref || track.track_ref || {};
+    var license = null;
+    if (ref.license_url) {
+      var match = /^https?:\/\/creativecommons\.org\/licenses\/([a-z-]+)\/([\d.]+)\//i.exec(ref.license_url);
+      license = externalLink(ref.license_url, match ? 'CC ' + match[1].toUpperCase() + ' ' + match[2] : ref.license_name || '许可证');
+    }
+    var page = ref.webpage_url && externalLink(ref.webpage_url, '作品页');
+    if (!license && !page) return null;
+    var node = document.createElement('div');
+    node.className = 'online-attribution';
+    if (license) node.appendChild(license);
+    if (page) node.appendChild(page);
+    return node;
+  }
+
   function buildRow(track, activate) {
     var row = document.createElement('div');
     // 无试听地址：整行置灰。只禁用按钮不够，行点击也必须失效。
@@ -299,6 +340,8 @@
       '</div>';
     row.querySelector('.t-title').textContent = track.title;
     row.querySelector('.t-sub').textContent = track.artist || '未知艺术家';
+    var credits = attribution(track);
+    if (credits) row.querySelector('.t-main').appendChild(credits);
     row.querySelector('.t-album').textContent = track.album || '—';
     row.querySelector('.t-dur').textContent = H.fmt(track.duration_ms || 0);
     H.paintArt(row, rowCoverUrl(safeCoverUrl(track.cover)));
@@ -379,6 +422,41 @@
   var searchSession = null;
   var searchCache = new Map();
   var searchViews = new Map();
+  var sourceManuallySelected = false;
+  var automaticSearchSource = null;
+  var sourcesReady = Promise.resolve();
+
+  function whenSearchReady() {
+    var login = window.OnlineLogin;
+    return Promise.all([sourcesReady, login && login.whenReady ? login.whenReady() : null]);
+  }
+
+  function loggedSearchSources() {
+    var login = window.OnlineLogin;
+    return login && login.loggedSources ? login.loggedSources() : [];
+  }
+
+  function searchSource(kind, preview) {
+    var current = onlineState.source;
+    if ((current === 'all' && !preview) || (sourceManuallySelected && current !== 'all')) return current;
+    var available = onlineState.sources.filter(function (s) { return kindAllowed(kind || 'song', s.id); });
+    var logged = loggedSearchSources();
+    for (var i = 0; i < logged.length; i++) {
+      if (available.some(function (s) { return s.id === logged[i]; })) return logged[i];
+    }
+    var fallback = current === automaticSearchSource || current === 'all' ? available[0]
+      : available.find(function (s) { return s.id === current; }) || available[0];
+    return fallback ? fallback.id : current === 'all' ? 'netease' : current;
+  }
+
+  function prepareSearchSource(kind) {
+    var source = searchSource(kind);
+    if (source === onlineState.source) return;
+    onlineState.source = automaticSearchSource = source;
+    if (H.ui.onlineSource) H.ui.onlineSource.value = source;
+    renderSourceCaps();
+    renderQualityOptions();
+  }
   // Use a page size accepted by every registered provider (KuGou caps at 20).
   // Otherwise a valid full KuGou page looks short and pagination stops early.
   var PAGE_SIZE = 20;
@@ -486,10 +564,12 @@
     var pages = session.pages;
     var flat = [];
     pages.forEach(function (p) { flat = flat.concat(p.tracks); });
-    // Deterministic ties follow registry/page order, independent of response timing.
+    // Account priority is captured for the session; ties retain relevance/page order.
     if (session.aggregate) flat = flat.map(function (track, index) {
-      return { track: track, index: index, score: relevance(track, session.q) };
-    }).sort(function (a, b) { return b.score - a.score || a.index - b.index; })
+      var priority = session.preferredSources.indexOf(track.source);
+      return { track: track, index: index, score: relevance(track, session.q),
+        priority: priority < 0 ? session.preferredSources.length : priority };
+    }).sort(function (a, b) { return a.priority - b.priority || b.score - a.score || a.index - b.index; })
       .map(function (item) { return item.track; });
     onlineState.tracks = flat;
     onlineState.total = flat.length;
@@ -609,8 +689,15 @@
           seen.add(virtualId(track)); page.tracks.push(track); added += 1;
         }
       });
-      page.offset += raw.length;
-      page.more = raw.length >= PAGE_SIZE && added > 0;
+      var cursor = result.pagination;
+      if (cursor && Number.isSafeInteger(cursor.next_offset) && cursor.next_offset >= page.offset) {
+        var advanced = cursor.next_offset > page.offset;
+        page.offset = cursor.next_offset;
+        page.more = !!cursor.has_more && advanced;
+      } else {
+        page.offset += raw.length;
+        page.more = raw.length >= PAGE_SIZE && added > 0;
+      }
       page.warning = result.warning || '';
       // Search cache is bounded and only contains successful snapshots, never live requests.
       if (session.q) {
@@ -633,6 +720,11 @@
   }
 
   async function search(opts) {
+    cancelSearch();
+    var epoch = searchEpoch;
+    await whenSearchReady();
+    if (epoch !== searchEpoch) return;
+    if (onlineState.q.trim()) prepareSearchSource(onlineState.kind);
     // 在线搜索只要真的执行就算一次「提交」：按钮、Enter、切类型后的重查都记给
     // 同一个 owner（search-history.js）。逐字输入不记 —— oninput 那条只取消在途
     // 请求，记下来会得到一串「周」「周杰」这样的中间态。
@@ -643,8 +735,6 @@
     if (onlineState.kind === 'artist') return searchArtists(opts);
     if (onlineState.kind === 'album') return searchAlbums(opts);
     opts = opts || {};
-    cancelSearch();
-    var epoch = searchEpoch;
     var source = onlineState.source;
     var query = onlineState.q.trim();
     onlineState.aggregate = source === 'all';
@@ -671,10 +761,14 @@
         return;
       }
     }
-    var ids = source === 'all' ? onlineState.sources.map(function (s) { return s.id; }) : [source];
+    var preferred = loggedSearchSources();
+    var ids = source === 'all' ? preferred.concat(onlineState.sources.map(function (s) { return s.id; }))
+      .filter(function (id, index, all) {
+        return all.indexOf(id) === index && onlineState.sources.some(function (s) { return s.id === id; });
+      }) : [source];
     var viewKey = JSON.stringify([query, source, query ? '' : onlineState.cat]);
     var view = searchViews.get(viewKey);
-    var session = { key: viewKey, rows: new Map(), q: query, cat: onlineState.cat, aggregate: source === 'all', filter: view ? view.filter : '', silent: opts.silent, pages: [] };
+    var session = { key: viewKey, rows: new Map(), q: query, cat: onlineState.cat, aggregate: source === 'all', preferredSources: preferred, filter: view ? view.filter : '', silent: opts.silent, pages: [] };
     session.pages = ids.map(function (id) {
       var cached = query && searchCache.get(JSON.stringify([query, id]));
       if (cached && Date.now() - cached.time >= CACHE_TTL) cached = null;
@@ -722,10 +816,10 @@
     var host = $('online-kind');
     if (!host) return;
     // 当前类型在换源后可能失格：回退到单曲，别让 UI 停在打不出请求的状态。
-    if (!kindAllowed(onlineState.kind, onlineState.source)) onlineState.kind = 'song';
+    if (!kindAllowed(onlineState.kind, searchSource(onlineState.kind))) onlineState.kind = 'song';
     var anyExtra = false;
     host.querySelectorAll('[data-kind]').forEach(function (btn) {
-      var can = kindAllowed(btn.dataset.kind, onlineState.source);
+      var can = kindAllowed(btn.dataset.kind, searchSource(btn.dataset.kind));
       btn.hidden = !can;
       if (can && btn.dataset.kind !== 'song') anyExtra = true;
       var on = btn.dataset.kind === onlineState.kind;
@@ -739,6 +833,7 @@
     if (!Object.prototype.hasOwnProperty.call(KIND_CAPS, kind)) kind = 'song';
     if (kind === onlineState.kind) return;
     onlineState.kind = kind;
+    prepareSearchSource(kind);
     renderKind();
     // 切类型即作废旧结果：有词时立刻按新类型搜索，没词时给对应引导。
     onlineState.tracks = [];
@@ -996,6 +1091,7 @@
         duration_ms: t.duration_ms,
         cover: safeCoverUrl(t.cover),
         vip_only: !!t.vip_only,
+        ref: t.ref || t.track_ref || {},
       });
     });
   }
@@ -1155,6 +1251,7 @@
         duration_ms: t.duration_ms,
         cover: safeCoverUrl(t.cover),
         vip_only: !!t.vip_only,
+        ref: t.ref || t.track_ref || {},
       };
       rememberMeta(ids[i], meta);
       H.state.byId.set(ids[i], meta);
@@ -1595,6 +1692,7 @@
     if (H.ui.onlineSource) {
       H.ui.onlineSource.onchange = function () {
         cancelSearch();
+        sourceManuallySelected = true;
         onlineState.source = H.ui.onlineSource.value;
         // 换源后重算「单曲 / 歌单」切换是否可见（只有带 playlist_search
         // 能力的音源才显示歌单）。
@@ -1676,6 +1774,7 @@
       };
     }
     renderOnline();
+    initSourceSettings();
     loadSources();
     loadHistory();
   }
@@ -1771,7 +1870,57 @@
   }
 
   // 音源清单由服务端给出（/v1/online/sources）。写死 HTML 会漏掉分类和能力位。
-  async function loadSources() {
+  async function initSourceSettings() {
+    var input = $('jamendo-client-id');
+    var save = $('jamendo-save');
+    var status = $('jamendo-status');
+    var portal = $('jamendo-portal');
+    if (!input || !save) return;
+    if (portal) {
+      var link = externalLink('https://devportal.jamendo.com', 'devportal.jamendo.com');
+      portal.replaceChildren(link);
+    }
+    save.disabled = true;
+    input.disabled = true;
+    var saving = false;
+    save.onclick = async function () {
+      if (saving || save.disabled) return;
+      saving = true;
+      save.disabled = input.disabled = true;
+      var value = input.value.trim();
+      try {
+        await T.put('/v1/settings', { jamendo_client_id: value });
+        if (H.state.settings) H.state.settings.jamendo_client_id = value;
+        input.value = value;
+        if (status) status.textContent = value ? '已保存应用 ID' : '未配置';
+        H.toast(value ? 'Jamendo 配置已保存' : 'Jamendo 已停用');
+        await loadSources();
+      } catch (err) {
+        if (status) status.textContent = '保存失败';
+        H.toast(H.errText('保存 Jamendo 配置失败', err), 'error');
+      } finally {
+        saving = false;
+        save.disabled = input.disabled = false;
+      }
+    };
+    try {
+      var settings = await T.get('/v1/settings');
+      input.value = typeof settings.jamendo_client_id === 'string' ? settings.jamendo_client_id.trim() : '';
+      if (status) status.textContent = input.value ? '已保存应用 ID' : '未配置';
+    } catch (err) {
+      if (status) status.textContent = '读取配置失败';
+      if (status) status.title = H.errText('读取 Jamendo 配置失败', err);
+    } finally {
+      save.disabled = input.disabled = false;
+    }
+  }
+
+  function loadSources() {
+    sourcesReady = refreshSources();
+    return sourcesReady;
+  }
+
+  async function refreshSources() {
     searchCache.clear();
     searchViews.clear();
     if (searchSession) { cancelSearch(); onlineState.tracks = []; renderOnline(); }
@@ -1905,6 +2054,8 @@
       search({ silent: true });
     },
     search: search,
+    searchSource: searchSource,
+    whenSearchReady: whenSearchReady,
     // 搜索类型切换（song | playlist | artist | album）。顶栏搜索框与在线页
     // 的类型 chips 共用这一份 kind；切到没有能力位的类型会被 renderKind
     // 拉回单曲。同类型是空操作。

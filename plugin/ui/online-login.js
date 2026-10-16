@@ -340,6 +340,7 @@
       stopPolling();
       el('qr-status').textContent = '登录成功';
       close();
+      init();
       if (window.OnlinePlaylists) window.OnlinePlaylists.refresh();
     } else if (p.state === 'rejected') {
       // 上游明确拒绝这次扫码（如网易云 8821、汽水交付失败 2156）：不是"再等等"，
@@ -856,7 +857,13 @@
   /// 服务重启后不打开弹窗就一直是默认人形图标——这是选择「看起来丢了」的
   /// 另一半原因（另一半是只存 localStorage 而端口每次都变）。
   /// 顶栏头像属锦上添花，这里失败一律静默，不打扰启动。
-  async function init() {
+  var ready = Promise.resolve();
+  function init() {
+    ready = restoreAccounts();
+    return ready;
+  }
+
+  async function restoreAccounts() {
     T = window.VMusicTransport;
     // 启动恢复只是读取，不能抢走用户已经开始的扫码意图。
     var attempt = intent.attempt;
@@ -873,6 +880,14 @@
 
   window.OnlineLogin = {
     init: init,
+    whenReady: function () { return ready; },
+    loggedSources: function () {
+      var ids = loginSources.filter(function (s) { return !!accountsById[s.id]; })
+        .map(function (s) { return s.id; });
+      var selected = ids.indexOf(selectedAvatarSource);
+      if (selected > 0) ids.unshift(ids.splice(selected, 1)[0]);
+      return ids;
+    },
     open: open,
     start: start,
     close: close,

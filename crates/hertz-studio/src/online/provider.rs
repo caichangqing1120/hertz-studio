@@ -744,6 +744,7 @@ mod tests {
             search: |_ctx, q| {
                 Box::pin(async move {
                     Ok(SearchPage {
+                        pagination: None,
                         source: q.source.clone(),
                         keyword: q.q.clone().unwrap_or_default(),
                         total: q.offset + q.limit,
