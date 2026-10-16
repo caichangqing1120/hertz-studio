@@ -413,7 +413,7 @@
     var acts = document.createElement('div');
     acts.className = 'opl-info-acts';
     var view = visibleTracks();
-    acts.appendChild(actionButton(playLabel(view), 'primary', function () {
+    var play = actionButton(playLabel(view), 'primary', function () {
       if (!view.length) return;
       // F2 整单播放：歌单未取全且未筛选时发集合意图，首页之后由服务端续载
       // ——只有这条路径上的「播放全部」才真的承诺了全部。专辑/歌手的翻页
@@ -423,11 +423,14 @@
         return;
       }
       window.Online.playAll(view, 0);
-    }));
-    acts.appendChild(actionButton(queueLabel(view), '', function () {
+    });
+    var add = actionButton(queueLabel(view), '', function () {
       if (!view.length) return;
       enqueue(view);
-    }));
+    });
+    play.disabled = add.disabled = !view.length;
+    acts.appendChild(play);
+    acts.appendChild(add);
     box.appendChild(acts);
     box.appendChild(scopeNote());
     box.appendChild(loadNote());
@@ -452,16 +455,20 @@
   // 按钮只承诺它实际交出去的那批曲目。分页是惰性的：view 永远不含未加载的页，
   // 所以「全部」只在确实取完时才可以说。筛选的域同样是已加载部分，另在下方
   // 用一行说明（见 scopeNote），不把它塞进按钮文案里堆字数。
+  function collectionIsPartial() {
+    return state.tracks.length < state.total || hasMore();
+  }
+
   function playLabel(view) {
     if (state.trackQuery.trim()) return '播放 ' + view.length + ' 首';
     // F2：歌单有服务端整单续载时，「全部」由后台按页兑现，可以如实说全部；
     // 其余集合（专辑/歌手）仍只承诺已加载的部分。
     if (playSupportsCollection()) return '播放全部 ' + (state.total || view.length) + ' 首';
-    return hasMore() ? '播放已加载 ' + view.length + ' 首' : '播放全部 ' + view.length + ' 首';
+    return collectionIsPartial() ? '播放已加载 ' + view.length + ' 首' : '播放全部 ' + view.length + ' 首';
   }
   function queueLabel(view) {
     if (state.trackQuery.trim()) return '加入 ' + view.length + ' 首到队列';
-    return hasMore() ? '加入已加载 ' + view.length + ' 首到队列' : '加入全部 ' + view.length + ' 首到队列';
+    return collectionIsPartial() ? '加入已加载 ' + view.length + ' 首到队列' : '加入全部 ' + view.length + ' 首到队列';
   }
 
   // 筛选生效而集合还没取完时，说清筛选找的是哪一段，并给出取全的动作。
@@ -472,7 +479,7 @@
       box.hidden = true;
       return box;
     }
-    box.hidden = !hasMore();
+    box.hidden = !collectionIsPartial();
     var left = Math.max(0, (state.total || 0) - state.tracks.length);
     box.textContent = '筛选只在已加载的 ' + state.tracks.length + ' 首里查找'
       + (left ? '，还有 ' + left + ' 首未加载。' : '。');

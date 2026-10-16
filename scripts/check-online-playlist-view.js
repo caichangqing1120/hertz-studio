@@ -371,6 +371,37 @@ function detailBody(tracks, total) {
     await ticks();
     eq(env.spies.played.length, 1, '播放全部走 Online.playAll');
     eq(env.spies.played[0].tracks.length, 1, '播放的是筛选后的曲目');
+    q.value = '没有这首';
+    q.oninput();
+    ok(btnByText(info, '播放 0 首').disabled, '无筛选结果时禁用播放');
+    ok(btnByText(info, '加入 0 首到队列').disabled, '无筛选结果时禁用入队');
+    btnByText(info, '播放 0 首').onclick();
+    btnByText(info, '加入 0 首到队列').onclick();
+    eq(env.spies.played.length, 1, '空筛选不发空队列替换播放');
+    eq(env.spies.enqueued.length, 1, '空筛选不发入队请求');
+  }
+
+  section('专辑/歌手未知总数与上游部分返回');
+  for (const kind of ['album', 'artist']) {
+    let n = 0;
+    const env = makeSandbox({ transport: makeTransport(() => ({ kind, name: '集合',
+      total: 0, more: ++n === 1, tracks: [T(String(n), '第' + n + '首')] })) });
+    env.view.openCollection({ kind, source: 'netease', id: 'collection' });
+    await ticks();
+    const info = env.doc.getElementById('opl-info');
+    ok(!!btnByText(info, '播放已加载 1 首'), kind + ' total未知但more为true不谎称全部');
+    env.doc.getElementById('opl-more').onclick();
+    await ticks();
+    ok(!!btnByText(info, '播放全部 2 首'), kind + ' more=false后恢复完整集合文案');
+  }
+  {
+    const env = makeSandbox({ transport: makeTransport(() => ({ kind: 'artist', name: '热门歌曲',
+      total: 100, more: false, tracks: [T('1', '热门曲')] })) });
+    env.view.openCollection({ kind: 'artist', source: 'netease', id: 'artist' });
+    await ticks();
+    const info = env.doc.getElementById('opl-info');
+    ok(!!btnByText(info, '播放已加载 1 首'), '已加载条数不足仍不承诺全量');
+    eq(env.doc.getElementById('opl-more').hidden, true, '上游没有下一页时不提示继续加载');
   }
 
   section('曲目排布：默认封面，可切列表');
