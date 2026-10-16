@@ -6,7 +6,7 @@ resolver = "2"
 members = ["crates/*", "plugin/backend", "plugin/vendor/dbx-plugin-sdk"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 # 工具链下界。取值来自锁定依赖图里各 crate 自己声明的 rust-version 上界：
 # cookie_store / encoding_rs / home / icu_* 等声明的都是 1.88，所以 README 原先
@@ -21,12 +21,12 @@ repository = "https://github.com/onceMisery/hertz-studio"
 
 [workspace.dependencies]
 # --- internal ---
-vmusic-core = { path = "crates/vmusic-core", version = "0.1.0" }
-vmusic-audio = { path = "crates/vmusic-audio", version = "0.1.0" }
-vmusic-store = { path = "crates/vmusic-store", version = "0.1.0" }
-vmusic-library = { path = "crates/vmusic-library", version = "0.1.0" }
-vmusic-lyrics = { path = "crates/vmusic-lyrics", version = "0.1.0" }
-vmusic-beats = { path = "crates/vmusic-beats", version = "0.1.0" }
+vmusic-core = { path = "crates/vmusic-core", version = "0.2.0" }
+vmusic-audio = { path = "crates/vmusic-audio", version = "0.2.0" }
+vmusic-store = { path = "crates/vmusic-store", version = "0.2.0" }
+vmusic-library = { path = "crates/vmusic-library", version = "0.2.0" }
+vmusic-lyrics = { path = "crates/vmusic-lyrics", version = "0.2.0" }
+vmusic-beats = { path = "crates/vmusic-beats", version = "0.2.0" }
 
 # --- async / web ---
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "fs", "net"] }
