@@ -1107,8 +1107,9 @@ function handleEvent(msg) {
     case 'state': applySnapshot(msg); break;
     case 'spectrum':
       state.spectrum = msg.bands || [];
-      drawSpectrum();
+      spectrumDirty = true;
       if (Stage) Stage.setSpectrum(state.spectrum);
+      if (Stage) Stage.kick();
       break;
     case 'scan': onScanProgress(msg); break;
     case 'library_changed': refreshLibraryInPlace(); loadPlaylists(); break;
@@ -2355,6 +2356,7 @@ function initStage() {
   // 主循环与粒子层直接初始化：旧页背景子系统（GL 宿主/粒子封面/星河）已
   // 随全屏歌词页摘除，Stage3D 与创意舞台各自在模块内自举。
   Stage.init();
+  Stage.gate('spectrum', spectrumTargetFps, flushSpectrum);
   if (window.StageParticles) window.StageParticles.init();
   if (window.Shelf) initShelf();
   document.addEventListener('stage:control', onStageControl);
@@ -2483,6 +2485,17 @@ let shapePending = true;
 // 渐变对象与画布尺寸绑定，缓存复用（尺寸变了才重建）。
 let spectrumGradient = null;
 let spectrumGradientKey = '';
+let spectrumDirty = false;
+
+function spectrumTargetFps() {
+  return spectrumDirty && !document.hidden && ui.spectrum.getClientRects().length ? 30 : 0;
+}
+
+function flushSpectrum() {
+  if (!spectrumTargetFps()) return;
+  spectrumDirty = false;
+  drawSpectrum();
+}
 
 function drawSpectrum() {
   const canvas = ui.spectrum;

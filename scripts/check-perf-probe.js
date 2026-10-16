@@ -583,6 +583,7 @@ function uiSourceFiles() {
     const seen = [];
     const ctx = {
       rafId: 0, lastFrameAt: 0, lastDt: 0, hidden: false, playing: true, energy: 0,
+      document: { hidden: false }, gates: [],
       now: () => time, clamp: (x, a, b) => Math.max(a, Math.min(b, x)),
       runGates: () => {}, sampleDisplayHz: dt => seen.push(dt), sampleFrameRate: () => {},
       anyGateWants: () => false,

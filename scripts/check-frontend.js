@@ -94,6 +94,8 @@ const STEPS = [
     why: '空闲收起：报 0 是唯一的停机依据，语义反了就会满帧空转。' },
   { script: 'check-frame-gates.js', stage: 'behavior',
     why: '帧门只兑现整数分频，且不超过声明预算；档位表里不许写除不尽的帧率（旧实现就是这样在 60Hz 上把 48 跑成 30 还自称 48）。' },
+  { script: 'check-window-rendering.js', stage: 'behavior',
+    why: '窗口隐藏时停止绘制，频谱突发只画最新帧，Retina 全屏后复查像素预算与时钟。' },
   { script: 'check-obs-css.js', stage: 'behavior',
     why: 'OBS 浮层素材通道：生产者与消费者只靠变量名和 url("data:…") 的形状耦合，改错一端不报错。' },
   { script: 'check-skins.js', stage: 'behavior',

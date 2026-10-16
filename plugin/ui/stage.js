@@ -921,16 +921,17 @@
     return Math.max(1, Math.ceil(hz / target));
   }
 
-  // 设备档位：0 eco / 1 balanced / 2 high。启动时判一次，之后运行期只允许
-  // 往下修正。阈值不是拍脑袋：4 核以下跑不动大面积 backdrop-filter，
+  // 设备档位：0 eco / 1 balanced / 2 high。视口变化时复查，运行期只允许
+  // 往下修正。4 核以下跑不动大面积 backdrop-filter，
   // 4.2M 渲染像素以上（约 2560×1600@1x 或 1080p@2x）模糊层的填充率就开始吃帧。
   var tier = 2;
   function detectTier() {
     var cores = navigator.hardwareConcurrency || 8;
     var mem = navigator.deviceMemory || 8;
+    var dpr = Math.min(3, window.devicePixelRatio || 1);
     var px = (window.innerWidth || 1920) * (window.innerHeight || 1080) *
-      Math.min(3, window.devicePixelRatio || 1);
-    if (cores <= 2 || mem <= 2) return 0;
+      dpr * dpr;
+    if (cores <= 2 || mem <= 2 || px >= 8.4e6) return 0;
     if (cores <= 4 || mem <= 4 || px >= 4.2e6) return 1;
     return 2;
   }
@@ -994,6 +995,8 @@
 
   function frame() {
     rafId = 0;
+    // A WebView may deliver an already queued callback after becoming hidden.
+    if (hidden || document.hidden || window.HertzCapsuleOnly) { lastFrameAt = 0; return; }
 
     // dt：lerp 要按真实帧间隔归一化，否则 30fps 的机器滚动会慢一半。
     // 标签页切回来时 dt 可能是几千毫秒，截断掉，免得一帧就冲过整段歌词。
@@ -1067,12 +1070,29 @@
 
   // 标签页不可见时 rAF 会被浏览器停掉，但循环里那些 setTimeout/计时不会。
   // 索性整个熄掉：切走的这段时间一行 DOM 都不写，回来再补一次基准。
-  var hidden = false;
+  var hidden = !!document.hidden;
   function setHidden(v) {
     if (hidden === v) return;
     hidden = v;
-    if (!v) { lastFrameAt = 0; fps.since = 0; schedule(); }
+    lastFrameAt = 0;
+    fps.since = 0;
+    gates.forEach(function (g) { g.skip = 0; g.wait = 0; });
+    if (!v) schedule();
     else if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  }
+
+  function refreshViewport() {
+    if (hidden || document.hidden) return;
+    tier = Math.min(tier, detectTier());
+    if (tier === 0) setLowFx(true);
+    // Native fullscreen and display changes invalidate the startup measurements.
+    fps.done = false;
+    fps.since = 0;
+    hzSamples.length = 0;
+    displayHz = 0;
+    lastFrameAt = 0;
+    refresh(true);
+    schedule();
   }
 
   // 窄屏（≤1240px）舞台是右侧抽屉，关着的时候画布只是被 transform 移出
@@ -1301,7 +1321,7 @@
 
     // 视口变了，缓存的行几何全部作废——尤其是窄屏下舞台变成抽屉、
     // 全屏页从 visibility:hidden 出来的那一刻，clientHeight 从 0 变成真值。
-    var relayout = debounce(function () { refresh(true); schedule(); }, 90);
+    var relayout = debounce(refreshViewport, 90);
     window.addEventListener('resize', relayout);
     if (window.ResizeObserver) {
       views.forEach(function (v) {
@@ -1311,6 +1331,7 @@
 
     document.addEventListener('visibilitychange', function () {
       setHidden(document.hidden);
+      if (!document.hidden) relayout();
     });
 
     // 律动幅度是驾驶舱里 JS 读进变量的数值（不落 CSS 变量）：它的初始 emit
