@@ -46,15 +46,16 @@ function writeTaggedWav(file) {
   fs.writeFileSync(file, chunk('RIFF', payload));
 }
 
-async function startFixture() {
+async function startFixture({ backend = 'null', prepareData } = {}) {
   const binary = path.resolve(process.env.HERTZ_BIN || path.join(__dirname, '..', 'target', 'debug',
     process.platform === 'win32' ? 'hertz-studio.exe' : 'hertz-studio'));
   assert.ok(fs.existsSync(binary), 'Build the service first: cargo build --locked -p hertz-studio');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hertz-ui-check-'));
   const data = path.join(dir, 'data');
+  if (prepareData) await prepareData(data);
   const child = spawn(binary, ['--bind', '127.0.0.1', '--port', '0', '--data-dir', data], {
     windowsHide: true, stdio: 'ignore',
-    env: { ...process.env, VMUSIC_BACKEND: 'null', VMUSIC_SECRETS: 'memory' },
+    env: { ...process.env, VMUSIC_BACKEND: backend, VMUSIC_SECRETS: 'memory' },
   });
   let launchError;
   child.on('error', error => { launchError = error; });
@@ -86,7 +87,7 @@ async function startFixture() {
       assert.equal(response.status, 200, route + ' HTTP status');
       return response.json();
     }
-    assert.equal((await api('/v1/health')).backend, 'null', 'Fixture must not use the audio device');
+    assert.equal((await api('/v1/health')).backend, backend, 'Fixture must use the requested backend');
     return {
       base, api, close, dataDir: data,
       async connect(context) {

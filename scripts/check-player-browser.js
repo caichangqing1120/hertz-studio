@@ -56,8 +56,9 @@ async function fixtures() {
   }
   fs.writeFileSync(path.join(folder, 'Audit 01.lrc'), '[00:00.00]开始播放\n[00:05.00]滚动与歌词同步\n[00:10.00]暂停后继续\n[00:20.00]最后一行\n');
   await api('POST', '/v1/library/scan', { root: folder });
-  return until(() => api('GET', '/v1/tracks?limit=200'), data => data.tracks?.length >= 24,
+  const data = await until(() => api('GET', '/v1/tracks?limit=200'), data => data.tracks?.filter(track => track.path.startsWith(folder)).length >= 24,
     'fixture scan did not finish');
+  return { ...data, tracks: data.tracks.filter(track => track.path.startsWith(folder)).sort((a, b) => a.title.localeCompare(b.title)) };
 }
 
 async function routeAssets(page) {
@@ -89,8 +90,7 @@ async function ready(page) {
   }
 }
 
-async function scrollSurface(page, selector, message) {
-  const surface = page.locator(selector);
+async function scrollSurface(page, selector, message) {  const surface = page.locator(selector);
   await surface.evaluate(element => { element.scrollTop = 0; });
   const box = await surface.boundingBox();
   assert.ok(box && box.height > 60, message + ' has a visible scroll area');
@@ -101,12 +101,20 @@ async function scrollSurface(page, selector, message) {
   await surface.evaluate(element => { element.scrollTop = 0; });
 }
 
+// 顶栏的设置齿轮在经典/浮光/潮汐/黑胶/iOS 里被皮肤摘掉了（导航里已有同一入口），
+// 所以开设置要点当前皮肤里可见的那一颗。
+async function openSettings(page) {
+  const gear = page.locator('#settings-entry');
+  if (await gear.isVisible()) await gear.click();
+  else await page.locator('.rail-item[data-view="settings"]').click();
+}
+
 async function skins(page) {
   for (const skin of ['classic', 'sheen', 'workbench', 'liunian']) {
     for (const [width, height] of [[1440, 900], [1024, 700], [390, 844], [320, 640]]) {
       await page.setViewportSize({ width, height });
       await page.evaluate(value => Skins.apply(value), skin);
-      await page.locator('#settings-entry').click();
+      await openSettings(page);
       const label = `${skin} ${width}x${height}`;
       const owner = await page.locator('#view-settings').evaluate(element => {
         for (let node = element; node; node = node.parentElement) {
@@ -133,7 +141,7 @@ async function skins(page) {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => Skins.apply('classic'));
-  await page.locator('#settings-entry').click();
+  await openSettings(page);
   const settings = page.locator('#view-settings');
   const box = await settings.boundingBox();
   await page.mouse.move(box.x + box.width - 8, box.y + 24);
@@ -211,9 +219,12 @@ async function playback(page, tracks) {
   await page.keyboard.press('Shift+ArrowRight');
   await until(() => api('GET', '/v1/state'), value => value.track_id === queue[1], 'keyboard next');
   check(true, 'next, previous and Shift+ArrowRight use the same queue');
-  await page.locator('#stop').click();
+  await page.locator('#bar-track').click();
+  await page.locator('#np-more').click();
+  await page.locator('#np-stop').click();
   await until(() => api('GET', '/v1/state'), value => !value.playing && value.position_ms === 0, 'stop');
   check(await page.evaluate(() => navigator.mediaSession.playbackState === 'none'), 'stop clears media session playing state');
+  await page.locator('#np-close').click();
   await page.locator('#playpause').click();
   await until(() => api('GET', '/v1/state'), value => value.playing && value.position_ms < 2000, 'restart');
   check(true, 'play after stop restarts at the beginning');
@@ -299,7 +310,7 @@ async function appearance(page, tracks) {
   await api('POST', '/v1/player/load', { track_id: tracks[0].id, queue: tracks.slice(0, 4).map(track => track.id) });
   await ready(page);
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--music-highlight'));
-  await page.locator('#settings-entry').click();
+  await openSettings(page);
   await page.locator('#set-cover-follow').uncheck();
   await until(() => api('GET', '/v1/settings'), value => value.cover_follow === false, 'cover preference saved');
   check(await page.evaluate(() => !document.documentElement.style.getPropertyValue('--music-highlight')
@@ -309,7 +320,7 @@ async function appearance(page, tracks) {
   await page.waitForFunction(() => !document.getElementById('set-cover-follow').checked);
   check(await page.evaluate(() => !document.documentElement.style.getPropertyValue('--music-highlight')
     && !document.getElementById('ambient').classList.contains('has-art')), 'cover follow preference survives refresh');
-  await page.locator('#settings-entry').click();
+  await openSettings(page);
   await page.locator('#set-cover-follow').check();
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--music-highlight'));
   check(true, 'cover follow re-enables without changing track');

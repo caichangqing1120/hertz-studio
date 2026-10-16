@@ -114,7 +114,28 @@ function buildTerrainGeometry() {
   }
   g.setIndex(idx);
   g.userData = { xs, zs };
+  prepareGridLod(g, xs.length, zs.length);
   return g;
+}
+
+export function prepareGridLod(geometry, columns, rows) {
+  const indices = Array.from(geometry.index.array), ranges = { high: { start: 0, count: indices.length } };
+  const reverse = indices[1] === indices[0] + 1;
+  for (const [mode, stride] of [['medium', 2], ['low', 3]]) {
+    const start = indices.length;
+    for (let y = 0; y < rows - 1; y += stride) {
+      for (let x = 0; x < columns - 1; x += stride) {
+        const a = y * columns + x, b = Math.min(rows - 1, y + stride) * columns + x;
+        const dx = Math.min(columns - 1, x + stride) - x;
+        // Preserve the original grid winding, including the ocean's reversed Z.
+        if (reverse) indices.push(a, a + dx, b, b, a + dx, b + dx);
+        else indices.push(a, b, a + dx, b, b + dx, a + dx);
+      }
+    }
+    ranges[mode] = { start, count: indices.length - start };
+  }
+  geometry.setIndex(indices); geometry.userData.lodRanges = ranges;
+  geometry.setDrawRange(0, ranges.high.count);
 }
 
 const _n = new THREE.Vector3();
@@ -430,6 +451,8 @@ export function createWorld(scene, opts) {
   signPlate.rotateY(-Math.PI / 2);
 
   const density = opts.density ?? 1;
+  let visibleDensity = 1;
+  let qualityMode = 'high';
   const MAX = { round: Math.round(34 * density), pine: Math.round(26 * density), palm: 6, rock: 8, umb: 2 };
 
   const chunks = [];
@@ -511,7 +534,8 @@ export function createWorld(scene, opts) {
         m.setColorAt(c, tint);
         c++;
       }
-      m.count = c;
+      m.userData.population = c;
+      m.count = Math.floor(c * visibleDensity);
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
       m.computeBoundingSphere();
@@ -759,6 +783,15 @@ export function createWorld(scene, opts) {
       const ch = chunks[slot];
       if (ch.index !== want) rebuild(ch, want);
       ch.group.position.x = want * CHUNK - distance;
+      if (qualityMode === 'low') {
+        const delta = Math.abs(want - Math.floor(distance / CHUNK));
+        ch.group.visible = delta <= 2;
+        ch.group.children.forEach((object, i) => { object.visible = delta === 0 || i === 0 || delta === 1 && i === 1; });
+      } else {
+        ch.group.visible = true;
+        const delta = Math.abs(want - Math.floor(distance / CHUNK));
+        ch.group.children.forEach((object, i) => { object.visible = qualityMode === 'high' || delta <= 1 || i <= 2; });
+      }
     }
     const night = env.night;
     bulbMat.emissiveIntensity = lerp(0.0, 6.0, smoothstep(0.15, 0.6, night));
@@ -823,5 +856,20 @@ export function createWorld(scene, opts) {
     return out;
   }
 
-  return { group, update, lampPositions, ffMat, terrainHeight, chunks };
+  function setDensity(value, mode = 'high') {
+    visibleDensity = clamp(value, .1, 1);
+    qualityMode = mode;
+    for (const chunk of chunks) {
+      const range = chunk.terrain.geometry.userData.lodRanges[mode] || chunk.terrain.geometry.userData.lodRanges.high;
+      chunk.terrain.geometry.setDrawRange(range.start, range.count);
+      for (const mesh of Object.values(chunk.inst)) { mesh.count = Math.floor((mesh.userData.population ?? mesh.count) * visibleDensity); mesh.computeBoundingSphere(); }
+    }
+    for (const flock of [gulls, pelFlock]) {
+      for (const mesh of [flock.bodies, flock.wl, flock.wr]) mesh.count = Math.max(1, Math.floor(flock.count * visibleDensity));
+    }
+    [pelFlock.bodies, pelFlock.wl, pelFlock.wr].forEach(mesh => { mesh.visible = mode === 'high'; });
+    boats.forEach((boat, i) => { boat.visible = mode === 'high' || mode === 'medium' && i < 3 || i === 0; });
+    ffGeo.setDrawRange(0, Math.floor(FF * visibleDensity));
+  }
+  return { group, update, lampPositions, ffMat, terrainHeight, chunks, setDensity };
 }

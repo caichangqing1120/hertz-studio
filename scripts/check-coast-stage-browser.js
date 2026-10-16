@@ -55,38 +55,17 @@ async function main() {
     await page.waitForFunction(() => Stage3D.isActive());
     pass('大舞台已开启');
 
-    // ---- 飞出按钮组：收拢态 ----
-    const menuButtons = await page.evaluate(() => Array.from(document.querySelectorAll('#s3d-head-menu .s3d-btn')).map(b => b.id));
-    assert.deepEqual(menuButtons, ['s3d-lyrics-toggle', 's3d-settings-toggle', 's3d-reset', 's3d-fs'],
-      '飞出菜单必须是 歌词/设置/复位/全屏 四颗：舞台效果不挤在这一排上');
-    const collapsedOpacity = await page.evaluate(() =>
-      getComputedStyle(document.getElementById('s3d-lyrics-toggle')).opacity);
-    assert.equal(Number(collapsedOpacity), 0, '收拢态功能牌不可见');
+    assert.equal(await page.locator('.s3d-head button').count(), 1, '头部只保留关闭按钮');
     assert.equal(await page.evaluate(() => document.getElementById('s3d-close').checkVisibility()), true,
       '关闭按钮独立常驻');
-    pass('头部按钮组收拢态：菜单隐藏、关闭独立常驻');
-
-    // ---- 悬停展开 + 触发按钮转向 ----
-    await page.hover('#s3d-head-trigger');
-    await page.waitForFunction(() => Number(getComputedStyle(document.getElementById('s3d-lyrics-toggle')).opacity) === 1);
-    const rotated = await page.evaluate(() =>
-      getComputedStyle(document.querySelector('#s3d-head-trigger svg')).transform);
-    assert.ok(rotated !== 'none' && !rotated.startsWith('matrix(1, 0, 0, 1'), '悬停时触发按钮图标应旋转');
-    pass('悬停展开：四牌可见、触发图标转向');
-
-    // ---- 触屏/点击路径：is-open + aria-expanded，Esc 收回 ----
-    await page.mouse.move(10, 300); // 移开鼠标，消除 hover 态
-    await page.click('#s3d-head-trigger');
-    assert.equal(await page.evaluate(() => document.getElementById('s3d-head-cluster').classList.contains('is-open')), true);
-    assert.equal(await page.evaluate(() => document.getElementById('s3d-head-trigger').getAttribute('aria-expanded')), 'true');
+    await page.click('#s3d-settings-toggle');
+    assert.equal(await page.locator('#s3d-settings-toggle').getAttribute('aria-expanded'), 'true');
     await page.keyboard.press('Escape');
-    await page.waitForFunction(() => !document.getElementById('s3d-head-cluster').classList.contains('is-open'));
-    assert.equal(await page.evaluate(() => document.getElementById('s3d-head-trigger').getAttribute('aria-expanded')), 'false');
-    pass('点击展开 / Esc 收回：aria-expanded 同步');
+    assert.equal(await page.locator('#s3d-settings-toggle').getAttribute('aria-expanded'), 'false');
+    pass('浮动齿轮打开设置 / Esc 收回');
 
     // ---- 「纯真3D」入画：这一排不再有效果钮，走设置面板的「舞台来源」 ----
     await wakeChrome();
-    await page.hover('#s3d-head-trigger'); // 菜单里的按钮要先展开才点得到
     await page.click('#s3d-settings-toggle');
     await page.waitForFunction(() => !document.getElementById('s3d-settings').hidden);
     await page.selectOption('#s3d-scene-source', 'coast');
@@ -171,7 +150,6 @@ async function main() {
 
     // ---- 设置面板：海岸专属项可见、滑杆写回偏好 ----
     await wakeChrome();
-    await page.hover('#s3d-head-trigger'); // 菜单里的按钮要先展开才点得到
     await page.click('#s3d-settings-toggle');
     await page.waitForFunction(() => !document.getElementById('s3d-settings').hidden);
     assert.equal(await page.evaluate(() => document.getElementById('s3d-coast-tuning').hidden), false,
@@ -191,7 +169,6 @@ async function main() {
     // ---- 回到沉浸声场：画布卸载、GL 资源释放 ----
     await page.evaluate(() => document.getElementById('s3d-settings-close').click());
     await wakeChrome();
-    await page.hover('#s3d-head-trigger');
     await page.click('#s3d-settings-toggle');
     await page.waitForFunction(() => !document.getElementById('s3d-settings').hidden);
     await page.selectOption('#s3d-scene-source', 'immersive');

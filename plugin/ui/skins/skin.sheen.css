@@ -150,7 +150,7 @@
   gap: 4px;
   /* 右侧图标区宽度随连接状态文案变化（"服务已连接" / "重连中 (13s)"），
      所以留一个保守上限：空间不够时胶囊自己横向滚，而不是压到图标上。 */
-  max-width: calc(100vw - var(--rail-w) - 430px);
+  max-width: calc(100vw - var(--rail-w) - 560px);
   overflow-x: auto;
   overflow-y: hidden;
   padding: 5px 10px;
@@ -174,6 +174,10 @@
 
 /* 竖轨那根"把设置顶到底部"的弹簧在横向条里没有意义。 */
 [data-skin="sheen"] .rail-spacer { display: none; }
+
+/* 胶囊末尾已经有「设置」条目，顶栏齿轮是同一个目标的第二份，摘掉（ios/orbit 同款）。
+   只藏不删：节点与 app.js 的 ui.settingsEntry 引用留着，快捷键 4 仍能开设置。 */
+[data-skin="sheen"] #settings-entry { display: none; }
 
 [data-skin="sheen"] .rail-item {
   flex: none;
@@ -596,14 +600,6 @@
     width: min(420px, 88vw);
     max-height: none;
   }
-
-  /* 顶栏那颗「界面皮肤」在浮光的窄屏段让位。胶囊是 fixed 定位、宽度按
-     「品牌块 + 右侧图标区」算出来的（见 .rail 的 max-width），右簇每多一颗
-     36px 的按钮就整体左移 50px：实测 1280 还剩 59px 余量，1200 就压上了
-     （没有这颗按钮时 1200 是 29px 余量）。皮肤列表在设置页里仍然可达。
-     浮光 900–1150 那段本来就已经挤在一起（不加按钮时 1100 只剩 4px），
-     那是它自己的旧账，不在这里顺手改。 */
-  [data-skin="sheen"] #skin-picker { display: none; }
 }
 
 /* 窄屏的播放条会重排成多行（style.css 的 ≤900px / ≤620px 两处网格改写），
@@ -643,8 +639,8 @@
   [data-skin="sheen"] .bar {
     margin: 0 10px var(--skin-gap);
   }
-  /* 贴边横铺：宽屏那套「紧跟品牌块 + 给右侧图标区留 430px」在窄屏根本
-     放不下（430 > 可用宽度），会让胶囊被压成几十像素。所以窄屏直接
+  /* 贴边横铺：宽屏那套「紧跟品牌块 + 给右侧图标区留 560px」在窄屏根本
+     放不下（560 > 可用宽度），会让胶囊被压成几十像素。所以窄屏直接
      铺满可用宽度，靠 overflow-x 自己滚。 */
   [data-skin="sheen"] .rail {
     top: calc(var(--topbar-h) + 12px);
@@ -677,3 +673,10 @@
     padding: 16px;
   }
 }
+
+/* Optional mini panel leaves the browsing grid unobstructed by default. */
+[data-skin="sheen"] body:not(.sheen-mini-open) .stage { display: none; }
+[data-skin="sheen"] body.sheen-mini-open .stage { display: flex; transform: none; opacity: 1; visibility: visible; pointer-events: auto; }
+[data-skin="sheen"] .sheen-player-handle { position: fixed; right: 24px; bottom: var(--skin-stage-foot); z-index: 59; width: 44px; height: 44px; background: var(--panel-solid); box-shadow: var(--skin-shadow); }
+[data-skin="sheen"] body:not(.sheen-mini-open) .app { padding-right: var(--skin-pad); }
+@media (min-width: 1241px) { [data-skin="sheen"] body.sheen-mini-open .app { padding-right: calc(min(420px, 32vw) + var(--skin-gap) + var(--skin-pad)); } }

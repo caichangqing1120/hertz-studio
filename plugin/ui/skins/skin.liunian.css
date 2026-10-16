@@ -1780,42 +1780,69 @@
   }
 }
 
+/* --- 中栏导航：一排独立药丸按钮 -----------------------------------------
+   原先对外是一颗大胶囊（描边 + 面板底色 + 4px 内距），七个目的地是里面的
+   裸文字项 —— 只有当前项有实心底，其余看着像标签，读不出「这是按钮」。
+
+   现在容器退成纯滚动行（无描边、无底色、无内距），每一项自己是一枚细描边
+   药丸：透明底 + 1px 描边，悬停填色并加重描边，选中沿用本皮肤统一的
+   「实心 + 深字」翻色（与 .ln-tab / .track.active 同一套语言，不新造语义）。
+
+   容器保留 overflow-x:auto：七枚药丸在宽屏一排放得下，窄屏就该横向滑动，
+   而不是压扁或换行。纵向留 2px 内距，给药丸描边与焦点环留出余量。 */
 [data-skin="liunian"] .ln-nav {
   display: flex;
   flex: none;
-  gap: 4px;
+  gap: 8px;
   align-self: flex-start;
   max-width: 100%;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+}
+
+/* 滚动条不占高度：窄屏滑动时不留一条横槽。 */
+[data-skin="liunian"] .ln-nav::-webkit-scrollbar {
+  display: none;
 }
 
 [data-skin="liunian"] .ln-nav-item {
   min-height: 40px;
   padding: 0 18px;
   flex: none;
-  border: 0;
+  border: 1px solid var(--field-border);
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
   font: inherit;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background 180ms, color 180ms;
+  transition: background 180ms var(--ease-out), color 180ms var(--ease-out),
+    border-color 180ms var(--ease-out);
 }
 
 [data-skin="liunian"] .ln-nav-item:hover {
   background: var(--hover);
+  border-color: var(--field-border-strong);
   color: var(--text);
 }
 
 [data-skin="liunian"] .ln-nav-item.active {
   background: var(--accent);
+  border-color: transparent;
   color: var(--accent-ink);
+}
+
+/* 键盘焦点：描边与选中底色都是细线，全局那条 outline 会被吃掉，自带一圈
+   品牌色。用负偏移画在盒内 —— 容器是滚动容器，外扩的环会被 overflow 裁掉。 */
+[data-skin="liunian"] .ln-nav-item:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
 }
 
 [data-skin="liunian"] .ln-mobile-search {
@@ -2110,8 +2137,10 @@
     padding: 8px 12px 12px;
   }
 
+  /* 药丸之间要留得出缝：2px 是给「同色文字贴在同一颗胶囊里」定的，
+     换成各自带描边的药丸后会糊成一条，收内距换间距。 */
   [data-skin="liunian"] .ln-nav {
-    gap: 2px;
+    gap: 6px;
   }
 
   [data-skin="liunian"] .topbar {

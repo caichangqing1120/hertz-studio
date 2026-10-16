@@ -818,7 +818,8 @@ section('绘景与高级编排的稳定构图');
     gates.creative.tickFn(33);
     return engine.calls[engine.calls.length - 1];
   };
-  stable.addCamLayer('test-shake', 999, ctx => { ctx.rollDeg += Math.sin(fakeNow) * 9; ctx.fov -= fakeNow % 7; });
+  const shakeLayer = ctx => { ctx.rollDeg += Math.sin(fakeNow) * 9; ctx.fov -= fakeNow % 7; };
+  stable.addCamLayer(shakeLayer, 999);
   const cameraSignature = state => JSON.stringify([state.cam, Array.from(state.modelMatrix)]);
   for (const scene of ['anime-sky', 'anime-coast', 'anime-rail', 'anime-forest', 'towers']) {
     sandbox.Workshop = { isEditingAdvanced: () => scene === 'towers' };
@@ -865,7 +866,239 @@ section('绘景与高级编排的稳定构图');
   stable.setScene('anime-coast');
   ok(cameraSignature(frame(4600, 0)) === cameraSignature(frame(4900, 0)), '绘景切换不产生自动入画晃动');
   stable.attachStage(null);
+  stable.removeCamLayer(shakeLayer);
   delete sandbox.Workshop;
+}
+
+section('外部空间相机：手动层、绝对机位与退出还原');
+{
+  // Capture the actual state delivered to CreativeGL, including legacy layers
+  // and pointer/onset input. The camera composition itself is never stubbed.
+  load('creative-stage.js');
+  const inst = sandbox.CreativeStage;
+  const originalPresentation = sandbox.Stage.presentation;
+  let reduced = false;
+  sandbox.Stage.presentation = () => ({ reduced, playing: true });
+  sandbox.Workshop = { isEditingAdvanced: () => false, isOpen: () => false };
+  const host = makeEl('div', { w: 1280, h: 800 }), handlers = {};
+  host.addEventListener = (type, fn) => { handlers[type] = fn; };
+  inst.init();
+  inst.setPreset({ scene: 'towers', director: false, cues: [], bindings: [],
+    cam: { yaw: 10, pitch: 12, dist: 11, fov: 55, height: 2, drift: 0, kick: 0, shake: 0 } });
+  inst.attachStage(host);
+  const engine = engines.at(-1);
+  const frame = (at, amplitude = 0) => {
+    songPosition = fakeNow = at;
+    feed(new Float64Array(64).fill(amplitude));
+    gates.creative.tickFn(33);
+    return engine.calls.at(-1);
+  };
+  const near = (actual, expected) => Math.abs(actual - expected) < 1e-7;
+  const rad = degrees => degrees * Math.PI / 180;
+  const order = [];
+  const early = ctx => { order.push('early'); ctx.yawDeg += 6; ctx.dist *= .8; ctx.rollDeg += 2; };
+  const late = ctx => { order.push('late'); ctx.yawDeg *= 2; ctx.fov -= 3; ctx.rollDeg *= 2; };
+  // Register out of priority order, then register the same callback twice.
+  inst.addCamLayer(late, 20);
+  inst.addCamLayer(early, 10);
+  inst.addCamLayer(early, 10);
+  order.length = 0;
+  const legacy = frame(1000);
+  ok(order.join(',') === 'early,late', '原有相机层按优先级合成，同一个回调只执行一次');
+  ok(near(legacy.cam.yaw, rad(32)) && near(legacy.cam.dist, 8.8)
+    && near(legacy.cam.roll, rad(4)) && legacy.cam.fov === 52,
+  '旧调用签名仍把 yaw/dist/FOV/roll 合成到真正的渲染参数');
+  reduced = true; order.length = 0;
+  const quiet = frame(1100);
+  ok(order.length === 0 && near(quiet.cam.yaw, rad(10)) && quiet.cam.dist === 11 && quiet.cam.roll === 0,
+    '减少动效时普通电影层停下，原始机位保留');
+
+  const pose = { yaw: 35, pitch: -12, dist: 7.6, fov: 43, target: [1, 2, 3], roll: 17, position: null };
+  const manual = ctx => {
+    order.push('manual');
+    ctx.yawDeg = pose.yaw; ctx.pitchDeg = pose.pitch; ctx.dist = pose.dist; ctx.fov = pose.fov;
+    ctx.tx = pose.target[0]; ctx.ty = pose.target[1]; ctx.tz = pose.target[2]; ctx.rollDeg = pose.roll;
+    if (pose.position) ctx.position = pose.position.slice();
+    ctx.absolute = true; ctx.driftMul = 0;
+  };
+  inst.addCamLayer(manual, 40, { manual: true });
+  order.length = 0;
+  const manualQuiet = frame(1200);
+  ok(order.join(',') === 'manual' && near(manualQuiet.cam.yaw, rad(35))
+    && near(manualQuiet.cam.pitch, rad(-12)) && manualQuiet.cam.dist === 7.6 && manualQuiet.cam.fov === 43,
+  '手动空间层在减少动效时仍能更新真实机位，电影层保持停用');
+  ok(manualQuiet.cam.tx === 1 && manualQuiet.cam.ty === 2 && manualQuiet.cam.tz === 3
+    && near(manualQuiet.cam.roll, rad(17)) && manualQuiet.cam.position === undefined,
+  '绝对环绕机位保留注视点和滚转，不携带自由相机位置');
+  pose.yaw = 42;
+  const movedQuiet = frame(1300);
+  ok(near(movedQuiet.cam.yaw, rad(42)) && movedQuiet.t === manualQuiet.t,
+    '减少动效冻结场景时间，同时允许新的手动机位');
+
+  reduced = false;
+  inst.setParam('cam.drift', 100); inst.setParam('cam.kick', 100); inst.setParam('cam.shake', 100);
+  inst.setInteract(true);
+  handlers.pointermove({ clientX: 1240, clientY: 770, pointerId: 1, target: host });
+  const presetBefore = inst.exportJSON();
+  let exactDespiteAudio = true;
+  for (let i = 0; i < 50; i++) {
+    const rendered = frame(1400 + i * 33, i % 10 === 0 ? .95 : .04);
+    if (!near(rendered.cam.yaw, rad(42)) || !near(rendered.cam.pitch, rad(-12))
+      || !near(rendered.cam.dist, 7.6) || !near(rendered.cam.roll, rad(17))) exactDespiteAudio = false;
+  }
+  ok(inst.stats().beats > 0 && exactDespiteAudio,
+    '实际起音、悬停视差和镜头抖动不会再次偏移绝对空间机位');
+  ok(inst.exportJSON() === presetBefore, '外部机位合成不会写入创意舞台预置');
+  pose.position = [3.25, 1.5, -4.75]; pose.yaw = -20; pose.pitch = 10; pose.roll = -23;
+  const free = frame(3100, .8);
+  ok(JSON.stringify(free.cam.position) === JSON.stringify(pose.position)
+    && near(free.cam.yaw, rad(-20)) && near(free.cam.pitch, rad(10)) && near(free.cam.roll, rad(-23)),
+  '自由相机的三个位置分量和姿态直接到达渲染器，不折算成环绕距离');
+  const freePitchLimit = Math.PI * .49;
+  for (const pitch of [freePitchLimit, -freePitchLimit, 1.2, 2, -2]) {
+    pose.pitch = pitch * 180 / Math.PI;
+    const expected = Math.max(-freePitchLimit, Math.min(freePitchLimit, pitch));
+    ok(near(frame(3150).cam.pitch, expected),
+      '绝对自由机位保留 SpaceCamera 的俯仰范围：' + pitch.toFixed(5));
+  }
+  pose.position = null;
+  const orbitAgain = frame(3200);
+  ok(orbitAgain.cam.position === undefined && near(orbitAgain.cam.pitch, -1.35),
+    '同一外部层从自由镜头回环绕时不遗留 position，并恢复原有俯仰限制');
+  pose.pitch = 10;
+
+  inst.removeCamLayer(manual); reduced = true; order.length = 0;
+  const restored = frame(3300);
+  ok(order.length === 0 && restored.cam.position === undefined && restored.cam.roll === 0
+    && near(restored.cam.yaw, rad(10)) && restored.cam.dist === 11,
+  '移除空间层后下一帧恢复原始机位，position/roll/绝对接管均不残留');
+  reduced = false;
+  inst.setParam('cam.drift', 0); inst.setParam('cam.kick', 0); inst.setParam('cam.shake', 0);
+  inst.setInteract(false); order.length = 0;
+  const resumedLegacy = frame(3400);
+  ok(order.join(',') === 'early,late' && near(resumedLegacy.cam.yaw, rad(32))
+    && near(resumedLegacy.cam.dist, 8.8) && near(resumedLegacy.cam.roll, rad(4)),
+  '空间层移除后原有电影层仍按原顺序工作');
+
+  inst.addCamLayer(manual, 40, { manual: true }); pose.position = [3, 1, -4];
+  for (const scene of ['anime-sky', 'towers']) {
+    sandbox.Workshop = { isEditingAdvanced: () => scene === 'towers' };
+    inst.setPreset({ scene, director: false, cues: [], bindings: [],
+      cam: { yaw: 8, pitch: 9, dist: 12, fov: 55, drift: 0, kick: 0, shake: 0 } });
+    order.length = 0;
+    const fixed = frame(3500);
+    ok(order.length === 0 && fixed.cam.position === undefined && fixed.cam.roll === 0
+      && near(fixed.cam.yaw, rad(8)) && fixed.cam.dist === 12,
+    scene + ' 固定构图继续排除所有外部层，包括手动空间层');
+  }
+  inst.removeCamLayer(manual); inst.removeCamLayer(early); inst.removeCamLayer(late);
+  inst.attachStage(null);
+  if (originalPresentation) sandbox.Stage.presentation = originalPresentation; else delete sandbox.Stage.presentation;
+  delete sandbox.Workshop;
+}
+
+section('暂停手动相机：唯一帧门合并重绘后休眠');
+{
+  load('creative-stage.js');
+  const inst = sandbox.CreativeStage;
+  const originalPresentation = sandbox.Stage.presentation;
+  const originalKick = sandbox.Stage.kick;
+  const registrationsBefore = gateRegistrations.length;
+  let reduced = false, kicks = 0, manualReads = 0, cinemaReads = 0;
+  sandbox.Stage.presentation = () => ({ reduced, playing: false });
+  sandbox.Stage.kick = () => { kicks += 1; };
+  document.body.classList.remove('is-playing');
+  inst.init();
+  inst.setPreset({ scene: 'towers', director: false, cues: [], bindings: [],
+    cam: { drift: 0, kick: 0, shake: 0 } });
+  const pose = { yaw: 0, pitch: 0, position: null };
+  const cinema = ctx => { cinemaReads += 1; ctx.yawDeg += 9; };
+  const manual = ctx => {
+    manualReads += 1;
+    ctx.absolute = true; ctx.driftMul = 0;
+    ctx.yawDeg = pose.yaw; ctx.pitchDeg = pose.pitch;
+    if (pose.position) ctx.position = pose.position.slice();
+  };
+  inst.addCamLayer(cinema, 10);
+  inst.addCamLayer(manual, 40, { manual: true });
+  inst.attachStage(makeEl('div', { w: 1280, h: 800 }));
+  const engine = engines.at(-1), gate = gates.creative;
+  // Model Stage's fpsFn -> integer divisor -> tickFn contract. Calling tick
+  // directly would hide the original paused-gate failure.
+  let skip = 0, wait = 0;
+  const scheduleFrames = count => {
+    for (let i = 0; i < count; i++) {
+      fakeNow += 1000 / 60;
+      const fps = gate.fpsFn();
+      if (!(fps > 0)) { skip = 0; wait = 0; continue; }
+      wait += 1000 / 60;
+      if (++skip < Math.max(1, Math.ceil(60 / fps))) continue;
+      const elapsed = wait;
+      skip = 0; wait = 0;
+      gate.tickFn(elapsed);
+    }
+  };
+  const request = () => { if (typeof inst.requestCameraFrame === 'function') inst.requestCameraFrame(); };
+  ok(typeof inst.requestCameraFrame === 'function', '导出外部相机姿态失效入口 requestCameraFrame');
+  const firstFrames = engine.calls.length;
+  scheduleFrames(120);
+  ok(gate.fpsFn() === 0 && engine.calls.length === firstFrames,
+    '暂停且没有姿态失效时，手动层存在也不会常驻渲染');
+
+  const kicksBefore = kicks;
+  for (const yaw of [10, 30, 60]) { pose.yaw = yaw; request(); }
+  ok(kicks === kicksBefore + 1 && gate.fpsFn() > 0 && engine.calls.length === firstFrames,
+    '一批姿态变更只唤醒一次 Stage，等待既有帧门绘制');
+  scheduleFrames(120);
+  ok(engine.calls.length === firstFrames + 1 && manualReads === 2
+    && Math.abs(engine.calls.at(-1).cam.yaw - Math.PI / 3) < 1e-7 && gate.fpsFn() === 0,
+    '120 次实际门调度只补最终机位一帧，然后回到零帧率');
+
+  reduced = true;
+  const quietTime = engine.calls.at(-1).t, cinemaBefore = cinemaReads;
+  songPosition += 1000;
+  pose.yaw = -20; pose.pitch = .49 * 180; pose.position = [3, 1, -4];
+  request();
+  ok(gate.fpsFn() > 0 && gate.fpsFn() <= 15, '减弱动效时手动补帧沿用至多 15fps 的预算');
+  scheduleFrames(120);
+  const quiet = engine.calls.at(-1);
+  ok(engine.calls.length === firstFrames + 2 && gate.fpsFn() === 0 && cinemaReads === cinemaBefore
+    && quiet.t === quietTime && Math.abs(quiet.cam.pitch - Math.PI * .49) < 1e-7
+    && JSON.stringify(quiet.cam.position) === JSON.stringify(pose.position),
+    '暂停减弱动效只更新手动自由机位，电影层及场景时间保持冻结');
+
+  document.hidden = true;
+  pose.yaw = 75; request();
+  scheduleFrames(120);
+  ok(gate.fpsFn() === 0 && engine.calls.length === firstFrames + 2,
+    '隐藏页面时待绘制的手动机位不能越过可见性门');
+  document.hidden = false;
+  scheduleFrames(120);
+  ok(engine.calls.length === firstFrames + 3 && gate.fpsFn() === 0
+    && Math.abs(engine.calls.at(-1).cam.yaw - 75 * Math.PI / 180) < 1e-7,
+    '页面恢复后合并绘制隐藏期间的最新机位，再次休眠');
+
+  for (const scene of ['anime-sky', 'towers']) {
+    sandbox.Workshop = { isEditingAdvanced: () => scene === 'towers' };
+    inst.setPreset({ scene, director: false, cues: [], bindings: [] });
+    const before = engine.calls.length, beforeKick = kicks;
+    pose.yaw += 10; request(); scheduleFrames(120);
+    ok(gate.fpsFn() === 0 && engine.calls.length === before && kicks === beforeKick,
+      scene + ' 固定构图不会为被排除的空间相机层唤醒帧门');
+  }
+  inst.removeCamLayer(manual); inst.removeCamLayer(cinema);
+  delete sandbox.Workshop;
+  inst.attachStage(null);
+  const detachedKick = kicks;
+  request(); scheduleFrames(120);
+  ok(kicks === detachedKick && gate.fpsFn() === 0,
+    '大舞台拆卸后相机失效不唤醒已释放的引擎');
+  ok(gateRegistrations.length === registrationsBefore + 1,
+    '姿态失效始终复用初始化登记的唯一 creative 帧门');
+  document.body.classList.add('is-playing');
+  songPosition = 12345;
+  if (originalPresentation) sandbox.Stage.presentation = originalPresentation; else delete sandbox.Stage.presentation;
+  if (originalKick) sandbox.Stage.kick = originalKick; else delete sandbox.Stage.kick;
 }
 
 section('大舞台生命周期与歌曲时间编排');
@@ -1506,8 +1739,23 @@ section('性能收口：不可见画布门控（E1）');
     '「跳转到舞台播放」随入口申请原生全屏');
   // E2 真机走查发现：窄屏模态抽屉键盘用户关不掉。Esc 必须能关抽屉
   // （沉浸页打开时 stage.js 自己 stopPropagation 处理 Esc，互不干扰）。
-  ok(/e\.key === 'Escape'[\s\S]{0,180}?classList\.remove\('stage-open'\)/.test(appSrcE),
-    'Esc 可关闭窄屏舞台抽屉（可访问性收口）');
+  const escapeBranch = appSrcE.slice(appSrcE.indexOf('function bindShortcuts()'))
+    .match(/if \(e\.key === 'Escape'\) \{([\s\S]*?)\n    \}/);
+  const removed = [];
+  const escapeSandbox = {
+    e: { key: 'Escape', preventDefault() {} }, typing: false,
+    window: {}, closeMenu() {}, closeNowPlaying() {}, setView() {}, state: { view: 'library' },
+    document: { body: { classList: { remove: name => removed.push(name) } } },
+  };
+  ok(!!escapeBranch, '全局快捷键保留 Esc 分支');
+  if (escapeBranch) {
+    vm.runInNewContext('(function () {' + escapeBranch[0] + '})();', escapeSandbox);
+    ok(removed.includes('stage-open'), 'Esc 可关闭窄屏舞台抽屉（可访问性收口）');
+    removed.length = 0;
+    escapeSandbox.window.NowPlaying = escapeSandbox.NowPlaying = { back: () => true };
+    vm.runInNewContext('(function () {' + escapeBranch[0] + '})();', escapeSandbox);
+    ok(removed.length === 0, '播放页消费 Esc 时保留底层舞台状态');
+  }
 }
 
 // PlaylistCovers 的异步行为测试放到最后，跑完再统一输出结论（CommonJS

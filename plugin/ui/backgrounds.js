@@ -47,6 +47,7 @@
     w: 0, h: 0,
     attached: false,
     stageHost: null,              // 大舞台复用同一背景层，退出后归还原挂点
+    stageState: null,             // 临时宿主的播放/深度约束，不写回用户背景偏好
     homeParent: null,
     homeNext: null,
     coverUrl: null,
@@ -62,6 +63,29 @@
   // 视差输入：指针在视口内的归一化位置（-1..1）+ 平滑后的版本。
   // 所有「随动」都读这同一个值，墙和 DOM 位移才不会各晃各的。
   var pointer = { x: 0, y: 0, sx: 0, sy: 0 };
+  var sourceVersion = 0, sourceListeners = [];
+
+  // Borrowers observe completed source frames, including paused async loads.
+  function sourceFrame() {
+    var source = state.spec.type === 'media' ? state.media : isCanvasType() ? state.canvas : null;
+    var width = source && (source.videoWidth || source.naturalWidth || source.width) || 0;
+    var height = source && (source.videoHeight || source.naturalHeight || source.height) || 0;
+    return { source: source, version: sourceVersion, width: width, height: height,
+      ready: !!(source && width && height && (source.readyState === undefined || source.readyState >= 2)),
+      dynamic: isCanvasType() || !!(source && source.tagName === 'VIDEO') };
+  }
+  function invalidateSource() {
+    sourceVersion++;
+    var frame = sourceFrame();
+    sourceListeners.slice().forEach(function (listener) { listener(frame); });
+  }
+  function onSourceFrame(listener) {
+    sourceListeners.push(listener);
+    return function () {
+      var index = sourceListeners.indexOf(listener);
+      if (index >= 0) sourceListeners.splice(index, 1);
+    };
+  }
 
   function $(id) { return document.getElementById(id); }
 
@@ -240,7 +264,7 @@
   // 空间模式生命周期：谁在 DOM 里、墙是否存在，全部在这里收口。
   function configureDepth() {
     if (!state.layer) return;
-    var want = state.spec.depthMode || 'flat';
+    var want = state.stageState && state.stageState.flat ? 'flat' : state.spec.depthMode || 'flat';
     var eff = want;
     if (want === 'scene') {
       eff = ensureWall() ? 'scene' : 'parallax';
@@ -315,6 +339,21 @@
     refresh();
   }
 
+  // Space3D 借用同一画布与媒体源；只暂停既有帧门，并临时收起独立 GL 墙。
+  // 设置页的 spec 始终保持用户选择，退出后不需要用旧快照覆盖新改的背景。
+  function setStageState(value) {
+    var old = state.stageState;
+    var next = value ? { paused: !!value.paused, reduced: !!value.reduced, flat: !!value.flat,
+      timeSec: typeof value.timeSec === 'number' && isFinite(value.timeSec) ? Math.max(0, value.timeSec) : 0 } : null;
+    state.stageState = next;
+    var changed = !old !== !next || (old && next &&
+      (old.paused !== next.paused || old.reduced !== next.reduced || old.flat !== next.flat));
+    if (!changed) return;
+    configureDepth();
+    syncMediaPlayback();
+    refresh();
+  }
+
   function isVisible() {
     return !document.hidden && !!state.layer && !state.layer.hidden
       && (!!state.stageHost || !document.body.classList.contains('s3d-open'));
@@ -323,7 +362,7 @@
   function syncMediaPlayback() {
     var media = state.media;
     if (!media || media.tagName !== 'VIDEO') return;
-    if (!isVisible()) { media.pause(); return; }
+    if (!isVisible() || (state.stageState && (state.stageState.paused || state.stageState.reduced))) { media.pause(); return; }
     var playing = media.play();
     if (playing && playing.catch) playing.catch(function () { /* 静帧仍可显示 */ });
   }
@@ -542,6 +581,7 @@
 
   function targetFps() {
     if (!state.attached || state.spec.type === 'theme' || !isVisible()) return 0;
+    if (state.stageState && (state.stageState.paused || state.stageState.reduced)) return 0;
     var playing = document.body.classList.contains('is-playing');
     var depth = state.depthEffective;
     // 墙与视差要跟着指针/视频走：30fps 才顺；非播放时降下来省点。
@@ -589,7 +629,8 @@
   }
 
   function tick(dtMs) {
-    var t = window.performance && performance.now ? performance.now() : Date.now();
+    var t = state.stageState ? state.stageState.timeSec * 1000 :
+      (window.performance && performance.now ? performance.now() : Date.now());
     var depth = state.depthEffective;
     if (depth === 'parallax' || depth === 'scene') updateParallax(dtMs || 16.7);
 
@@ -605,6 +646,7 @@
     if (state.spec.type === 'flow') stepFlow(pal, agg, pulse);
     else if (state.spec.type === 'spectrogram') stepSpectrogram(bands, pal, t);
     else if (isCanvasType()) stepMesh(pal, agg, pulse, t);
+    if (isCanvasType() && state.ctx) invalidateSource();
 
     if (depth === 'scene' && state.wallApi && state.wallApi.ready()) {
       // 墙源在媒体元素刚建出来时可能没同步上，每帧补一次 setSource（只是赋值）
@@ -693,6 +735,7 @@
         delete state.layer.dataset.depth;
         state.layer.hidden = true;
       }
+      invalidateSource();
       return state.spec;
     }
 
@@ -745,6 +788,7 @@
       // 没有素材时退回主题色，而不是留一块黑 —— 用户看到的第一眼不该是"坏了"。
       state.layer.hidden = true;
       document.documentElement.dataset.bgType = 'theme';
+      invalidateSource();
       return;
     }
     var isVideo = state.spec.media === 'video' || /\.(mp4|webm|mov|m4v)$/i.test(src);
@@ -758,13 +802,13 @@
       // 降速：背景视频是氛围，不是内容。放慢之后解码压力下降，移动也更耐看。
       el.playbackRate = state.spec.rate === undefined ? 0.75 : state.spec.rate;
       el.addEventListener('loadeddata', function () {
-        if (state.media === el) { syncMediaPlayback(); refresh(); }
+        if (state.media === el) { syncMediaPlayback(); refresh(); invalidateSource(); }
       });
     } else {
       el = document.createElement('img');
       el.alt = '';
       el.decoding = 'async';
-      el.addEventListener('load', function () { if (state.media === el) refresh(); });
+      el.addEventListener('load', function () { if (state.media === el) { refresh(); invalidateSource(); } });
     }
     el.className = 'creative-bg-media';
     el.src = src;
@@ -772,6 +816,7 @@
     state.media = el;
     // 记下这个元素对应的 URL，供下一次 clearMedia 精确撤销
     state.mediaUrl = src;
+    invalidateSource();
   }
 
   /** 用户选的本地文件。只建 ObjectURL，不上传、不落库。 */
@@ -789,7 +834,10 @@
   }
 
   function setCover(url) {
-    state.coverUrl = url || null;
+    var next = url || null;
+    if (next === state.coverUrl) return;
+    state.coverUrl = next;
+    if (state.spec.type === 'cover') refresh();
   }
 
   function init() {
@@ -802,7 +850,7 @@
       var bg = disc.style.backgroundImage || '';
       var m = /url\(["']?([^"')]+)/.exec(bg);
       var url = m ? m[1] : null;
-      if (url !== state.coverUrl) state.coverUrl = url;
+      setCover(url);
     }, 1000);
     return api;
   }
@@ -812,6 +860,9 @@
     apply: apply,
     update: update,
     setStageHost: setStageHost,
+    setStageState: setStageState,
+    sourceFrame: sourceFrame,
+    onSourceFrame: onSourceFrame,
     // 某类型的出厂融合参数（供工坊双击滑块找回默认）
     defaults: function (type) {
       var d = FX_DEFAULTS[type];

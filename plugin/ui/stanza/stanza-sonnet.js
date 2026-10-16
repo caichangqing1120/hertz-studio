@@ -133,7 +133,7 @@
         height: Math.max(1, host.clientHeight || global.innerHeight || 1)
       },
       track: pres ? pres.track : null,
-      reduced: !!(pres && pres.reduced)
+      reduced: !!(pres && pres.reduced) || !!(host.closest && host.closest('.s3d-reduced'))
     };
   }
 

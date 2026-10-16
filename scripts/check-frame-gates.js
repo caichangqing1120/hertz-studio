@@ -239,12 +239,17 @@ function feedHz(hz, times) {
     const lyricSrc = grabFn(stageSrc, 'function lyricsTargetFps(');
     const lz = { hidden: false, reduced: false, playing: true, tier: 2, document: { body: { classList: { contains: () => false } } } };
     vm.createContext(lz);
-    vm.runInContext(lyricSrc + '\nthis.read = lyricsTargetFps;', lz);
+    vm.runInContext(grabFn(stageSrc, 'function isVisualOccluded(') + '\n' + lyricSrc + '\nthis.read = lyricsTargetFps;', lz);
     const lyricVals = [];
     for (const tier of [0, 1, 2]) { lz.tier = tier; lyricVals.push(lz.read()); }
     lz.playing = false; lyricVals.push(lz.read());
     lz.playing = true; lz.reduced = true; lyricVals.push(lz.read());
     lz.reduced = false; lz.hidden = true; lyricVals.push(lz.read());
+    lz.hidden = false;
+    for (const mode of ['s3d-open', 'space3d-open']) {
+      lz.document.body.classList.contains = name => name === mode;
+      eq(lz.read(), 0, mode + ' occludes the 2D lyric gate');
+    }
     for (const v of lyricVals) declared.push({ file: 'stage.js:lyricsTargetFps', value: v });
 
     ok(declared.length >= 10, '抓到足够多的声明档位（实得 ' + declared.length + '）');

@@ -168,6 +168,7 @@
     var target = event.target;
     if (target && target.nodeType !== 1) target = target.parentElement;
     var control = target && target.closest ? target.closest(CONTROLS) : null;
+    if (control && control.getAttribute('data-click-feedback') === 'custom') return;
     if (!control || !control.isConnected || control.matches(':disabled, [disabled]')
         || control.closest('[inert], [hidden], [aria-disabled="true"], .is-disabled')) return;
     var time = global.performance && global.performance.now ? global.performance.now() : Date.now();

@@ -406,11 +406,7 @@
       });
       tunedGrid.appendChild(inter.node);
     } else if (src === 'zodiac') {
-      var zLines = pill3d('星座连线', p.zodiacLines !== false, function (on) {
-        write3D({ zodiacLines: on });
-        zLines.set(on);
-      });
-      var zField = pill3d('背景星场', p.zodiacField !== false, function (on) {
+      var zField = pill3d('背景星云', p.zodiacField !== false, function (on) {
         write3D({ zodiacField: on });
         zField.set(on);
       });
@@ -418,7 +414,6 @@
         write3D({ zodiacInteract: on });
         zInteract.set(on);
       });
-      tunedGrid.appendChild(zLines.node);
       tunedGrid.appendChild(zField.node);
       tunedGrid.appendChild(zInteract.node);
     } else if (src === 'anime-svg') {
@@ -456,6 +451,7 @@
   var values = {};
   var els = {};
   var open = false;
+  var initialized = false;
 
   function $(id) { return document.getElementById(id); }
 
@@ -487,42 +483,55 @@
         delete saved.enabled;
         try { localStorage.setItem(STORE_KEY + '.v', '2'); } catch (e) { /* ignore */ }
       }
-      Object.keys(saved).forEach(function (k) {
-        if (k in values) values[k] = saved[k];
+      var restored = validated(saved);
+      Object.keys(restored).forEach(function (k) {
+        values[k] = restored[k];
       });
     } catch (e) { /* 坏数据就当没存过 */ }
   }
 
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(values)); } catch (e) { /* 隐私模式 */ }
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(values));
+      setStatus('更改已保存');
+    } catch (e) {
+      setStatus('更改已生效，但无法保存；刷新后可能丢失。');
+    }
+  }
+
+  function setStatus(message) {
+    var status = $('sc-status');
+    if (status) status.textContent = message;
   }
 
   // -------------------------------------------------------------------------
   // 一次调参算一次可撤销动作
   //
   // 历史只记「改过的键 + 改之前是什么」，回退时只写回那几个键，其它值原样不动。
-  // 拖动/键盘连按合并在同一笔里（650ms 内同键不叠加），一次拖动出一条历史。
+  // 拖动在松手时收尾，键盘连按在 keyup 时收尾。
   // 只覆盖视觉调参：外部经 StageControl.set() 下发的、恢复默认之外的清缓存/登录
   // 一类副作用都不进这个栈。
   // -------------------------------------------------------------------------
   var HIST_MAX = 40;
-  var MERGE_MS = 650;
   var history = [];
   var edit = null;
 
-  function nowMs() { return Date.now(); }
-
-  function beginEdit(key) {
-    if (edit && edit.key === key) return;
+  function beginEdit(key, mode) {
+    if (edit && edit.key === key) {
+      if (mode) edit.mode = mode;
+      return;
+    }
     endEdit();
-    edit = { key: key, before: values[key] };
+    edit = { key: key, before: values[key], mode: mode };
   }
 
-  function endEdit() {
+  function endEdit(persist) {
     if (!edit) return;
     var e = edit;
     edit = null;
     pushHistory([e.key], obj(e.key, e.before));
+    paintUndo();
+    if (persist !== false && values[e.key] !== e.before) save();
   }
 
   function obj(k, v) { var o = {}; o[k] = v; return o; }
@@ -534,39 +543,99 @@
       if (k in values && values[k] !== from[k]) { changed[k] = from[k]; n += 1; }
     });
     if (!n) return;
-    var last = history[history.length - 1];
-    var sameKeys = last && Object.keys(last.from).length === n
-      && Object.keys(changed).every(function (k) { return k in last.from; });
-    // 同一批键在合并窗内继续调整 = 同一个动作（键盘连按方向键不该堆几十条历史）。
-    // 起点保持最早那个值，所以撤销一次回到整段调整之前。
-    if (sameKeys && nowMs() - last.at < MERGE_MS) { last.at = nowMs(); paintUndo(); return; }
-    history.push({ from: changed, at: nowMs() });
+    history.push({ from: changed });
     if (history.length > HIST_MAX) history.splice(0, history.length - HIST_MAX);
     paintUndo();
   }
 
   function undo() {
+    endEdit();
     var e = history.pop();
     if (!e) return false;
     paintUndo();
-    applySet(e.from);
+    applySet(e.from, true);
     return true;
   }
 
   function paintUndo() {
     var b = $('sc-undo');
-    if (b) b.disabled = !history.length;
+    if (b) b.disabled = !history.length && !(edit && values[edit.key] !== edit.before);
+  }
+
+  function normalize(it, value) {
+    if (it.options) return it.options.some(function (pair) { return pair[0] === value; }) ? value : undefined;
+    if (it.type === 'toggle') {
+      if (value === true || value === 1 || value === 'true') return true;
+      if (value === false || value === 0 || value === 'false') return false;
+      return undefined;
+    }
+    if (it.type === 'color') return value === '' ? ''
+      : typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : undefined;
+    if ((typeof value !== 'number' && typeof value !== 'string')
+        || (typeof value === 'string' && !value.trim())) return undefined;
+    var number = Number(value);
+    if (!Number.isFinite(number)) return undefined;
+    number = Math.max(it.min, Math.min(it.max, number));
+    number = it.min + Math.round((number - it.min) / it.step) * it.step;
+    return Number(Math.max(it.min, Math.min(it.max, number)).toFixed(8));
+  }
+
+  function validated(patch) {
+    var out = {};
+    SCHEMA.forEach(function (g) {
+      (g.items || []).concat(g.selects || []).forEach(function (it) {
+        if (!Object.prototype.hasOwnProperty.call(patch || {}, it.key)) return;
+        var value = normalize(it, patch[it.key]);
+        if (value !== undefined) out[it.key] = value;
+      });
+    });
+    return out;
   }
 
   /// 唯一写值出口：改 values、同步控件、推 CSS 变量、落盘、广播。
-  function applySet(patch) {
+  function applySet(patch, fromUndo) {
+    patch = validated(patch);
+    var changed = Object.keys(patch).filter(function (k) { return patch[k] !== values[k]; });
+    if (!fromUndo && changed.length) {
+      if (edit && changed.indexOf(edit.key) !== -1) endEdit(false);
+      history.forEach(function (action) {
+        changed.forEach(function (k) { delete action.from[k]; });
+      });
+      history = history.filter(function (action) { return Object.keys(action.from).length; });
+      paintUndo();
+    }
     Object.keys(patch || {}).forEach(function (k) {
       if (k in values) values[k] = patch[k];
     });
     Object.keys(patch || {}).forEach(function (k) {
       if (els[k] && els[k].set) els[k].set(values[k]);
     });
-    push(); save(); emit();
+    push(); save(); emit(); onSearchInput();
+  }
+
+  function bindContinuous(input, key) {
+    var it = SCHEMA.flatMap(function (g) { return (g.items || []); }).find(function (item) { return item.key === key; });
+    var adjustmentKey = function (name) { return /^(Arrow(Left|Right|Up|Down)|Page(Up|Down)|Home|End)$/.test(name); };
+    input.addEventListener('pointerdown', function () { beginEdit(key, 'pointer'); });
+    input.addEventListener('keydown', function (event) {
+      if (adjustmentKey(event.key)) beginEdit(key, 'keyboard');
+    });
+    input.addEventListener('keyup', function (event) {
+      if (adjustmentKey(event.key) && edit && edit.key === key) endEdit();
+    });
+    input.addEventListener('input', function () {
+      var value = normalize(it, input.value);
+      if (value === undefined || value === values[key]) return;
+      beginEdit(key);
+      values[key] = value;
+      els[key].set(value);
+      push(); emit(); onSearchInput(); paintUndo();
+      setStatus('调整中，结束后保存。');
+    });
+    input.addEventListener('change', function () {
+      if (edit && edit.key === key && edit.mode !== 'keyboard') endEdit();
+    });
+    input.addEventListener('blur', function () { if (edit && edit.key === key) endEdit(); });
   }
 
   // -------------------------------------------------------------------------
@@ -591,6 +660,7 @@
       key: it.key,
       groupId: g.id,
       group: g.title,
+      groupAliases: g.aliases || [],
       label: it.label,
       aliases: it.aliases || [],
       type: it.type || 'range',
@@ -612,11 +682,15 @@
   }
 
   function haystack(e) {
-    return [e.label, e.group].concat(e.aliases).join(' ').toLowerCase();
+    return [e.key, e.groupId, e.label, e.group].concat(e.aliases, e.groupAliases).join(' ').toLowerCase();
   }
 
   function searchEntries(q) {
-    return entries().filter(function (e) { return haystack(e).indexOf(q) >= 0; });
+    var terms = q.split(/\s+/).filter(Boolean);
+    return entries().filter(function (e) {
+      var text = haystack(e);
+      return terms.every(function (term) { return text.indexOf(term) >= 0; });
+    });
   }
 
   function paintResults(hits) {
@@ -657,15 +731,27 @@
   /// 把用户带到命中的那颗控件：滚动居中、聚焦、短暂高亮。
   function reveal(key) {
     var box = els[key];
-    if (!box || !box.cell) { clearSearch(); return; }
+    if (!box || !box.cell || box.node.isConnected === false) {
+      setStatus('此参数已移除，无法定位。');
+      return;
+    }
+    var section = box.cell.closest && box.cell.closest('.sc-group');
+    if (section) section.hidden = false;
+    if (box.node.disabled || (box.node.getClientRects && !box.node.getClientRects().length)
+        || (window.getComputedStyle && window.getComputedStyle(box.node).visibility === 'hidden')) {
+      setStatus('此参数当前不可用，请检查舞台模式或性能设置。');
+      return;
+    }
     if (box.cell.scrollIntoView) {
       box.cell.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
     }
-    if (box.node && box.node.focus) box.node.focus({ preventScroll: true });
+    var target = box.node.querySelector && box.node.querySelector('.sc-seg-btn.is-on');
+    (target || box.node).focus({ preventScroll: true });
     box.cell.classList.add('is-found');
     setTimeout(function () { box.cell.classList.remove('is-found'); }, 900);
     // 结果列表留着：通常用户是按顺序逐个跳，清掉会让他再输一遍词。
     paintResults(results);
+    setStatus('已定位舞台参数');
   }
 
   function prefersReducedMotion() {
@@ -806,6 +892,7 @@
         values[it.key] = !values[it.key];
         setSw(values[it.key]);
         endEdit();
+        push(); emit(); onSearchInput();
       });
       cell.appendChild(pill);
       els[it.key] = { set: function (v) { setSw(v); }, node: pill, cell: cell };
@@ -839,24 +926,7 @@
     };
     paintFill(values[it.key]);
 
-    // 一笔事务的起点：pointerdown 覆盖鼠标/触屏拖动，keydown 覆盖键盘调方向。
-    // 两者都只登记"之前的值"，收尾在 change（松手 / 键盘改完一次）。
-    var openEdit = function () { beginEdit(it.key); };
-    input.addEventListener('pointerdown', openEdit);
-    input.addEventListener('keydown', openEdit);
-    input.addEventListener('input', function () {
-      beginEdit(it.key);
-      var v = Number(input.value);
-      values[it.key] = v;
-      val.textContent = v + (it.unit || '');
-      paintFill(v);
-      push(); save(); emit();
-    });
-    // 拖动过程不写 localStorage：一次拖动会触发几十次写入，
-    // 换成松手时落盘，行为一样但省掉了同步 IO。
-    input.addEventListener('change', function () { endEdit(); save(); });
-    // 焦点离开（Tab 走 / 点别处）也要收尾，否则键盘调完不留历史。
-    input.addEventListener('blur', function () { endEdit(); });
+    bindContinuous(input, it.key);
 
     cell.appendChild(input);
     els[it.key] = {
@@ -902,6 +972,7 @@
         values[it.key] = pair[0];
         paintSeg(values[it.key]);
         endEdit();
+        push(); emit(); onSearchInput();
       });
       seg.appendChild(b);
     });
@@ -947,18 +1018,13 @@
       input.classList.toggle('is-auto', !c);
     }
 
-    input.addEventListener('input', function () {
-      // 取色面板里连续滑动：beginEdit 只在没开着事务时登记旧值，change 收尾。
-      beginEdit(it.key);
-      values[it.key] = input.value;
-      render(); push(); save(); emit();
-    });
-    input.addEventListener('change', function () { endEdit(); });
+    bindContinuous(input, it.key);
     auto.addEventListener('click', function () {
       beginEdit(it.key);
       values[it.key] = '';
       input.value = '#888888';
       render(); endEdit();
+      push(); emit(); onSearchInput();
     });
 
     row.append(input, auto);
@@ -975,14 +1041,15 @@
     return cell;
   }
 
-  function build() {
+  function build(addedGroup) {
     var host = $('sc-body');
     if (!host) return;
-    host.textContent = '';
+    if (!addedGroup) host.textContent = '';
 
-    SCHEMA.forEach(function (g) {
+    (addedGroup ? [addedGroup] : SCHEMA).forEach(function (g) {
       var sec = document.createElement('section');
       sec.className = 'sc-group';
+      sec.id = 'sc-group-' + g.id;
       var h = document.createElement('h2');
       h.className = 'sc-group-title';
       h.textContent = g.title;
@@ -1015,6 +1082,7 @@
 
   function setOpen(next) {
     var want = next === undefined ? !open : !!next;
+    if (!want) endEdit();
     open = want;
     var panel = $('stage-ctl');
     if (!panel) return;
@@ -1032,6 +1100,7 @@
     if (btn) {
       btn.classList.toggle('active', want);
       btn.setAttribute('aria-expanded', String(want));
+      if (!want && panel.contains(document.activeElement)) btn.focus();
     }
     if (want) {
       // 语境跟随当前舞台状态：三维舞台开着且来源是 3D 场景 → 真3D 语境，
@@ -1049,6 +1118,7 @@
   function reset() {
     // 恢复默认只清参数，不关掉总开关——用户点"恢复出厂"通常是想清掉
     // 自己调歪的数值，而不是让面板整个失效。
+    endEdit();
     var keepEnabled = values.enabled;
     var before = JSON.parse(JSON.stringify(values));
     values = defaults();
@@ -1063,12 +1133,17 @@
   }
 
   function init() {
+    if (initialized) return;
+    initialized = true;
     load();
     build();
     push();
 
     var btn = $('stage-control-btn');
-    if (btn) btn.addEventListener('click', function () { setOpen(); });
+    if (btn) btn.addEventListener('click', function () {
+      setOpen();
+      if (open && context === 'flat' && $('sc-search')) $('sc-search').focus({ preventScroll: true });
+    });
     var close = $('sc-close');
     if (close) close.addEventListener('click', function () { setOpen(false); });
     var ok = $('sc-ok');
@@ -1082,6 +1157,18 @@
       sch.addEventListener('input', onSearchInput);
       sch.addEventListener('keydown', onSearchKeys);
     }
+    var searchResults = $('sc-results');
+    if (searchResults) searchResults.addEventListener('keydown', function (e) {
+      var buttons = Array.from(searchResults.querySelectorAll('button'));
+      var index = buttons.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown' && index < buttons.length - 1) {
+        e.preventDefault(); buttons[index + 1].focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (index > 0) buttons[index - 1].focus();
+        else if (sch) sch.focus();
+      }
+    });
     // 语境分段：手动切换后本次打开期间不再自动跟随。
     var ctxFlat = $('sc-context-flat');
     if (ctxFlat) ctxFlat.addEventListener('click', function () { setContext('flat', true); });
@@ -1115,6 +1202,13 @@
       }
     }, true);
 
+    ['pointerup', 'pointercancel'].forEach(function (name) {
+      document.addEventListener(name, function () {
+        if (edit && edit.mode === 'pointer') endEdit();
+      }, true);
+    });
+    if (window.addEventListener) window.addEventListener('blur', function () { endEdit(); });
+
     emit();
   }
 
@@ -1143,13 +1237,35 @@
     reset: reset,
     // 扩展方式：StageControl.addGroup({ id, title, items: [...] })
     addGroup: function (group) {
-      if (!group || !group.id || !group.title) return false;
-      (group.items || []).forEach(function (it) {
-        if (!(it.key in values)) values[it.key] = it.def;
+      if (!group || typeof group.id !== 'string' || !/^[\w-]+$/.test(group.id)
+          || typeof group.title !== 'string' || !group.title
+          || SCHEMA.some(function (g) { return g.id === group.id; })) return false;
+      if ((group.items && !Array.isArray(group.items)) || (group.selects && !Array.isArray(group.selects))) return false;
+      if ((group.selects || []).some(function (it) { return !it || !Array.isArray(it.options); })) return false;
+      var seen = Object.create(null);
+      var valid = (group.items || []).concat(group.selects || []).every(function (it) {
+        if (!it || typeof it.key !== 'string' || !/^[\w-]+$/.test(it.key) || !it.label
+            || it.key in values || it.key in Object.prototype || seen[it.key]) return false;
+        seen[it.key] = true;
+        if (it.options) {
+          if (!Array.isArray(it.options) || !it.options.length
+              || !it.options.every(function (p) { return Array.isArray(p) && typeof p[0] === 'string' && p.length > 1; })) return false;
+        } else if (it.type !== 'toggle' && it.type !== 'color') {
+          if (![it.min, it.max, it.step].every(Number.isFinite) || it.max < it.min || it.step <= 0) return false;
+        }
+        return normalize(it, it.def) !== undefined;
+      });
+      if (!valid) return false;
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) { /* Defaults remain usable. */ }
+      (group.items || []).concat(group.selects || []).forEach(function (it) {
+        var restored = normalize(it, saved && saved[it.key]);
+        values[it.key] = restored === undefined ? normalize(it, it.def) : restored;
       });
       SCHEMA.push(group);
-      build();
+      build(group);
       push();
+      onSearchInput(); emit();
       return true;
     }
   };

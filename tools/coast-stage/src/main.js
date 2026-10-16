@@ -16,7 +16,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createSky, SKY, samplePalette, sunDirection, moonDirection, nightFactor } from './sky.js';
 import { createOcean, wavePhases, SEA_LEVEL } from './ocean.js';
-import { createWorld, terrainHeight } from './world.js';
+import { createWorld, terrainHeight, prepareGridLod } from './world.js';
 import { clamp, lerp, damp, smoothstep } from './util.js';
 
 // 画质三档对应舞台 tier 2/1/0。pr 上限沿用原作的按 DPR 折算。
@@ -60,37 +60,42 @@ function disposeObject(root) {
   });
 }
 
-function createStage(canvas, opts) {
-  const quality = QUALITY[opts.quality] || QUALITY.high;
-  let renderer;
+function createStage(canvas, opts, context = null) {
+  let quality = QUALITY[opts.quality] || QUALITY.high;
+  let renderer = context && context.renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    if (!renderer) renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   } catch (e) {
     return null;
   }
   const pr = Math.min(DPR, quality.prCap) * quality.prMul;
-  renderer.setPixelRatio(pr);
-  renderer.shadowMap.enabled = quality.shadow > 0;
+  if (!context) renderer.setPixelRatio(pr);
+  renderer.shadowMap.enabled = !context && quality.shadow > 0;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1;
 
-  const scene = new THREE.Scene();
+  const scene = context ? context.scene : new THREE.Scene();
   scene.fog = new THREE.FogExp2(0xffffff, 0.0052);
-  const camera = new THREE.PerspectiveCamera(44, 1, 0.05, 900);
+  const camera = context ? context.camera : new THREE.PerspectiveCamera(44, 1, 0.05, 900);
+  Object.assign(camera, { fov: 44, near: 0.05, far: 900 });
+  const cameraTarget = camera.clone();
   scene.add(camera);
 
   const sky = createSky();
+  if (context) { context.scope.trackTree(sky.mesh); context.scope.trackTree(sky.envMesh); }
   scene.add(sky.mesh);
   const pmrem = new THREE.PMREMGenerator(renderer);
+  if (context) context.scope.track(pmrem);
   const envScene = new THREE.Scene();
   envScene.add(sky.envMesh);
   let envRT = null;
   let envHour = -99;
   function refreshEnv() {
     const rt = pmrem.fromScene(envScene, 0, 0.1, 100);
-    if (envRT) envRT.dispose();
+    if (envRT) { if (context) context.scope.release(envRT); else envRT.dispose(); }
     envRT = rt;
+    if (context) context.scope.track(rt);
     scene.environment = rt.texture;
   }
 
@@ -115,20 +120,25 @@ function createStage(canvas, opts) {
   camera.add(fillLight);
 
   const ocean = createOcean();
+  if (context) prepareGridLod(ocean.mesh.geometry, ocean.columns, ocean.rows);
+  if (context) context.scope.trackTree(ocean.mesh);
   scene.add(ocean.mesh);
-  const world = createWorld(scene, { density: quality.density });
+  const world = createWorld(scene, { density: context ? 1 : quality.density });
 
   // 后期：渲染 -> 清洗 -> 泛光 -> 输出。暖色分级交给调色板与雾，不再叠 grade。
   const size2 = renderer.getDrawingBufferSize(new THREE.Vector2());
-  const rt = new THREE.WebGLRenderTarget(size2.x, size2.y, { type: THREE.HalfFloatType, samples: quality.msaa });
-  const composer = new EffectComposer(renderer, rt);
-  composer.setPixelRatio(pr);
-  composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new ShaderPass(sanitizeShader));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.55, 0.92);
-  bloom.enabled = quality.bloom;
-  composer.addPass(bloom);
-  composer.addPass(new OutputPass());
+  const rt = context ? null : new THREE.WebGLRenderTarget(size2.x, size2.y, { type: THREE.HalfFloatType, samples: quality.msaa });
+  const composer = context ? null : new EffectComposer(renderer, rt);
+  const bloom = context ? { enabled: false } : new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.55, 0.92);
+  if (composer) {
+    composer.setPixelRatio(pr);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new ShaderPass(sanitizeShader));
+    bloom.enabled = quality.bloom;
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+  }
+  if (context) { context.scope.trackTree(scene); context.scope.trackTree(envScene); }
 
   // ---------- 状态 ----------
   const S = {
@@ -160,6 +170,7 @@ function createStage(canvas, opts) {
     dist: 0,
     lastInput: -99,
     dragging: false,
+    control: null,
   };
   rig.yaw = rig.yaw0;
   rig.pitch = rig.pitch0;
@@ -204,8 +215,29 @@ function createStage(canvas, opts) {
   }
 
   function cameraUpdate(dt) {
+    if (rig.control) {
+      const pose = rig.control;
+      if (pose.position) cameraTarget.position.fromArray(pose.position);
+      else {
+        const cp = Math.cos(pose.pitch);
+        cameraTarget.position.set(pose.tx + Math.sin(pose.yaw) * cp * pose.dist,
+          pose.ty + Math.sin(pose.pitch) * pose.dist,
+          pose.tz + Math.cos(pose.yaw) * cp * pose.dist);
+      }
+      // Moving terrain remains owned by Coast for both orbit and free poses.
+      cameraTarget.position.y = Math.max(cameraTarget.position.y, groundAt(cameraTarget.position) + 0.3);
+      if (pose.position) cameraTarget.rotation.set(pose.pitch, pose.yaw, pose.roll, 'YXZ');
+      else { cameraTarget.lookAt(pose.tx, pose.ty, pose.tz); cameraTarget.rotateZ(pose.roll || 0); }
+      const mix = pose.external ? 1 : 1 - Math.exp(-dt / 0.26);
+      camera.position.lerp(cameraTarget.position, mix);
+      camera.position.y = Math.max(camera.position.y, groundAt(camera.position) + 0.3);
+      camera.quaternion.slerp(cameraTarget.quaternion, mix);
+      camera.fov += (pose.fov - camera.fov) * mix;
+      camera.updateProjectionMatrix();
+      return;
+    }
     focus.set(0, FOCUS_Y, S.lane);
-    // 静置 4 秒后平滑回巡航机位
+    // Native Stage3D motion is unchanged while no supplied camera owns the rig.
     if (S.t - rig.lastInput > 4) {
       rig.yaw = damp(rig.yaw, rig.yaw0, 1.2, dt);
       rig.pitch = damp(rig.pitch, rig.pitch0, 1.2, dt);
@@ -221,6 +253,7 @@ function createStage(canvas, opts) {
     lookAt.set(2.2, 0.55, S.lane * 0.4);
     camera.position.copy(camPos);
     camera.lookAt(lookAt);
+    camera.fov = 44;
     camera.updateProjectionMatrix();
   }
 
@@ -298,7 +331,11 @@ function createStage(canvas, opts) {
     raf = requestAnimationFrame(loop);
     const dt = last ? Math.min((ts - last) / 1000, 0.05) : 0;
     last = ts;
-    if (!dt) return;
+    update(dt);
+    if (dt) composer.render();
+  }
+  function update(dt) {
+    if (!dt && !context) return;
     S.t += dt;
 
     // 音频包络：level 快跟（速度）、slow 慢跟（曝光）、起音脉冲后衰减
@@ -326,7 +363,6 @@ function createStage(canvas, opts) {
     sky.mesh.position.copy(camera.position);
     renderer.getDrawingBufferSize(bufSize);
     world.ffMat.uniforms.uScale.value = bufSize.y / (2 * Math.tan((camera.fov * Math.PI) / 360));
-    composer.render();
   }
 
   function resize(w, h) {
@@ -334,9 +370,9 @@ function createStage(canvas, opts) {
     const height = Math.max(2, h | 0);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(width, height, false);
-    composer.setSize(width, height);
-    bloom.resolution.set(width / 2, height / 2);
+    if (!context) renderer.setSize(width, height, false);
+    if (composer) composer.setSize(width, height);
+    if (bloom.resolution) bloom.resolution.set(width / 2, height / 2);
   }
 
   function bind() {
@@ -362,11 +398,19 @@ function createStage(canvas, opts) {
     composer,
     quality,
     scene,
+    camera,
     S,
     env,
     audio,
     rig,
     resize,
+    update,
+    setQuality(profile) {
+      quality = QUALITY[profile.mode] || QUALITY.medium;
+      world.setDensity(profile.density, profile.mode);
+      const range = ocean.mesh.geometry.userData.lodRanges[profile.mode];
+      ocean.mesh.geometry.setDrawRange(range.start, range.count);
+    },
     start() {
       last = 0;
       raf = requestAnimationFrame(loop);
@@ -382,11 +426,12 @@ function createStage(canvas, opts) {
       updateLighting();
       cameraUpdate(0.016);
       sky.mesh.position.copy(camera.position);
-      composer.render();
+      if (composer) composer.render();
     },
     bind,
     unbind,
     dispose() {
+      if (context) return;
       disposeObject(scene);
       pmrem.dispose();
       if (envRT) envRT.dispose();
@@ -395,6 +440,30 @@ function createStage(canvas, opts) {
       renderer.dispose();
       if (renderer.forceContextLoss) renderer.forceContextLoss();
     },
+  };
+}
+
+export function createScene(context) {
+  const stage = createStage(context.renderer.domElement, { quality: context.quality.mode, tod: context.params.tod, interactive: false }, context);
+  if (!stage) throw new Error('Coast world initialization failed');
+  let disposed = false, reduced = !!context.params.reduced;
+  return {
+    update(frame) {
+      stage.S.reduced = reduced || !!frame.reduced;
+      stage.audio.target = clamp(frame.level || 0, 0, 1);
+      const bands = frame.bands || [];
+      let bass = 0; const count = Math.min(8, bands.length);
+      for (let i = 0; i < count; i++) bass += bands[i] || 0;
+      stage.audio.bass = count ? clamp(bass / count * 1.4, 0, 1) : 0;
+      stage.audio.onset = !stage.S.reduced && !!frame.onset;
+      const dt = stage.S.reduced || frame.playing === false ? 0 : frame.dynamicDt ?? frame.dt ?? .016;
+      stage.update(Math.max(0, Math.min(dt, .1)));
+    },
+    resize: stage.resize,
+    setParams(params) { stage.S.tod = params.tod; stage.S.hour = hourFromTod(params.tod); reduced = !!params.reduced; stage.S.reduced = reduced; },
+    setQuality: stage.setQuality,
+    setRig(pose) { stage.rig.control = pose; },
+    dispose() { if (disposed) return; disposed = true; },
   };
 }
 
@@ -461,12 +530,43 @@ export function setTimeOfDay(v) {
 export function setInteraction(v) {
   if (!st) return;
   st.S.interactive = !!v;
+  if (!v) st.rig.dragging = false;
   st.canvas.style.touchAction = v ? 'none' : '';
 }
 
 export function resize(w, h) {
   if (!st) return;
   st.resize(w, h);
+}
+
+// Shared adapter contract: orbit {yaw,pitch,dist,fov,tx,ty,tz}, or free
+// {position:[x,y,z],yaw,pitch,roll,fov}. Angles are radians, FOV is degrees.
+// Free orientation is camera Euler YXZ (yaw=0 faces -Z; positive pitch is up).
+// external:true skips target damping; null releases to the untouched local rig.
+export function setRig(pose, opts) {
+  if (!st) return;
+  if (pose == null) {
+    st.rig.control = null;
+    st.rig.lastInput = st.S.t;
+    return;
+  }
+  if (typeof pose !== 'object') return;
+  const validPosition = Array.isArray(pose.position) && pose.position.length === 3
+    && pose.position.every(Number.isFinite);
+  if (pose.position !== undefined && !validPosition) return;
+  const previous = st.rig.control || { yaw: st.rig.yaw, pitch: st.rig.pitch,
+    dist: st.rig.dist, fov: st.camera.fov, tx: 0, ty: 0, tz: 0, roll: 0 };
+  const next = { ...previous, position: validPosition ? pose.position.slice() : null,
+    external: !!(opts && opts.external !== undefined ? opts.external : pose.external) };
+  for (const key of ['yaw', 'pitch', 'dist', 'fov', 'tx', 'ty', 'tz', 'roll']) {
+    if (Number.isFinite(pose[key])) next[key] = pose[key];
+  }
+  next.pitch = clamp(next.pitch, -Math.PI * 0.49, Math.PI * 0.49);
+  next.dist = clamp(next.dist, 2.4, 15);
+  next.fov = clamp(next.fov, 26, 72);
+  st.rig.control = next;
+  st.rig.lastInput = st.S.t;
+  st.rig.dragging = false;
 }
 
 // 供泄漏检查：GL 侧几何/纹理/程序驻留数
@@ -487,6 +587,11 @@ export function debug() {
     night: st.env.night, waveAmp: st.env.waveAmp,
     audio: { level: st.audio.level, bass: st.audio.bass },
     interactive: st.S.interactive,
+    controlled: !!st.rig.control,
+    camera: { position: st.camera.position.toArray(),
+      direction: st.camera.getWorldDirection(new THREE.Vector3()).toArray(),
+      quaternion: st.camera.quaternion.toArray(), fov: st.camera.fov,
+      projection: st.camera.projectionMatrix.toArray() },
   };
 }
 

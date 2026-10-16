@@ -797,7 +797,7 @@
   var coastHost = null;
   // 「星座 · 十二星图」（sceneSource 'zodiac'）的专属偏好。星座不接管歌词，
   // 歌词由 stanza/s3d-reading 叠加层照常演出；无 GL 降级时叠层兜底。
-  var zodiacLines = true, zodiacField = true, zodiacInteract = true;
+  var zodiacField = true, zodiacInteract = true;
   var zodiacHost = null;
   // 「动画绘景」（sceneSource 'anime-svg'）的专属偏好：作品与镜像对称。
   var animeHost = null;
@@ -1872,7 +1872,7 @@
   }
 
   function controlTarget(e) {
-    return e.target && e.target.closest && e.target.closest('button, a, input, select, textarea, [contenteditable], [role="button"], .s3d-settings, .s3d-queue-panel, #s3d-reading, #s3d-stanza');
+    return e.target && e.target.closest && e.target.closest('button, a, input, select, textarea, [contenteditable], [role="button"], #s3d-settings, .s3d-queue-panel, #s3d-reading, #s3d-stanza');
   }
 
   function cancelGestures() {
@@ -2113,6 +2113,7 @@
     if (b) {
       b.setAttribute('aria-pressed', String(on));
       b.title = on ? '退出全屏 (F)' : '全屏 (F)';
+      b.textContent = on ? '退出全屏' : '进入全屏';
     }
   }
 
@@ -2121,7 +2122,7 @@
   // chrome 从此被永久钉住 —— 用户报告的「全屏控制按钮不隐藏」即此。
   // Tab 键盘导航仍受豁免（focus-visible 为真），chrome 不会从键盘用户脚下消失。
   function chromeKeyboardFocus() {
-    var el = root.querySelector('.s3d-head :focus, .s3d-player :focus, .s3d-dock :focus, .s3d-brand :focus, .s3d-hint :focus, .s3d-keys :focus, .s3d-queue :focus');
+    var el = root.querySelector('.s3d-head :focus, .s3d-player :focus, .s3d-dock :focus, .s3d-brand :focus, .s3d-hint :focus, .s3d-keys :focus, .s3d-queue :focus, .s3d-settings-fab:focus');
     return !!(el && el.matches && el.matches(':focus-visible'));
   }
 
@@ -2183,7 +2184,7 @@
   function preferences() {
     return { scene: STAGES[stageIndex].id, sceneSource: sceneSource, motion: motion, bloom: bloom, reactivity: reactivity, lyrics: showLyrics, cruise: cam.cruise, layout: layout, lyricSize: lyricSize, lyricGlow: lyricGlow,
       coastTod: coastTod, coastInteract: coastInteract,
-      zodiacLines: zodiacLines, zodiacField: zodiacField, zodiacInteract: zodiacInteract,
+      zodiacField: zodiacField, zodiacInteract: zodiacInteract,
       shelfMode: shelfMode,
       animeScene: animeScene, animeMirror: animeMirror,
       stageTheme: stageTheme,
@@ -2243,7 +2244,6 @@
           || value.sceneSource === 'anime-svg') sceneSource = value.sceneSource;
       if (typeof value.coastTod === 'number') coastTod = clamp(value.coastTod, 0, 1);
       if (typeof value.coastInteract === 'boolean') coastInteract = value.coastInteract;
-      if (typeof value.zodiacLines === 'boolean') zodiacLines = value.zodiacLines;
       if (typeof value.zodiacField === 'boolean') zodiacField = value.zodiacField;
       if (typeof value.zodiacInteract === 'boolean') zodiacInteract = value.zodiacInteract;
       // 绘景作品按注册表校验：存下来的 id 若已被注册表删掉，恢复时保持默认而不是
@@ -2324,7 +2324,7 @@
       $('s3d-bloom').value = Math.round(bloom * 100); text('s3d-bloom-value', Math.round(bloom * 100) + '%');
       $('s3d-reactivity').value = Math.round(reactivity * 100); text('s3d-reactivity-value', Math.round(reactivity * 100) + '%');
       sweepRangeFills();
-      $('s3d-lyrics-toggle').setAttribute('aria-pressed', String(showLyrics));
+      $('s3d-lyrics-toggle').checked = showLyrics;
     } finally { restoring = false; }
   }
 
@@ -2361,12 +2361,13 @@
 
   function setSettings(on) {
     $('s3d-settings').hidden = !on;
+    $('s3d-settings').classList.toggle('sp-show', !!on);
     $('s3d-settings-toggle').setAttribute('aria-expanded', String(on));
     if (on && queueOpen) setQueuePanel(false);
     if (shelf) shelf.setBlocked(!!on || queueOpen);
     pokeChrome();
     if (on) sweepRangeFills();
-    if (on) $('s3d-motion').focus();
+    if (on) $('s3d-settings-close').focus({ preventScroll: true });
   }
 
   // 播放队列浮层：全屏里直接看队列、点行跳播，不再退出声场去队列页
@@ -2464,7 +2465,7 @@
   function toggleLyrics() {
     showLyrics = !showLyrics;
     syncLayout();
-    $('s3d-lyrics-toggle').setAttribute('aria-pressed', String(showLyrics));
+    $('s3d-lyrics-toggle').checked = showLyrics;
     if (stanzaActive() && stanza.ready) applyStanzaConfig();
     pokeChrome();
     savePreferences();
@@ -2670,8 +2671,6 @@
     if (tuning) {
       tuning.hidden = !useZodiac;
       if (useZodiac) {
-        var linesInput = $('s3d-zodiac-lines');
-        if (linesInput) linesInput.checked = zodiacLines;
         var fieldInput = $('s3d-zodiac-field');
         if (fieldInput) fieldInput.checked = zodiacField;
         var interactInput = $('s3d-zodiac-interact');
@@ -2690,7 +2689,7 @@
     if (active && useZodiac) {
       var theme = baseLyricTheme();
       StageZodiac.setPrefs({
-        lines: zodiacLines, field: zodiacField, interact: zodiacInteract,
+        field: zodiacField, interact: zodiacInteract,
         palette: theme ? { accentColor: theme.accentColor, secondaryColor: theme.secondaryColor,
           backgroundColor: theme.backgroundColor, primaryColor: theme.primaryColor,
           tertiaryColor: theme.tertiaryColor } : null,
@@ -3231,6 +3230,7 @@
     root.style.setProperty('--sl-size', lyricSize);
     root.style.setProperty('--sl-glow', lyricGlow);
     $('s3d-layout').value = layout;
+    $('s3d-lyrics-toggle').checked = showLyrics;
     var visualSel = $('s3d-lyric-visual');
     if (visualSel) visualSel.value = stanza.visual;
     var themeSel = $('s3d-stage-theme');
@@ -3552,6 +3552,8 @@
 
   function open(stageId) {
     if (!root) return false;
+    // 互斥（§4 上下文归属）：开声场先关空间。close(true) 里不会再反过来关声场。
+    if (global.Space3D && Space3D.close) Space3D.close(true);
     if (!active) {
       if (global.StageFreecam) StageFreecam.setEnabled(false);
       returnFocus = document.activeElement;
@@ -3625,6 +3627,7 @@
     returnFocus = null;
     if (chromeTimer) clearTimeout(chromeTimer);
     $('s3d-settings').hidden = true;
+    $('s3d-settings').classList.remove('sp-show');
     $('s3d-settings-toggle').setAttribute('aria-expanded', 'false');
     queueOpen = false;
     root.classList.remove('s3d-queue-open');
@@ -3691,8 +3694,6 @@
     }
     if (k === 'Escape') {
       if (!$('s3d-settings').hidden) { setSettings(false); $('s3d-settings-toggle').focus(); e.stopImmediatePropagation(); return; }
-      var cluster = $('s3d-head-cluster');
-      if (cluster && cluster.classList.contains('is-open')) { cluster._collapse(); e.stopImmediatePropagation(); return; }
       if (queueOpen) { setQueuePanel(false); $('s3d-queue').focus(); e.stopImmediatePropagation(); return; }
       if (fsEl()) { exitFs(); e.stopImmediatePropagation(); return; }
       close();
@@ -3986,30 +3987,6 @@
     });
   }
 
-  // ----- 右上角按钮组：收拢为一颗触发按钮，悬停/聚焦飞出（CSS 驱动） -----
-  // 触屏没有 hover：首击展开、再击点具体按钮；Esc 或焦点移出即收拢。
-  function bindHeadCluster() {
-    var cluster = $('s3d-head-cluster');
-    var trigger = $('s3d-head-trigger');
-    if (!cluster || !trigger || cluster._bound) return;
-    cluster._bound = true;
-    function collapse() {
-      cluster.classList.remove('is-open');
-      trigger.setAttribute('aria-expanded', 'false');
-    }
-    trigger.addEventListener('click', function () {
-      var open = cluster.classList.toggle('is-open');
-      trigger.setAttribute('aria-expanded', String(open));
-    });
-    cluster.addEventListener('focusout', function (e) {
-      if (!cluster.contains(e.relatedTarget)) collapse();
-    });
-    cluster.addEventListener('pointerleave', function () {
-      if (cluster.classList.contains('is-open') && !cluster.contains(document.activeElement)) collapse();
-    });
-    cluster._collapse = collapse;
-  }
-
   function coastTodLabel(v) {
     if (v < 0.22) return '黄昏';
     if (v < 0.42) return '入夜';
@@ -4021,8 +3998,7 @@
   function bindUi() {
     bindLyricVisual();
     bindStageTheme();
-    bindHeadCluster();
-    $('s3d-lyrics-toggle').addEventListener('click', toggleLyrics);
+    $('s3d-lyrics-toggle').addEventListener('change', toggleLyrics);
     $('s3d-settings-toggle').addEventListener('click', function () { setSettings($('s3d-settings').hidden); });
     $('s3d-settings-close').addEventListener('click', function () { setSettings(false); $('s3d-settings-toggle').focus(); });
     var defaultsButton = $('s3d-defaults');
@@ -4092,7 +4068,7 @@
       if (global.StageCoast) StageCoast.setPrefs({ interact: coastInteract });
       savePreferences();
     });
-    [['s3d-zodiac-lines', 'zodiacLines'], ['s3d-zodiac-field', 'zodiacField'],
+    [['s3d-zodiac-field', 'zodiacField'],
       ['s3d-zodiac-interact', 'zodiacInteract']].forEach(function (pair) {
       var input = $(pair[0]);
       if (input) input.addEventListener('change', function () {
@@ -4311,6 +4287,39 @@
       return STAGES.map(function (s) {
         return { id: s.id, label: s.label, desc: s.desc };
       });
+    },
+    // 「三维空间」派生效果网格用的只读目录（§5.2）：id/标签/机位/点数，
+    // 不含着色器 —— 一份着色器一个 owner 的边界在第二批才动到。
+    effectCatalog: function () {
+      return STAGES.map(function (s) {
+        return {
+          id: s.id, label: s.label, desc: s.desc,
+          cam: { theta: s.cam.theta, phi: s.cam.phi, dist: s.cam.dist, look: s.cam.look.slice() },
+          counts: s.counts ? s.counts.slice() : null,
+          blank: !!s.blank
+        };
+      });
+    },
+    // 「三维空间」第二批的只读着色器目录（§7.2）：一份着色器，一个 owner ——
+    // 场着色器的 owner 是本文件，新层拿源码在自己的上下文里编译同一份源，
+    // 不在这里长出第二个实现。字符串不可变，天然只读。
+    shaderCatalog: function () {
+      return {
+        field: { vs: FIELD_VS, fs: FIELD_FS },
+        star: { vs: STAR_VS, fs: STAR_FS },
+        prism: { vs: PRISM_VS, fs: PRISM_FS },
+        post: { vs: POST_VS, bright: BRIGHT_FS, blur: BLUR_FS, composite: COMPOSITE_FS },
+        stages: STAGES.map(function (s) {
+          return {
+            id: s.id, label: s.label, desc: s.desc,
+            kind: s.blank ? 'blank' : (s.build === buildPrism ? 'prism' : 'field'),
+            field: s.field == null ? null : s.field,
+            counts: s.counts ? s.counts.slice() : null,
+            additive: !!s.additive, depth: !!s.depth, framed: !!s.framed,
+            cam: { theta: s.cam.theta, phi: s.cam.phi, dist: s.cam.dist, look: s.cam.look.slice() }
+          };
+        })
+      };
     },
     resetView: resetView,
     defaults: defaults,

@@ -266,7 +266,7 @@ async function journey(browser) {
       await page.screenshot({path:path.join(out,'gallery-'+width+'.png')});
       await page.locator('#ws-close').click();
       await page.waitForTimeout(300);
-      for (const id of ['s3d-play','s3d-close','s3d-lyrics-toggle']) {
+      for (const id of ['s3d-play','s3d-close','s3d-settings-toggle']) {
         const box=await page.locator('#'+id).boundingBox();
         assert.ok(box&&box.x>=-1&&box.x+box.width<=width+1&&box.y>=0&&box.y+box.height<=860+100*(width===1440),id+' fits '+width);
       }
@@ -298,13 +298,12 @@ async function journey(browser) {
     assert.ok(resumed.t>reduced.t,'normal motion resumes on the existing song clock');
     await page.locator('#s3d-play').click();
     await page.waitForFunction(()=>!document.body.classList.contains('is-playing'));
-    // 歌词钮在头部飞出组内：先悬停触发钮展开（头部按钮收拢后的标准动作）。
-    await page.locator('#s3d-head-trigger').hover();
+    await page.locator('#s3d-settings-toggle').click();
     await page.locator('#s3d-lyrics-toggle').click();
     assert.equal(await page.locator('#s3d-reading').isVisible(),false);
-    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-lyrics-toggle').click();
     assert.equal(await page.locator('#s3d-reading').isVisible(),true);
+    await page.locator('#s3d-settings-close').click();
     pass('pause and OS reduced motion freeze scenery; playback and lyric toggles remain functional');
 
     await page.evaluate(()=>{Workshop.open();Workshop.setTab('scene');CreativeStage.setParam('sc.light',1.09);});

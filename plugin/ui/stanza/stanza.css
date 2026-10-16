@@ -251,7 +251,6 @@ body[data-rm~="lyrics"] .fl-cword .fl-body { transform: none !important; }
 .s3d-stanza .s3d-player,
 .s3d-stanza .s3d-vignette,
 .s3d-stanza .s3d-brand { z-index: 4; }
-.s3d-stanza .s3d-settings,
 .s3d-stanza .s3d-queue { z-index: 5; }
 
 @media (max-width: 760px) {

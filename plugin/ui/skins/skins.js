@@ -26,13 +26,12 @@
   // 都 stopPropagation，「点外部就关」的 document 监听帮不上忙，只能广播。
   var POPUP_EVENT = 'topbar:popup';
 
-  /// 皮肤目录。`classic` 是"没有皮肤"——也就是仓库原本那套布局，它不带 CSS
-  /// 文件，其它皮肤都是在它的基础上做覆盖。
+  /// 皮肤目录。经典和其他皮肤分别覆盖共用的业务布局基线。
   var CATALOG = [
     {
       id: 'classic',
       name: '经典',
-      note: '仓库原本的三列布局（导航 / 内容 / 舞台并排）',
+      note: '侧栏与全宽曲库，底栏展开封面与歌词播放页',
     },
     {
       id: 'sheen',
@@ -60,6 +59,10 @@
       // 'ios'（持久化键 vmusic.skin 靠它，改名只动这一处）。
       name: 'OS风',
       note: 'macOS 式侧栏与工具栏、iOS 分组列表；小屏横向导航，支持浅色与深色主题',
+      // 隐藏：与经典是同一套读法（侧栏 + 全宽内容 + 底栏），两边走下来重叠的
+      // 控件（如侧栏收起）就得在两个地方各改一遍。定义与 CSS 都留着，
+      // 已设成它的老用户开页回落经典；排障仍可 apply('ios')。
+      hidden: true,
     },
     {
       id: 'qingfeng',
@@ -83,6 +86,43 @@
   var activeLifecycle = null;
   var initialized = false;
   var host = null;
+  var railPreferences = {};
+  var RAIL_KEY = 'vmusic.sidebar.';
+
+  function syncSidebar(id) {
+    var button = document.getElementById('rail-toggle');
+    if (!button) return;
+    var supported = id === 'classic' || id === 'ios';
+    if (supported && !(id in railPreferences)) {
+      var saved = null;
+      try { saved = localStorage.getItem(RAIL_KEY + id); } catch (e) { /* Privacy mode. */ }
+      railPreferences[id] = saved === 'expanded' || saved === 'collapsed' ? saved : null;
+    }
+    var state = supported && railPreferences[id] || (id === 'classic' && window.innerWidth <= 1100 ? 'collapsed' : 'expanded');
+    document.documentElement.setAttribute('data-rail-state', supported ? state : '');
+    button.hidden = !supported || (id === 'ios' && window.innerWidth <= 620);
+    button.setAttribute('aria-expanded', String(state === 'expanded'));
+    var label = state === 'expanded' ? '收缩导航' : '展开导航';
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+
+  function bindSidebar() {
+    var button = document.getElementById('rail-toggle');
+    var rail = document.getElementById('rail');
+    if (!button || !rail) return;
+    rail.querySelectorAll('.rail-item[aria-label]').forEach(function (item) {
+      item.title = item.getAttribute('aria-label');
+    });
+    button.onclick = function () {
+      if (current !== 'classic' && current !== 'ios') return;
+      var state = button.getAttribute('aria-expanded') === 'true' ? 'collapsed' : 'expanded';
+      railPreferences[current] = state;
+      try { localStorage.setItem(RAIL_KEY + current, state); } catch (e) { /* Keep the in-memory preference. */ }
+      syncSidebar(current);
+    };
+    window.addEventListener('resize', function () { syncSidebar(current); });
+  }
 
   function validLifecycle(value) {
     return value && typeof value.mount === 'function' && typeof value.unmount === 'function';
@@ -92,6 +132,7 @@
     var root = document.documentElement;
     if (root.getAttribute(ATTR) !== id) root.setAttribute(ATTR, id);
     syncCss(id);
+    syncSidebar(id);
   }
 
   // Hooks own their DOM resources; this owner guarantees teardown before mount.
@@ -100,6 +141,13 @@
     var next = def.lifecycle || null;
     if (initialized && current === def.id && activeLifecycle === next) return;
     var previous = current, old = activeLifecycle;
+    if (window.NowPlaying && window.NowPlaying.isOpen()) {
+      window.NowPlaying.close({ switching: true });
+      var player = document.getElementById('np-modal');
+      var scrim = document.getElementById('np-scrim');
+      if (player) player.hidden = true;
+      if (scrim) scrim.hidden = true;
+    }
     if (old) old.unmount();
     activeLifecycle = null;
     setSurface(def.id);
@@ -227,6 +275,7 @@
       try { localStorage.setItem(KEY, start); } catch (e) { /* 隐私模式 */ }
     }
     bindEntry();
+    bindSidebar();
     return current;
   }
 

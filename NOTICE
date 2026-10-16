@@ -140,3 +140,25 @@ consent to reuse his code does not reach the behaviour contracts, and each of
 these was re-expressed against this project's own owners (Rust service layer,
 HTTP + RPC facades, single-writer playback actor, front-end IIFE modules).
 No source file of that project is distributed in this repository.
+
+The 「三维空间」 mode (plugin/ui/space-camera.js, space3d.js, space3d.css)
+ports the camera system of the Mineradio project (GPL-3.0-only, v2.2.0,
+commit 328a087) with the author's explicit permission to reuse their own
+code: the orbit turntable, the pointer-locked free camera, the beat-camera
+combo → shot mapping, the cinema drift, the focus/recenter easing and the
+per-preset camera baselines; the bottom capsule bar, effect grid, FAB +
+slide-in panels and their motion curves shape the new layer's chrome. The
+per-frame fractional easings are re-expressed as millisecond time constants
+against this project's Stage gate; the realtime beat engine is NOT ported
+(this project's Onset remains the single beat definition), the color
+language is replaced by this project's theme tokens, and the upstream name
+and logo do not appear in code or UI. Third-party parts of that project
+(sonic-topography, sonic-workshop, cuefield, the wallpaper-engine bridge,
+gsap and the skull point-cloud asset) are explicitly not used.
+
+The subsequent space-stage visual refinement also uses Mineradio's silk,
+rotating tunnel, orbit, layered star river, eclipse halo, prism flock and
+abyssal bloom, and its measured lyric masks, row depth and feathered karaoke
+sweep as visual references. These are independently implemented in
+tools/space-stage/src/scenes against the shared renderer, bounded texture
+cache and Stage clock. No upstream shader or runtime module is included.

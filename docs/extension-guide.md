@@ -13,13 +13,30 @@
 - `Skins.apply` 顺序为卸载旧皮肤、更新属性/CSS、挂载新皮肤、通知订阅者。重复选择不重复挂载。失败会尝试恢复旧皮肤；恢复中也保留清理归属。
 - `Skins.onChange` 返回取消订阅函数，供尺寸重排等观察者使用；不要用观察事件决定皮肤的挂载顺序。
 
+星轨（`skin.orbit.js` / `skin.orbit.css`）展示完整三栏重编排：复用原始 stage、曲库与顶栏，
+通过宿主快照呈现有界队列和下一首提示。单张 CSS 黑胶的实体分层与鼠标透视只属于表现层，
+播放、收藏和队列激活继续使用现有业务入口。`orbit-fog` 是独立的配套主题，切皮肤不强制切色；
+唱片材质令牌由 `style.css` 提供。卸载及部分挂载失败均通过 SkinShared 归还原节点。
+
 业务动作通过 `Skins.request(action, extra)` 发给 `app.js::initSkinBridge`，返回值包含同步快照或异步任务。例如 `Skins.request('source-request').source` 读取当前列表，`Skins.request('step-track', { delta: 1 })` 请求下一曲。设置页可使用 `Skins.request('settings-enter', { sections: ['cache', 'dsp', 'remote'] })` 声明额外刷新范围。皮肤不创建另一套队列，不自行判断本地/在线切歌，也不直接订阅专属业务事件。新业务动作仍需在宿主明确实现。
 
 CSS 在 `index.html` 中声明带 `data-skin-css` 的 disabled 样式表；JS 按依赖顺序加载。再按下方资源登记步骤内嵌文件。DBX 的 `<style data-skin-css>` 同样受支持；最低宿主版本为已验收的 0.6.35，0.6.29 会在内联时丢弃此标记。
 
 验证：`node scripts/check-skins.js`、`node scripts/check-appearance-restore.js`，以及真实服务上的 `scripts/check-skin-fixes.js`。需要搬节点的皮肤至少验证正反切换、重复选择、部分挂载失败和业务节点恢复。
 
+## 普通播放页
+
+`plugin/ui/now-playing.js` 管理二维布局、歌词浏览、队列/工具层、焦点与全屏；播放命令和数据仍由 `app.js` 注入。皮肤使用 `Skins.request('open-player')` 打开该页面。`Skins.apply` 在卸载旧皮肤前关闭普通播放页，归还临时搬动的均衡器、菜单和黑胶唱片节点。
+
+歌词直接消费 `Stage.lyrics()`、`lyricTokens()`、`lyricTranslation()` 和 `presentation()`。服务端已校准时间戳，展示端不得再次扣除歌词偏移。动画使用 `Stage.gate('ordinary-player')`，展开为 30fps，关闭预算为零；不要新增独立时钟。`refreshLyrics` 仅接受当前曲目，并拒绝同曲旧请求回填。
+
+完整布局样式限定于 `#np-modal`，共享远程目录及自建输入弹窗保持原尺寸。全屏只扩大普通播放页；舞台继续通过独立入口打开。DBX 全屏中的自建输入弹窗使用浏览器 dialog 顶层，按 Escape 后保留播放页和全屏。
+
+运行 `scripts/check-now-playing-browser.js` 时，设置 `PLAYER_UI_URL` 和隔离实例的 `VMUSIC_DATA_DIR`，使用 null 后端。默认检查构建后的内嵌资源；`PLAYER_SOURCE_ASSETS=1` 仅用于源文件开发回归。脚本覆盖七套公开皮肤、五种视口、真实播放/队列/seek/音量、歌词、全屏、皮肤状态恢复及共享弹窗，截图保存在 `output/playwright/now-playing`。DBX 自建弹窗在浏览器中执行其实际实现，原生宿主的端到端验证仍需另行运行。
+
 ## 舞台场景与歌词渲染器
+
+沉浸声场和三维空间共用 `space3d.css` 的 `.sp-fab` 设置入口与 `.sp-sheet` 侧滑抽屉。声场右上角只保留关闭，歌词、复位和全屏操作在抽屉内；状态和偏好仍由 `stage3d.js` 管理。新增设置沿用现有 `s3d-*` 控件与能力判断，不在舞台主题中重新定义面板外观。浏览器回归入口为 `scripts/check-stage-settings-drawer-browser.js`（`PLAYER_UI_URL` 和隔离实例的 `VMUSIC_DATA_DIR`）。
 
 创意场景在 `plugin/ui/creative-gl.js` 通过 `CreativeGL.register(def)` 登记，内置场景使用同一个入口。每个描述同时给出：
 
@@ -38,6 +55,42 @@ CSS 在 `index.html` 中声明带 `data-skin-css` 的 disabled 样式表；JS �
 新视觉的专属控件、DOM/CSS 和调参规则仍需实现，注册表负责共用接线。starborn 是现有模式之间的导演，不是歌词渲染器；添加 renderer 不自动改变它的选镜算法。场景不得启动另一条动画时钟，继续接受 Stage 的帧门与播放器快照。
 
 验证：`node scripts/check-scene-registry.js`、`node scripts/check-creative.js`、`node scripts/check-creative-share-code.js`、`node scripts/check-creative-prompt.js`、stage/stanza 相关检查；`node scripts/check-creative-scenes-browser.js` 验证真实 GL，`scripts/check-workshop-stage-browser.js` 验证重建服务中的实际舞台。扩展测试应通过真实登记接口加入一个新 ID，并验证参数、归一化、预置往返和生命周期，不能只比较复制的内置名单。
+
+## 三维空间插件
+
+新增场景在 `tools/space-stage/src/scenes` 实现工厂，并在 bundle 入口调用
+`SpaceStagePure.register(def)`。定义包含 `apiVersion: 1`、`stateVersion`、稳定 `id`、
+`label/category/preview`、`params`、`camera`、`capabilities`、`quality` 和 `create(ctx)`。
+参考现有 factory；参数默认值、选择器、保存校验和机位均从定义派生。
+升级持久状态时提供 `migrateState`；别名必须显式登记，不允许 anime-svg。
+
+工厂使用 `ctx.THREE/scene/camera/params/quality/scope/services`，返回
+`update/resize/setParams/setQuality/dispose`。GPU 资源经 scope 跟踪，异步结果检查
+scope 是否仍存活；不得创建 renderer、音频分析器、rAF 或另一套播放队列。
+Stage 是唯一时钟；音频位置用于歌词，`sceneTime/dynamicDt` 用于可冻结动画。
+歌词能力通过 `ownsLyrics` 声明，普通字幕由宿主显隐。
+首页与舞台共享同一背景宿主；返回首页不会 dispose，退出空间或更换场景才释放对应资源。
+
+运行 `npm ci` 后在 `tools/space-stage` 执行 `npm run build`，产物为静态 IIFE。
+真实截图预览由 `scripts/check-space-scenes-browser.js --previews` 生成，随后执行
+`node tools/space-stage/build-previews.mjs` 更新 Rust JPEG 路由。
+验证入口：`check-space-stage.js`、`check-space-scenes.js`、对应 browser 脚本，以及
+`check-space-home-stage-browser.js`。最后一项默认验证重建服务的内嵌资源，`--source`
+只供开发；旧 `check-space3d-browser.js` 的 SpaceFields 路径已被该入口替代。
+普通电脑性能和原生 DBX 需另行实测，软件 WebGL 截图不证明硬件 FPS。
+
+空间菜单将 registry 分为 24 个舞台与 6 个 ownsLyrics 歌词效果；普通字幕另外提供。
+宿主 selectLyrics(id|null, savedState) 与 setLyricParams(patch) 独立控制歌词，
+切换歌词保留舞台及机位，切换舞台保留歌词。工厂通过 ctx.layer === 'lyrics'
+识别叠加挂载，使用透明场景并省略底图效果；宿主负责稳定阅读机位、清深度与
+同一 renderer 的后续绘制。两层共享帧时钟，均参与质量、resize、预算和销毁。
+新增歌词效果仍注册 ownsLyrics，不另建 ID 清单或渲染循环。settings.space3d
+schemaVersion 3 独立保存 lyricStyle，并迁移旧版互斥歌词场景选择。
+
+空间歌词按实际字宽栅格化，横屏最多四行、窄屏最多六行；切换横竖屏会重新排版。
+`Space3D` 提供当前句前后三句的有界窗口与 `trackIndex`，渲染器以原始行的时间和文本
+复用字形与面片，普通切句连续滚动，暂停跳转立即对齐。逐字填充保留源文本空格及标点。
+纹理缓存仍最多七项、每帧最多上传一项，尺寸随内容计入质量预算；歌词遮罩及阴影不进入舞台后处理。
 
 ## 音乐渠道
 

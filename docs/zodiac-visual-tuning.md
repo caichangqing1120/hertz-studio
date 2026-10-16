@@ -1,42 +1,136 @@
 # 星座 Zodiac 视觉参数
 
-「星座 · 十二星图」是粒子三维舞台：十二座风格化星图沿黄道环排布，背景星场
-包裹机位，星点随音乐闪烁增辉，连线随低频呼吸。机位在环心缓转，可拖拽环绕、
-滚轮推拉、双击复位（静置 6 秒后回到巡航）。
+「星座 · 十二星图」逐座汇聚、停留、散开。造型采用可识别的动物、人物与器物
+剪影，各座采用独立配色的流动星尘与柔光轮廓，主星及浅色连线覆盖其上。可以拖拽环绕、滚轮
+缩放、双击复位，低频和起音驱动呼吸与增辉。
 
-## 构建链
+## 轮廓和坐标归属
 
-- 场景引擎：`tools/zodiac-stage/src/`
-  - `zodiac.js`：十二宫星图数据（星点 `[x, y, mag]` + 连线）与纯几何（环位、景深、缩放钳制）
-  - `world.js`：背景星场、星座粒子（自定义点着色器）、连线
-  - `main.js`：立面（probe/mount/unmount/resize/setTime/setAudio/setPrefs/stats/capture/debug/pure）、相机巡航与交互
-  - `util.js`：频带聚合、包络、种子随机
-- 适配层：`plugin/ui/stage-zodiac.js`（window.StageZodiac）
-- 产物：`plugin/ui/vendor/zodiac-stage.js`（IIFE，three r186 打包）
+`tools/zodiac-stage/src/figures.js` 是十二座轮廓、孔洞和主星坐标的唯一来源。
+原始数据以左上角为原点的 100 单位画布手绘，导出时转换为 y 向上坐标。
+白羊保留回卷角与四肢，狮子采用卧姿，巨蟹采用正面俯视；双子为相连的人形，
+射手为拉弓人马，处女保留双翼、裙摆，摩羯保留羊首鱼尾。
+用户的 11 张参考图包含两张射手，金牛与水瓶按同一视觉语言补齐。
 
+`zodiac.js` 使用 three 已包含的 Earcut 对闭合轮廓及孔洞进行三角化，再沿最长边
+细分到固定 560 个顶点。共享边两侧的面片同步切分，避免裂缝。
+不会用无约束三角化连接蟹钳口、腿间、弓弦或秤盘悬绳之间的空白。
+各座的原始轮廓及三角网按座缓存，换画质只改变点云量。
+公开的 `delaunay2` 纯函数保留兼容，造型生成已改用 Earcut。
+
+`shapeFit(i)` 根据轮廓的精确包围盒计算等比缩放和中心，落到 1.78 的设计框：
+
+```text
+k = min(2 * FIG_HALF_W / width, 2 * FIG_HALF / height)
+worldX = (rawX - cx) * k
+worldY = (rawY - cy) * k
 ```
-cd tools/zodiac-stage
-node build.mjs           # 改了 src 必须重建（check-zodiac-stage.js 核对哈希）
-node scripts/check-zodiac-stage.js
-node scripts/check-zodiac-stage-browser.js   # 需要真浏览器 + fixture
-node scripts/check-zodiac-motion-browser.js
-```
 
-## 可调常量
+网格、粒子、柔光与主星共用此变换。**星图不再独立放大或居中**，否则主星会
+偏离对应的身体部位。主粒子按面片面积采样，18% 沿外轮廓采样以保留细节，
+深度在背面和正面之间采样。正面按到轮廓的距离隆起（最高约 0.77），背面
+向后延伸，边界侧壁封闭体积；主星、网格边与柔光贴合正面。
 
-| 位置 | 常量 | 含义 |
+## 图层与材质
+
+面片使用平面法线的 `MeshStandardMaterial`，保留深度测试、关闭深度写入，
+以极低透明度辅助体积。主体由星尘表现，背景和辉光关闭深度测试，按 `renderOrder` 绘制。
+渲染用轮廓丝带由三角网的边界边生成，包含孔洞；原有内部网格数据继续保留供几何检查。
+
+| renderOrder | 图层 | 构成 |
 | --- | --- | --- |
-| `zodiac.js` | `RING_RADIUS` / `SIGN_SCALE` / `DEPTH_SPREAD` | 黄道环半径、星图放大、星点景深散布 |
-| `zodiac.js` | `ZODIAC` | 各座星点坐标、星等与连线 |
-| `world.js` | `STAR_SIZE` / `STAR_COLOR` / `FIELD_COUNTS` | 星等尺寸/色温与各画质档背景星数 |
-| `main.js` | `AUTO_SPIN` / `DIST_DEFAULT/MIN/MAX` / `RESUME_IDLE_MS` | 巡航转速、缩放范围、回巡航静置时间 |
-| `main.js` | `QUALITY` | 各档 DPR 上限与像素预算（与 stage3d 主场景同公式） |
+| -1000 | 天空 | 近黑球面、预烘焙淡紫银河尘埃与暗带、暗角 |
+| -900 / -890 / -880 | 背景 | 细密星场、星云柔斑、四芒星 |
+| -100 | 形象图柔光 | 轮廓内低透明度点云 |
+| -90 | 形象图面片 | 极低透明度的正面、背面及侧壁 |
+| -82 / -80 | 轮廓边 | 仅外轮廓及孔洞的宽晕、细芯丝带 |
+| -78 | 网格顶点 | 极弱辅助亮点 |
+| -10 | 主粒子池 | 流动星尘、扫过主体的增辉带；五种汇聚/散开轨迹及方向拖尾 |
+| 10 / 11 / 12 | 主星层 | 连线宽晕、白色细芯、四芒星及沿连线移动的光点 |
 
-## 接线约束
+停留时主粒子透明度由窄亮带驱动：`wave = max(0, sin(x*1.6-time*3.1+seed*0.8))^12`，
+透明度为 `0.448 + wave*1.12*motion`。亮带约每 2.03 秒扫过一次，保留 A 对比版的
+空间连贯性和峰值对比，避免用轻微整体呼吸代替流光。点核更集中，外围为
+指数衰减的柔光。面片透明度为 0.005，轮廓细芯为 0.28，宽晕为
+0.075（随低频增辉），两层丝带宽度分别为 0.012 和 0.048。主星尺寸标量为 300；
+网格顶点尺寸为 52，透明度仅为形象图显隐系数的 0.045 倍。柔光点尺寸标量为 120。
+停留星尘进行小幅三维流动，全部由播放时间驱动；减弱动效将流动幅度降至 12%。
+面片光量回归检查要求它贡献的亮度小于总画面的 10%。
+每条主星连线另有一颗错峰移动的光点，周期为 5 秒，位置按原始连线的三维端点插值，
+到端点时淡出再从起点淡入。移动光点并入现有主星几何及绘制层，不增加几何数量或渲染循环；
+减弱动效将光点亮度降至 20%，显隐与主星共用生命周期。暂停时间会同时冻结亮带和移动光点。
 
-- 星座不接管歌词：歌词由 stage3d 的 `.s3d-reading` / stanza 叠加层照常演出
-  （与海岸舞台一致）。
-- 用户偏好键：`zodiacLines` / `zodiacField` / `zodiacInteract`，随 Stage3D
-  偏好表落库；旧版本的 `sceneSource: 'tunnel'` 在 `configure()` 里一次性迁到
-  `'zodiac'`。
-- 内部场景 id 为 `zodiac`，宿主节点 `#s3d-zodiac`，源 class `s3d-zodiac-source`。
+`figureOpacity(state,k)` 统一驱动形象图和主星的显隐：汇聚后段浮现，散开前段
+撤去，完全透明时跳过绘制。天空不随背景星云开关消失。
+
+背景参考银河摄影：近黑底、密集细星、斜向淡紫色银河及不规则暗带。
+低/中/高画质分别使用 28,000 / 64,000 / 120,000 颗背景细星，64% 沿银河带聚集。
+星点以白色为主，少量冷暖色，细星尺寸为 `0.55 + random^5 * 2.8`，
+较大四芒星为 `1.2 + random^5 * 4.8`，避免大光斑抢过主体。
+星光用逐星随机相位、约 12–29 秒的缓慢周期改变亮度和光晕尺寸；四芒星在
+呼吸峰值附近轻微增辉，错峰出现。减弱动效降低呼吸幅度，暂停时间保持画面确定。
+银河尘埃使用周期 FBM 在挂载时烘焙到 512 / 1024 / 2048 宽的球面纹理，
+细节不依赖球面顶点插值，也不逐帧运行全屏噪声。纹理、细星及柔斑共用银河
+平面方向和缓慢旋转；天空与背景星场跟随机位平移。大部分天空保持近黑，
+紫灰色只出现在银河带内，主题色及换座不染背景。纹理纳入 scope 或独立舞台的
+销毁列表。主体颜色回归单独隐藏背景后测量，避免银河参与整幅图的色相统计。
+
+`world.js` 的 `SIGN_COLORS` 按 `ZODIAC` 顺序定义主体和辉光两色：白羊珊瑚红、
+金牛翡翠绿、双子香槟金、巨蟹月光银、狮子琥珀金、处女浅草绿、天秤玫瑰粉、
+天蝎红紫、射手星云紫、摩羯青玉、水瓶冰蓝、双鱼淡紫。
+切座同步更新面片、自发光、网格边、柔光、顶点、粒子与主星辉光，星芯保持白亮。
+灯光采用接近中性的冷暖组合，避免青蓝灯光覆盖主体色。
+共享点云颜色属性存中性明度，通过 uniform 乘各座颜色，不额外上传属性或创建材质。
+自定义 shader 使用显示色，内置材质使用线性色；应用主题 accent 只少量混入高亮粒子，
+不覆盖座次配色，不染背景。桌面/手机截图验证暖色、绿色、粉紫色均实际渲染。
+
+`transitionStyle(cycle)` 按完整座次选择旋涡、纵深星流、波浪、轨道及放射轨迹，
+汇聚和散开分别选择轨迹与旋转方向。同一座下一轮有不同组合，seek 仍然确定。
+粒子错峰飞行、汇聚减速、散开加速，移动时使用沿屏幕速度方向的拉长光点。
+
+## 机位、生命周期与资源
+
+`main.js` 根据画幅比例、设计框和 `FRAME_MARGIN=1.30` 计算机位距离。
+resize 重算适配距离但保留用户缩放；双击将 zoom 复位为 1。
+距离上限随适配距离和最大缩放倍率扩展，竖屏不会被桌面 18 单位上限裁切。
+机位与造型按播放时间微摆，避免持续转到侧面后剪影变成一条线。
+
+单座生命周期为 `2.8s gather → 7.6s hold → 2.6s disperse`，共 13 秒。
+十二座预建几何并预热，应用验证中 GPU 驻留为 112 个几何、2 个纹理（含银河尘埃）。
+换座使用对应几何对象，不反复替换 BufferAttribute；unmount 统一销毁。
+数据层缓存最多十二座，不含 GPU 对象。
+
+## 构建与验证
+
+```powershell
+node tools/zodiac-stage/build.mjs
+node scripts/check-zodiac-artwork.mjs
+node scripts/check-zodiac-volume.mjs
+node scripts/check-zodiac-stage.js
+node scripts/capture-zodiac-artwork.cjs
+node scripts/check-zodiac-motion-browser.js
+node scripts/check-zodiac-effects-browser.cjs
+cargo build --locked -p hertz-studio
+node scripts/check-zodiac-stage-browser.js
+```
+
+浏览器脚本需要 Playwright 和 Chrome，可以用 `PLAYWRIGHT_MODULE` 指向已有安装。
+全页面验证使用隔离服务及 null 音频后端，不改用户资料或当前播放。
+生成产物及源码哈希位于 `plugin/ui/vendor/zodiac-stage.js` 和
+`tools/zodiac-stage/.build-manifest.json`。桌面/手机十二座截图及像素报告位于
+`output/playwright/zodiac-reference/after/`，包括 `contact-sheet.jpg`。
+独立相机的星光呼吸像素报告、五种入场/散场和侧面截图位于
+`output/playwright/zodiac-effects/`。
+流光回归同时检查关闭星点闪烁后的空间条带亮度对比与错峰峰值，以及十二座移动光点的
+端点对齐、真实像素移动、暂停、减弱动效和生命周期。生产 HTML 的连续截图及
+`starlight-flow.gif` 位于 `output/playwright/zodiac-flow/`。
+服务内嵌 UI 资源，修改产物后需重新构建应用并重新打开实例。
+
+## 修改时保留的约束
+
+- 轮廓、网格、点云和主星共用一套坐标，不增加第二次星图归一化。
+- 网格必须完整覆盖轮廓并保留孔洞，不能筛掉长三角形后留下断肢。
+- 网格与主连线使用丝带；WebGL 的 LineBasicMaterial 无法提供可控线宽。
+- 网格和粒子使用一致色彩管线，内置材质显式 `toneMapped:false`。
+- 几何与 attribute 预建复用，切换十二座后资源数量必须保持有界。
+- 造型数据改变后重跑面积覆盖、轮廓内采样、主星对齐和桌面/手机截图检查。

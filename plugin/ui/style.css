@@ -41,6 +41,10 @@
   --ok: #7bd88f;
   --warn: #ffcc66;
   --radius: 12px;
+  /* Physical vinyl stays dark under both light and dark themes. */
+  --record-base: #0c0b13;
+  --record-groove: #1f1c2c;
+  --record-glint: rgba(255, 255, 255, 0.22);
   /* 面板圆角。曾经是 18px，而组件层的 --r-xl 是 16px —— 同一批面板
      （导航轨 / 内容列 / 舞台 / 播放条）在新旧两套规则里各拿一个值，
      谁生效取决于哪条规则排在后面，等于随机。对齐到 --r-xl 的 16px。 */

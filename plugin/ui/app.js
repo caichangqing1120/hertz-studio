@@ -402,9 +402,9 @@ const ServerTransport = {
   async post(path, body, options) {
     return serializedPlaybackPost(path, body, request, options);
   },
-  async put(path, body) {
+  async put(path, body, options) {
     PlaybackIntent.command(path);
-    return request(path, { method: 'PUT', body: JSON.stringify(body || {}) });
+    return request(path, { ...options, method: 'PUT', body: JSON.stringify(body || {}) });
   },
   async del(path) { return request(path, { method: 'DELETE' }); },
   // 直接给出可以塞进 <img src> 的地址，不再自己 fetch + createObjectURL。
@@ -1118,6 +1118,10 @@ function handleEvent(msg) {
       if (msg.action === 'expand-capsule' && !window.HertzCapsuleOnly) setCapsuleMinimized(false);
       break;
     case 'error': {
+      if (window.Space3D && Space3D.isActive()) {
+        if (window.SpaceHome && SpaceHome.playbackError) SpaceHome.playbackError(msg.message);
+        toast(msg.message || '播放失败，请重试', 'error');
+      }
       // 在线音源失败交给在线面板错误条（可重试当前队列下标 / 跳下一首）；
       // 「已跳过」类是服务端已自行处置的告知，轻提示即可；本地播放失败仍走错误 toast。
       if (msg.source && window.Online && window.Online.showOnlineError) {
@@ -1899,6 +1903,7 @@ async function loadNowPlaying(id) {
             album: d.album || '',
             duration_ms: d.duration_ms || 0,
             cover: window.Online.safeCoverUrl(d.cover),
+            vip_only: !!d.vip_only,
           });
           if (window.Online && window.Online.remember) window.Online.remember(id, base);
           // 只在这首仍是当前曲目时重绘，避免切歌后把界面改错
@@ -1982,6 +1987,7 @@ async function loadNowPlaying(id) {
   if (!isCurrent()) return;
   // 封面（含旋转）与取色背景交给舞台，app.js 不再直接碰 #cover。
   if (Stage) Stage.setTrack(track, url);
+  if ($('bar-art')) applyCoverBg($('bar-art'), url);
   // 播放控制弹窗同步曲目信息与封面
   syncNpTrack(track, url);
   // 胶囊（最小化态）同步同一份信息与封面
@@ -2294,13 +2300,24 @@ function applyNavVisibility() {
   document.dispatchEvent(new CustomEvent('nav:changed'));
 }
 
+let lyricRefreshEpoch = 0;
 async function refreshLyrics(id, track) {
-  // 拉不到就是「这首没有歌词」：按无歌词处理，不弹提示（切歌时高频发生）。
-  const doc = await (track.source && track.onlineId
-    ? window.Online.loadLyricDoc(track)
-    : transport.get(`/v1/tracks/${id}/lyrics`).catch(() => null));
+  if (!state.current || state.current.id !== id || !track || track.id !== id) return null;
+  const epoch = ++lyricRefreshEpoch;
+  if (window.NowPlaying) NowPlaying.lyricState('loading');
+  let doc;
+  try {
+    doc = await (track.source && track.onlineId
+      ? window.Online.loadLyricDoc(track)
+      : transport.get(`/v1/tracks/${id}/lyrics`));
+  } catch (error) {
+    if (epoch === lyricRefreshEpoch && state.current && state.current.id === id && window.NowPlaying) NowPlaying.lyricState('error');
+    return null;
+  }
   const staged = stageDoc(doc);
+  if (epoch !== lyricRefreshEpoch || !state.current || state.current.id !== id) return doc;
   if (Stage) Stage.setLyrics(staged && staged.lines && staged.lines.length ? staged : null);
+  if (window.NowPlaying) NowPlaying.lyricState(doc ? 'ready' : 'empty');
   syncNpLyrics(id, doc);
   return doc;
 }
@@ -2378,6 +2395,16 @@ function onStageControl(e) {
       const write = stageSettingsWrite.then(() => transport.put('/v1/settings', { stage3d: d.value }));
       stageSettingsWrite = write.catch(() => toast('舞台设置暂未保存', 'error'));
       d.completion = write;
+      break;
+    }
+    case 'space3d': {
+      // 与 stage3d 分支同形状的整对象写回（§8：改任何一项都会把 sceneSource 一并落库）。
+      markSettingsDirty();
+      state.settings.space3d = d.value;
+      // 已发出的机位快照在 HTTP 页面离开后继续提交；仍按原队列排序，避免旧写覆盖新写。
+      const writeSpace = stageSettingsWrite.then(() => transport.put('/v1/settings', { space3d: d.value }, { keepalive: true }));
+      stageSettingsWrite = writeSpace.catch(() => toast('空间设置暂未保存', 'error'));
+      d.completion = writeSpace;
       break;
     }
     case 'view': setView(d.value); break;
@@ -2503,6 +2530,14 @@ function drawSpectrum() {
 // 全屏声场（Stage3D）里的播放队列浮层与队列视图同源：这里把精简后的行模型
 // 推给 Stage3D，全屏内点行跳播/移出经 stage:control 意图回到同一套播放逻辑。
 function pushStageQueue() {
+  if (window.Space3D && Space3D.setQueue) {
+    Space3D.setQueue(state.queue.map((id) => {
+      const track = state.byId.get(id) || window.Online.getMeta(id)
+        || { id, title: '未知曲目', artist: '', duration_ms: null };
+      const cover = track.has_cover ? transport.coverUrl(id) : window.Online && track.cover ? window.Online.safeCoverUrl(track.cover) : null;
+      return { id, title: track.title, artist: track.artist, album: track.album || '', duration: track.duration_ms, cover, vip_only: !!track.vip_only, playing: id === state.snapshot.track_id };
+    }));
+  }
   if (!window.Stage3D || !Stage3D.setQueue) return;
   Stage3D.setQueue(state.queue.map((id) => {
     const track = state.byId.get(id) || window.Online.getMeta(id)
@@ -2514,6 +2549,7 @@ function pushStageQueue() {
     return {
       id, title: track.title, artist: track.artist, album: track.album || '',
       duration: track.duration_ms, cover, playing: id === state.snapshot.track_id,
+      vip_only: !!track.vip_only,
     };
   }));
 }
@@ -2567,6 +2603,7 @@ async function resolveQueueMissingMeta() {
           album: d.album || '',
           duration_ms: d.duration_ms || 0,
           cover: window.Online ? window.Online.safeCoverUrl(d.cover) : null,
+          vip_only: !!d.vip_only,
         };
         if (window.Online) window.Online.remember(id, meta);
         state.byId.set(id, meta);
@@ -4066,6 +4103,9 @@ async function loadSettings() {
   // 用户那次操作写对了），只回填确实没被动过的项。
   if (epoch === settingsEpoch) {
     if (window.Stage3D) Stage3D.configure(state.settings.stage3d);
+    // 三维空间的偏好键（§8）：migrateDefaults 在 configure 内做一次性默认值迁移，
+    // 迁移发生过会经 stage:control 把改写推回来落库。
+    if (window.Space3D) Space3D.configure(state.settings.space3d);
     // 空闲收起默认开：设置表里没有这项时传 true，行为与"用户勾上了"一致。
     setStageIdleHide(state.settings.stage_idle_hide !== false, false);
   }
@@ -4599,6 +4639,170 @@ function initHomeDashboard() {
   if (window.HomeQuote) window.HomeQuote.load(transport);
 }
 
+// SpaceHome owns browsing only. The existing playback host owns mixed-source
+// queue metadata and every playback command, including stale-command guards.
+function initSpaceHome(playbackHost) {
+  if (!window.SpaceHome) return;
+  if (window.Space3D && Space3D.bindPlayer) Space3D.bindPlayer({
+    favorite: () => toggleBarFavorite(),
+    favoriteState: () => ({ disabled: ui.barFavorite.disabled, on: ui.barFavorite.getAttribute('aria-pressed') === 'true' }),
+    mode: () => ui.mode.click(),
+    modeState: () => ({ label: ui.mode.textContent, icon: state.snapshot.mode === 'shuffle' ? '#i-shuffle' : '#i-repeat' }),
+    mute: toggleMute,
+  });
+  const coverWaiters = new Map();
+  if (plCovers) plCovers.onChange((id) => {
+    const done = coverWaiters.get(id);
+    if (!done) return;
+    coverWaiters.delete(id);
+    const cover = plCovers.state(id);
+    done(cover.s === 'url' ? cover.url : '');
+  });
+  const remember = (tracks) => tracks.map((track) => {
+    const id = track.virtual_id || (track.source && track.source !== 'local' ? onlineItemId(track) : track.id);
+    const normalized = { ...track, id, onlineId: track.onlineId || (track.source && track.source !== 'local' ? track.id : null),
+      cover: track.cover || track.cover_url || track.coverUrl || '' };
+    state.byId.set(id, normalized);
+    return normalized;
+  });
+  const queueMeta = (items) => Object.fromEntries(items.filter((item) => String(item.id).startsWith('online:')).map((item) => [item.id, {
+    source: item.source, onlineId: item.onlineId, title: item.title || '未知曲目', artist: item.artist || null,
+    album: item.album || null, cover: item.cover || null, duration_ms: item.duration_ms || null,
+    vip_only: !!item.vip_only,
+  }]));
+  const readDaily = async (mode) => {
+    const path = mode === 'online' ? '/v1/recommend/daily/online?limit=30' : '/v1/recommend/daily?limit=30';
+    const page = await transport.get(path);
+    const items = remember(page.tracks || []);
+    let note = '';
+    if (mode === 'online' && !items.length) {
+      const skipped = page.skipped || [];
+      note = skipped.length ? skipped.map((entry) => (entry.label || entry.source || '平台') + ' · ' + (entry.message || ({ not_signed_in: '未登录', unsupported: '不支持每日推荐', unavailable: '暂不可用', failed: '读取失败', timeout: '读取超时' }[entry.kind]) || '暂无推荐')).join('；') : '在线平台暂未提供推荐，已登录平台的结果会显示在这里';
+    } else if (!items.length) note = '本地曲库还没有可推荐的音乐';
+    return { items, total: page.total || items.length, note };
+  };
+  SpaceHome.bind({
+    mountSurface: (kind, container) => {
+      const view = kind === 'radio' ? document.querySelector('.online-radio') : ui.views.podcasts;
+      const module = kind === 'radio' ? window.Online : window.Podcasts;
+      if (!view || !module) throw new Error('栏目尚未就绪，请稍后重试');
+      const placeholder = document.createComment('space listening surface');
+      const hidden = view.hidden, inert = view.inert;
+      view.before(placeholder); container.appendChild(view);
+      view.hidden = false; view.inert = false; view.classList.add('sh-embedded-view');
+      return {
+        refresh: () => kind === 'radio' ? module.refreshRadio() : module.onViewEnter(),
+        dispose: () => { placeholder.replaceWith(view); view.hidden = hidden; view.inert = inert; view.classList.remove('sh-embedded-view'); },
+      };
+    },
+    read: () => {
+      const nextId = state.queue[state.queueIndex + 1];
+      return { ...homeSnapshot(), next: nextId ? state.byId.get(nextId) || (window.Online && Online.getMeta(nextId)) || {id:nextId,title:'下一首'} : null,
+        libraryPreview: state.tracks[0] || null, sources: window.Online ? Online.sources() : [] };
+    },
+    playNext: () => post('/v1/player/next'),
+    library: async ({ q = '', offset = 0, source = 'local', onResults }) => {
+      if (source === 'all') {
+        if (!q) return {items:[]};
+        const sources = [{id:'local'}].concat(window.Online ? Online.sources() : []);
+        const completed = new Map();
+        const aggregate = () => {
+          const good = sources.map(provider => completed.get(provider.id)).filter(Boolean);
+          return {items:good.flatMap(page => page.items),total:good.reduce((max,page) => Math.max(max,page.total),0),nextOffset:offset+20};
+        };
+        const pages = await Promise.allSettled(sources.map(async (provider) => {
+          const local = provider.id === 'local';
+          const page = await transport.get((local ? '/v1/tracks?' : '/v1/online/search?') + new URLSearchParams({q,source:provider.id,sort:'title',limit:20,offset}));
+          const result = {items:remember((page.tracks || []).map(track => local ? track : {...track,source:track.source || provider.id})),total:page.total || 0};
+          completed.set(provider.id,result);
+          if (onResults) onResults(aggregate());
+          return result;
+        }));
+        const good = pages.filter(page => page.status === 'fulfilled').map(page => page.value);
+        if (!good.length) throw pages[0].reason;
+        return {...aggregate(),
+          note:pages.some(page => page.status === 'rejected') ? '部分音源暂不可用，已显示其他搜索结果' : ''};
+      }
+      if (source === 'local') {
+        const page = await transport.get('/v1/tracks?' + new URLSearchParams({ q, sort: 'title', limit: 60, offset }));
+        return { items: remember(page.tracks || []), total: page.total || 0 };
+      }
+      if (source === 'online') return { items: [], note: '选择音源并搜索在线音乐' };
+      if (!q) return { items: [], note: '输入歌曲或歌手，搜索当前音源' };
+      const page = await transport.get('/v1/online/search?' + new URLSearchParams({ source, q, limit: 60, offset }));
+      return { items: remember((page.tracks || []).map((track) => ({ ...track, source: track.source || source }))), total: page.total || 0 };
+    },
+    playlists: async () => {
+      const page = await transport.get('/v1/playlists');
+      return { items: (page.playlists || []).concat(onlineShelfItems().map((item) => ({ ...item, cover: item.coverUrl }))) };
+    },
+    playlist: async (item, offset = 0) => {
+      const path = item.online ? '/v1/online/playlist?' + new URLSearchParams({ source: item.source, id: item.refId, limit: 60, offset })
+        : '/v1/playlists/' + encodeURIComponent(item.id) + '/tracks';
+      const page = await transport.get(path);
+      return { items: remember((page.tracks || []).map((track) => item.online ? { ...track, source: track.source || item.source } : track)), total: page.total || (page.tracks || []).length };
+    },
+    daily: async (mode) => {
+      if (mode !== 'auto') return readDaily(mode);
+      const results = await Promise.allSettled([readDaily('local'), readDaily('online')]);
+      const pages = results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
+      if (!pages.length) throw results[0].reason;
+      return { items: pages.flatMap((page) => page.items), note: pages.map((page) => page.note).filter(Boolean).join('；') };
+    },
+    recent: async (offset = 0) => {
+      const page = await transport.get('/v1/history?limit=60&offset=' + offset);
+      const items = await Promise.all((page.items || []).map(async (entry) => {
+        if (entry.source === 'local' && entry.track_id) {
+          try { return await transport.get('/v1/tracks/' + encodeURIComponent(entry.track_id)); }
+          catch (error) { if (error.status === 404) return null; throw error; }
+        }
+        if (!entry.source || !entry.ref_id) return null;
+        const id = onlineItemId({ source: entry.source, id: entry.ref_id });
+        const known = state.byId.get(id) || (window.Online && Online.getMeta(id));
+        return { ...known, id: entry.ref_id, source: entry.source, title: entry.title, artist: entry.artist,
+          album: entry.album, duration_ms: entry.duration_ms, cover: entry.cover_url || '', vip_only: entry.vip_only ?? known?.vip_only };
+      }));
+      return { items: remember(items.filter(Boolean)), total: page.total || items.length, nextOffset: offset + (page.items || []).length };
+    },
+    quote: async () => {
+      if (state.settings.home_quote === false) return { text: '', source: '' };
+      const quote = await transport.get('/v1/home/quote?' + new URLSearchParams({ c: state.settings.home_quote_cat || 'poem', r: Date.now() }));
+      if (!quote || !quote.hitokoto) throw new Error('每日内容暂时无法读取');
+      return { text: quote.hitokoto, source: [quote.from || quote.origin, quote.author].filter(Boolean).join(' · ') };
+    },
+    play: (item, list) => {
+      const items = list && list.length ? list : [item];
+      return playbackHost.playQueue(items.map((track) => track.id), queueMeta(items), item.id);
+    },
+    enqueue: async (item, list) => {
+      const items = item ? [item] : list || [];
+      for (const track of items) state.byId.set(track.id, track);
+      if (item) return queueAddTrack(item.id);
+      const queue = state.queue.slice();
+      for (const track of items) if (!queue.includes(track.id)) queue.push(track.id);
+      await applyQueue(queue, true); toast('已加入播放队列');
+    },
+    resume: () => setPlayback('play'),
+    queue: () => { if (window.Space3D && Space3D.openQueue) Space3D.openQueue(); else { const control = $('sp-playlist-toggle'); if (control) control.click(); } },
+    cover: async (track) => track.has_cover
+      ? (await transport.ensureCover(track.id)) || transport.coverUrl(track.id)
+      : window.Online ? Online.safeCoverUrl(track.cover || track.coverUrl) : track.cover || track.coverUrl || '',
+    applyCover: applyCoverImg,
+    playlistCover: (id) => {
+      if (!plCovers) return Promise.resolve('');
+      const cover = plCovers.state(id);
+      if (cover.s !== 'pending') return Promise.resolve(cover.s === 'url' ? cover.url : '');
+      if (!coverWaiters.has(id)) {
+        let done;
+        const promise = new Promise((resolve) => { done = resolve; });
+        done.promise = promise; coverWaiters.set(id, done);
+      }
+      return coverWaiters.get(id).promise;
+    },
+    notify: (message) => toast(message, 'error'),
+  });
+}
+
 // 首页那一格右键：把曲库行上那对「让封面位有图」的动作搬过来，省得为了补一张
 // 封面回曲库找那一行。在线曲目的封面归平台，这两个写的都是本地曲库
 // （`/v1/tracks/{id}/*`），所以在线曲不弹菜单。
@@ -5107,6 +5311,7 @@ function renderPlaybackProgress(snap, preview) {
   });
   if (state.seeking && preview == null) return;
   const label = `${fmt(position)} / ${fmt(duration)}`;
+  if (window.NowPlaying) NowPlaying.preview(position, duration);
   if (label !== progressLabelCache) {
     progressLabelCache = label;
     ui.barTime.textContent = label;
@@ -5639,7 +5844,10 @@ function bindShortcuts() {
       else focusSearch(true);
       return;
     }
-    if (e.key === 'Escape') { closeMenu(); closeNowPlaying(); if (typing) document.activeElement.blur(); setView(state.view); document.body.classList.remove('stage-open'); document.body.classList.remove('sheen-search'); return; }
+    if (e.key === 'Escape') {
+      if (window.NowPlaying && NowPlaying.back()) { e.preventDefault(); return; }
+      closeMenu(); closeNowPlaying(); if (typing) document.activeElement.blur(); setView(state.view); document.body.classList.remove('stage-open'); document.body.classList.remove('sheen-search'); return;
+    }
     if (e.key === '/' && !typing) { e.preventDefault(); focusSearch(false); return; }
     if (typing || e.ctrlKey || e.metaKey || e.altKey || target.closest('button, a, [role="button"], [role="slider"]')) return;
 
@@ -5650,6 +5858,11 @@ function bindShortcuts() {
       case 'ArrowUp': e.preventDefault(); ui.volume.value = String(Math.min(100, Number(ui.volume.value) + 5)); setVolumeFromInput(); break;
       case 'ArrowDown': e.preventDefault(); ui.volume.value = String(Math.max(0, Number(ui.volume.value) - 5)); setVolumeFromInput(); break;
       case 'm': case 'M': toggleMute(true); break;
+      case 'x': case 'X':
+        // 三维空间的总开关（X）：开着时它的捕获相先吃大多数键，X 落到这里就是关闭。
+        e.preventDefault();
+        if (window.Space3D && Space3D.toggle) Space3D.toggle();
+        break;
       case '1': setView('library'); break;
       case '2': setView('playlists'); break;
       case '3': setView('queue'); break;
@@ -5665,7 +5878,9 @@ function bindShortcuts() {
 // ---------------------------------------------------------------------------
 function initSkinBridge() {
   window.Skins.connectHost((d) => {
-    if (d.action === 'settings-enter') {
+    if (d.action === 'open-player') {
+      openNowPlaying();
+    } else if (d.action === 'settings-enter') {
       loadDiagnostics();
       const refreshers = { cache: window.__loadCacheStats, dsp: window.__loadDspSettings, remote: window.__loadRemoteRoots };
       (Array.isArray(d.sections) ? d.sections : []).forEach(section => {
@@ -6403,6 +6618,7 @@ function isNpOpen() {
 function openNowPlaying() {
   np.scrim.hidden = false;
   np.modal.hidden = false;
+  if (window.NowPlaying) NowPlaying.open();
   // 弹窗内音量与底部播放栏保持一致
   np.volume.value = ui.volume.value;
   syncNpSnapshot(state.snapshot);
@@ -6414,7 +6630,8 @@ function openNowPlaying() {
   }
 }
 
-function closeNowPlaying() {
+function closeNowPlaying(options) {
+  if (window.NowPlaying) NowPlaying.close(options);
   np.scrim.hidden = true;
   np.modal.hidden = true;
 }
@@ -6425,6 +6642,7 @@ function syncNpSnapshot(snap) {
   np.play.classList.toggle('is-playing', snap.playing);
   np.play.setAttribute('aria-label', snap.playing ? '暂停' : '播放');
   renderPlaybackProgress(snap);
+  if (window.NowPlaying) NowPlaying.update();
 }
 
 // ---------------------------------------------------------------------------
@@ -6654,21 +6872,34 @@ function syncNpTrack(track, coverUrl) {
   }
   // 调用方有的传已解析的 data URL（换曲主流程），有的传在线元数据里的远程原址
   // （详情补拉回填），所以解析收在这里：插件形态远程地址先占位、代理落地后回填。
-  const apply = (u) => { np.art.style.backgroundImage = u ? `url("${u}")` : 'none'; };
-  const resolved = remoteCover(coverUrl);
-  if (resolved === null) {
-    apply(null);
-    remoteCoverSlot(coverUrl, apply);
-  } else {
-    apply(resolved);
-  }
+  const apply = (u) => {
+    if (!state.current || state.current.id !== track.id) return;
+    np.art.style.backgroundImage = u ? `url("${u}")` : 'none';
+    np.art.classList.toggle('has-cover', !!u);
+    const art = $('bar-art'); if (art) art.style.backgroundImage = np.art.style.backgroundImage;
+  };
+  np.name.title = track.title || '';
+  np.artist.title = np.artist.textContent;
+  assignCover(np.art, coverUrl, apply);
 }
 
 function initNowPlayingModal() {
   if (!np.modal) return;
+  if (window.NowPlaying) NowPlaying.init({
+    seek: seekTo, seeking: () => state.seeking, close: closeNowPlaying,
+    queue: queueSnapshot, playIndex: playQueueIndex,
+    favorite: () => ui.barFavorite.click(),
+    favoriteState: () => ({ disabled: ui.barFavorite.disabled, on: ui.barFavorite.getAttribute('aria-pressed') === 'true' }),
+    mode: () => ui.mode.click(),
+    modeState: () => ({ label: ui.mode.textContent, icon: state.snapshot.mode === 'shuffle' ? '#i-shuffle' : '#i-repeat' }),
+    mute: () => toggleMute(), sleep: openSleepTimerMenu, notice: toast,
+    closeTop: () => { if (!ui.menu.hidden) { closeMenu(); return true; } return false; },
+  });
 
   np.close.onclick = closeNowPlaying;
   np.scrim.onclick = closeNowPlaying;
+  $('bar-player-expand').onclick = openNowPlaying;
+  $('bar-queue').onclick = () => { openNowPlaying(); $('np-queue').click(); };
 
   // 点击/回车「正在播放」区打开弹窗；Enter 与 Space 都要能用（role=button）。
   if (ui.stageBtn) {
@@ -8053,8 +8284,10 @@ async function startApp() {
           state.byId.set(id, { id, ...m, duration_ms: m.duration_ms ?? null });
         }
         setStateQueue(ids, track_id);
+        return true;
       } catch (err) {
         toast(errText('播放失败', err), 'error');
+        return false;
       }
     },
     // 单曲在线收藏：直接把快照包成在线曲交给整盘试听链路。
@@ -8105,6 +8338,7 @@ async function startApp() {
     window.DailyView.init();
   }
   initHomeDashboard();
+  initSpaceHome(favHost);
   // 在线歌单（账号区网格）任何变化都同步重绘左侧歌单菜单的在线分区。
   // 在线歌单到达/变化：列表分区重画，架子也换上含在线卡的完整集合——
   // 登录成功是异步的，架子建好后数据才到，不挂这条就会一直缺在线卡。

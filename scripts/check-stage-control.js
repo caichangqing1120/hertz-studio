@@ -462,15 +462,16 @@ function checkSearchAndUndo() {
   eq(SC.values().cinema, snapshot.cinema, '撤销只回最后一步（开关）');
   eq(SC.values().intensity, 140, '没参与那一步的键保持不动');
 
-  // 键盘连按（同键、间隔在合并窗内）算一笔。两次都要是真实变化：
+  // 一次按住方向键的重复 keydown 算一笔，keyup 结束手势。两次都要是真实变化：
   // 把 100 调成 100 不该产出一条历史，那样这个断言会退化成空测。
   const snap2 = SC.values();
   const depthBeforeBurst = SC.historyDepth();
-  den.fire('keydown'); den.value = '110'; den.fire('input'); den.fire('change');
+  den.fire('keydown', { key: 'ArrowRight' }); den.value = '110'; den.fire('input'); den.fire('change');
   s.tick(200);
-  den.fire('keydown'); den.value = '115'; den.fire('input'); den.fire('change');
+  den.fire('keydown', { key: 'ArrowRight' }); den.value = '115'; den.fire('input'); den.fire('change');
+  den.fire('keyup', { key: 'ArrowRight' });
   const depthAfterBurst = SC.historyDepth();
-  eq(depthAfterBurst, depthBeforeBurst + 1, '合并窗内的同键连按只占一条历史');
+  eq(depthAfterBurst, depthBeforeBurst + 1, '一次按住方向键只占一条历史');
   SC.undo();
   eq(SC.values().density, snap2.density, '撤销一次回到整段之前（不是只退最后一下）');
 
@@ -478,13 +479,13 @@ function checkSearchAndUndo() {
   den.fire('keydown'); den.value = String(SC.values().density); den.fire('input'); den.fire('change');
   eq(SC.historyDepth(), dNoop, '把值调回原样不产出一条假历史');
 
-  // 超出合并窗的两次同键调整算两笔：不然撤一次会退得比用户预期的远。
+  // 两次独立手势算两笔：不然撤一次会退得比用户预期的远。
   const dBefore = SC.historyDepth();
   den.fire('keydown'); den.value = '120'; den.fire('input'); den.fire('change');
   const mid = SC.values().density;
   s.tick(1000);
   den.fire('keydown'); den.value = '130'; den.fire('input'); den.fire('change');
-  eq(SC.historyDepth(), dBefore + 2, '相隔超出合并窗的两次调整算两笔');
+  eq(SC.historyDepth(), dBefore + 2, '两次独立调整算两笔');
   SC.undo();
   eq(SC.values().density, mid, '撤销只退回上一笔，不是一路退到段首');
 
@@ -585,7 +586,7 @@ for (const v of block3d('layouts')) {
 }
 ok(!/carriers/.test(controlSrc), '镜台载体分段必须随镜台一并移除');
 // 布尔药丸：configure 必须按 boolean 收
-for (const k of ['lyrics', 'coastInteract', 'zodiacLines', 'zodiacField', 'zodiacInteract', 'animeMirror']) {
+for (const k of ['lyrics', 'coastInteract', 'zodiacField', 'zodiacInteract', 'animeMirror']) {
   ok(new RegExp("typeof value\\." + k + " === 'boolean'").test(s3src),
     `布尔偏好 ${k} 被 configure 按 boolean 收`);
 }
@@ -633,7 +634,7 @@ function fakeStage3D(overrides) {
     motion: 0.65, bloom: 0.8, reactivity: 1.35,
     lyrics: true, layout: 'focus',
     coastTod: 0, coastInteract: true,
-    zodiacLines: true, zodiacField: true, zodiacInteract: true,
+    zodiacField: true, zodiacInteract: true,
     animeScene: 'anime-coast', animeMirror: false,
   }, overrides || {});
   const calls = { configure: [], save: 0 };
@@ -701,8 +702,8 @@ function check3DContext() {
     const last = fake.calls.configure[fake.calls.configure.length - 1];
     eq(last && last.sceneSource, 'zodiac', '点来源分段写 sceneSource');
     eq(fake.calls.save, before + 1, '离散动作（切来源）当场落库');
-    // 来源切换后「来源专属」要重织：星座的连线/星场/交互出现在面板里
-    ok(!!s.btn3d('星座连线') && !!s.btn3d('背景星场') && !!s.btn3d('交互旋转（拖拽/滚轮）'),
+    // 来源切换后「来源专属」要重织：星座的星云/交互出现在面板里
+    ok(!!s.btn3d('背景星云') && !!s.btn3d('交互旋转（拖拽/滚轮）'),
       '切到星座后来源专属重织出该来源的控件');
   }
 

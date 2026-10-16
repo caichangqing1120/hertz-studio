@@ -28,6 +28,18 @@
     return result;
   }
 
+  // A modal dialog joins the top layer above the fullscreen element.
+  function createBackdrop() {
+    var node = document.createElement(document.fullscreenElement ? 'dialog' : 'div');
+    node.className = 'np-modal';
+    node.setAttribute('role', 'dialog');
+    node.setAttribute('aria-modal', 'true');
+    if (node.tagName === 'DIALOG') {
+      Object.assign(node.style, { margin: '0', width: '100%', height: '100%', maxWidth: 'none', maxHeight: 'none', border: '0', background: 'transparent', color: 'inherit', boxSizing: 'border-box' });
+    }
+    return node;
+  }
+
   /// 弹层焦点管理：把弹层**之外**的内容设为 inert（Tab 进不去、点不动、辅助
   /// 技术跳过），焦点随后交给弹层；返回「收尾」函数，调用后还原背景并把焦点
   /// 还给打开它的那个元素。
@@ -62,10 +74,7 @@
     return new Promise(function (resolve) {
       var wantsInput = !!options.input;
 
-      var backdrop = document.createElement('div');
-      backdrop.className = 'np-modal';
-      backdrop.setAttribute('role', 'dialog');
-      backdrop.setAttribute('aria-modal', 'true');
+      var backdrop = createBackdrop();
 
       var card = document.createElement('div');
       card.className = 'np-card';
@@ -113,6 +122,7 @@
 
       var cancelValue = wantsInput ? null : false;
       var releaseScope = focusScope(backdrop);
+      if (backdrop.tagName === 'DIALOG') backdrop.showModal();
 
       function finish(value) {
         document.removeEventListener('keydown', onKey, true);
@@ -151,10 +161,7 @@
   /// 自建模态——独立形态下用户看到的也是同一块卡片。
   function showPicker(options) {
     return new Promise(function (resolve) {
-      var backdrop = document.createElement('div');
-      backdrop.className = 'np-modal';
-      backdrop.setAttribute('role', 'dialog');
-      backdrop.setAttribute('aria-modal', 'true');
+      var backdrop = createBackdrop();
 
       var card = document.createElement('div');
       card.className = 'np-card';
@@ -228,6 +235,7 @@
       document.body.appendChild(backdrop);
 
       var releaseScope = focusScope(backdrop);
+      if (backdrop.tagName === 'DIALOG') backdrop.showModal();
 
       function finish(value) {
         document.removeEventListener('keydown', onKey, true);

@@ -210,6 +210,12 @@
     t.title = VIP_TITLE;
     return t;
   }
+  function syncVipTag(container, track) {
+    var tag = container.querySelector('.vip-tag');
+    if (track && track.vip_only) {
+      if (!tag) container.appendChild(vipTag());
+    } else if (tag) tag.remove();
+  }
 
   function virtualId(t) {
     return 'online:' + t.source + ':' + t.id;
@@ -1886,6 +1892,7 @@
     // 宿主接线（app.js 启动时调用一次）。
     bind: function (host) { H = host; T = window.VMusicTransport; },
     init: initOnline,
+    refreshRadio: refreshRadio,
     // setView 首次进入在线页时按默认分类拉一屏；当前音源只支持关键词
     // 检索（QQ/酷狗）且搜索框为空时不预取——那条请求后端必回 400。
     onViewEnter: function () {
@@ -1971,6 +1978,7 @@
     badge: badge,
     // VIP 标记节点工厂：在线行、每日推荐页、首页推荐条共用（见 vipTag 注释）。
     vipTag: vipTag,
+    syncVipTag: syncVipTag,
     // 在线播放错误条（app.js Task 14 的 WS error 分支调用）。
     showOnlineError: showOnlineError,
     hideOnlineError: hideOnlineError,

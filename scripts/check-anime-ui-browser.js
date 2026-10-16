@@ -264,7 +264,7 @@ async function auditLayout(page, width) {
       controls: ids.map(id => {
         const el = document.getElementById(id), r = rect(el);
         const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        return { id, ...r, hit: !!hit && el.contains(hit) };
+        return { id, display: getComputedStyle(el).display, ...r, hit: !!hit && el.contains(hit) };
       }) };
   });
   report.geometry.push(value);
@@ -274,6 +274,9 @@ async function auditLayout(page, width) {
   for (const container of value.containers) assert.ok(container.scroll <= container.client + 1,
     width + ' ' + container.id + ' has no horizontal overflow: ' + JSON.stringify(container));
   for (const control of value.controls) {
+    // 经典皮肤摘掉顶栏的设置齿轮（导航里已有同一入口，见 skin.classic.css），
+    // 它按设计不占位，也就不该出现在顶栏可达清单里。
+    if (control.id === 'settings-entry' && control.display === 'none') continue;
     assert.ok(control.width >= (control.id === 'progress' ? 50 : 28) && control.height >= (control.id === 'progress' ? 8 : 30)
       && control.x >= -1 && control.right <= width + 1 && control.hit,
     width + ' ' + control.id + ' is reachable: ' + JSON.stringify(control));
@@ -624,7 +627,6 @@ async function main() {
     const baseline = await page.evaluate(() => ({ stage: Stage3D.defaults(), creative: CreativeStage.preset() }));
     await page.locator('#stage3d-entry').click();
     // 设置钮收在头部飞出组里：先悬停触发钮展开（与真实交互一致）再点击。
-    await page.locator('#s3d-head-trigger').hover();
     await page.locator('#s3d-settings-toggle').click();
     await page.locator('#s3d-workshop').click();
     await page.locator('#workshop').waitFor({ state: 'visible' });

@@ -33,7 +33,7 @@ mkdirSync(dirname(out), { recursive: true });
 const banner = `// SPDX-License-Identifier: MIT
 // Copyright (c) 2026 hertz-studio contributors
 //
-// 「星座 · 十二星图」three.js 粒子舞台场景引擎（three r186 + 背景星场/十二座粒子星图/星座连线）。
+// 「星座 · 十二星图」three.js 粒子舞台场景引擎（three r186 + 背景星云/单粒子池汇聚散开/十二座三维造型）。
 // 生成产物 —— 源码在 tools/zodiac-stage/src/，改动后执行：
 //   cd tools/zodiac-stage && npm install && node build.mjs
 // 为本项目独立实现，不包含任何参照项目的源文件（见 NOTICE）。

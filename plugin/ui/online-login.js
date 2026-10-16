@@ -28,6 +28,93 @@
   // 之后才回来，若用「当前 source」配「这张迟到的 ticket」去轮询，平台票跨平台
   // 根本无效；关窗后也还会多出一个后台轮询。所以每次网络收尾都先核对 attempt。
   var intent = { attempt: 0, source: null, channel: 'qq', ticket: null };
+  var spaceView = null;
+  function mountSpace(options) {
+    if (spaceView || !options || options.presentation !== 'space' || !options.container) return;
+    var modal = el('qr-modal'), card = modal.querySelector('.qr-card');
+    var view = spaceView = { parent:modal.parentNode,next:modal.nextSibling,inert:modal.inert,focus:document.activeElement,
+      children:Array.from(card.children),background:[],mode:'qr',events:new AbortController() };
+    Array.from(options.container.children).forEach(function(node){if(node.tagName==='SCRIPT')return;view.background.push({node:node,inert:node.inert});node.inert=true;});
+    options.container.appendChild(modal); modal.inert=false; modal.classList.add('qr-space');
+    var scroll=document.createElement('div');scroll.className='qs-scroll';card.appendChild(scroll);view.scroll=scroll;
+    var graph = document.createElement('div'); graph.className='qs-graph';
+    graph.innerHTML='<svg class="qs-links" aria-hidden="true"><path class="qs-link" pathLength="1"/><path class="qs-signal"/><path class="qs-drag"/></svg><div class="qs-hub"><span class="qs-port qs-in" aria-hidden="true"></span><span class="qs-hub-mark">hz</span><strong>Hertz Studio</strong><small class="qs-connection">选择音源</small><div class="qs-modes" role="group" aria-label="登录方式"><button type="button" data-mode="qr">扫码</button><button type="button" data-mode="cookie">Cookie</button></div></div>';
+    graph.prepend(el('qr-sources')); scroll.appendChild(graph); view.graph=graph;
+    var drawer=document.createElement('div'); drawer.className='qs-drawer';
+    view.children.forEach(function(node){if(node.id!=='qr-sources'&&node.id!=='qr-close')drawer.appendChild(node);});scroll.appendChild(drawer);view.drawer=drawer;
+    var actions=document.createElement('div');actions.className='qs-actions';
+    var skip=document.createElement('button');skip.type='button';skip.textContent='先搜索一首歌';skip.onclick=function(){close();if(window.SpaceHome)SpaceHome.focusSearch();};
+    var connect=document.createElement('button');connect.type='button';connect.className='qs-connect';connect.textContent='开始登录';connect.onclick=function(){if(intent.source)start(intent.source,intent.channel);};
+    actions.append(skip,connect);drawer.appendChild(actions);view.connect=connect;
+    graph.querySelectorAll('[data-mode]').forEach(function(button){button.onclick=function(){selectSpaceSource(intent.source,button.dataset.mode);};});
+    graph.addEventListener('pointerdown',function(event){
+      var port=event.target.closest('.qs-out');if(!port)return;event.preventDefault();
+      var source=port.closest('[data-source]').dataset.source;graph.setPointerCapture(event.pointerId);view.drag={source:source,id:event.pointerId,port:port};graph.classList.add('is-dragging');drawSpaceLink(event);
+    },{signal:view.events.signal});
+    graph.addEventListener('pointermove',function(event){if(view.drag)drawSpaceLink(event);},{signal:view.events.signal});
+    graph.addEventListener('pointerup',function(event){
+      if(!view.drag)return;var hub=graph.querySelector('.qs-hub').getBoundingClientRect(),drag=view.drag;view.drag=null;
+      if(graph.hasPointerCapture(event.pointerId))graph.releasePointerCapture(event.pointerId);
+      graph.querySelector('.qs-drag').removeAttribute('d');
+      graph.classList.remove('is-dragging','is-drop-target');
+      if(event.clientX>=hub.left&&event.clientX<=hub.right&&event.clientY>=hub.top&&event.clientY<=hub.bottom)selectSpaceSource(drag.source,view.mode);
+    },{signal:view.events.signal});
+    graph.addEventListener('pointercancel',function(){view.drag=null;graph.querySelector('.qs-drag').removeAttribute('d');graph.classList.remove('is-dragging','is-drop-target');},{signal:view.events.signal});
+    window.addEventListener('resize',function(){drawSpaceLink();},{signal:view.events.signal});
+    view.resize=new ResizeObserver(function(){if(spaceView===view)drawSpaceLink();});view.resize.observe(graph);
+    matchMedia('(prefers-reduced-motion:reduce)').addEventListener('change',function(event){if(event.matches&&view.linkAnimation)view.linkAnimation.cancel();},{signal:view.events.signal});
+    modal.addEventListener('keydown',function(event){
+      if(event.key!=='Tab')return;
+      var nodes=Array.from(modal.querySelectorAll('button:not(:disabled),input,textarea,a[href],summary')).filter(function(node){return node.getClientRects().length;});
+      var first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    },{signal:view.events.signal});
+    requestAnimationFrame(function(){el('qr-close').focus();});
+  }
+  function unmountSpace() {
+    if(!spaceView)return;var view=spaceView;spaceView=null;view.events.abort();view.resize.disconnect();if(view.linkAnimation)view.linkAnimation.cancel();
+    var modal=el('qr-modal'),card=modal.querySelector('.qr-card');
+    view.children.forEach(function(node){card.appendChild(node);});view.scroll.remove();
+    modal.classList.remove('qr-space');view.parent.insertBefore(modal,view.next&&view.next.parentNode===view.parent?view.next:null);modal.inert=view.inert;
+    view.background.forEach(function(item){item.node.inert=item.inert;});if(view.focus&&view.focus.isConnected)view.focus.focus({preventScroll:true});
+  }
+  function drawSpaceLink(pointer) {
+    if(!spaceView)return;var graph=spaceView.graph,rect=graph.getBoundingClientRect();
+    var selected=Array.from(el('qr-sources').children).find(function(node){return node.dataset.source===intent.source;});
+    var port=pointer&&spaceView.drag?spaceView.drag.port:selected&&selected.querySelector('.qs-out');if(!port)return;
+    var from=port.getBoundingClientRect(),to=graph.querySelector('.qs-in').getBoundingClientRect();
+    var x=from.left+from.width/2-rect.left,y=from.top+from.height/2-rect.top;
+    var endX=pointer?pointer.clientX-rect.left:to.left+to.width/2-rect.left,endY=pointer?pointer.clientY-rect.top:to.top+to.height/2-rect.top;
+    var bend=Math.max(12,Math.abs(endX-x)*.48);
+    var d='M'+x+','+y+' C'+(x+bend)+','+y+' '+(endX-bend)+','+endY+' '+endX+','+endY;
+    var link=graph.querySelector(pointer?'.qs-drag':'.qs-link');link.setAttribute('d',d);
+    if(pointer){
+      var hub=graph.querySelector('.qs-hub').getBoundingClientRect();
+      graph.classList.toggle('is-drop-target',pointer.clientX>=hub.left&&pointer.clientX<=hub.right&&pointer.clientY>=hub.top&&pointer.clientY<=hub.bottom);
+    }else{
+      graph.querySelector('.qs-signal').setAttribute('d',d);graph.classList.add('is-connected');
+      var key=intent.source+'|'+spaceView.mode;
+      if(spaceView.linkKey!==key){
+        spaceView.linkKey=key;if(spaceView.linkAnimation)spaceView.linkAnimation.cancel();
+        if(!matchMedia('(prefers-reduced-motion:reduce)').matches&&!document.body.matches('.reduce-motion,[data-rm~="ui"]'))spaceView.linkAnimation=link.animate([{strokeDashoffset:1},{strokeDashoffset:0}],{duration:650,easing:'cubic-bezier(.2,.8,.2,1)'});
+      }
+    }
+  }
+  function selectSpaceSource(source,mode) {
+    if(!spaceView||!source)return;
+    var definition=loginSources.find(function(item){return item.id===source;});if(!definition)return;
+    var prev=intent;beginIntent(source,'qq');if(prev.ticket)cancelTicket(prev.source,prev.ticket);stopPolling();
+    if(accountsById[source]){enterLoggedIn(source);spaceView.drawer.classList.add('is-connected');return;}
+    var caps=definition.caps||[];spaceView.mode=(mode==='cookie'&&caps.indexOf('cookie_login')>=0)||caps.indexOf('qr_login')<0?'cookie':'qr';
+    spaceView.graph.querySelector('.qs-connection').textContent=sourceLabel(source)+' · 已接入';
+    spaceView.graph.querySelectorAll('[data-mode]').forEach(function(button){button.disabled=caps.indexOf(button.dataset.mode==='qr'?'qr_login':'cookie_login')<0;button.setAttribute('aria-pressed',String(button.dataset.mode===spaceView.mode));});
+    paintSourceActive();renderLoginGuide(definition);el('qr-title').textContent=sourceLabel(source)+' 登录';
+    el('qr-canvas').innerHTML='';el('qr-canvas').hidden=true;el('qr-channels').hidden=true;
+    el('qr-cookie-panel').hidden=spaceView.mode!=='cookie';el('qr-cookie-panel').open=spaceView.mode==='cookie';
+    el('qr-cookie-input').value='';el('qr-cookie-save').disabled=false;
+    el('qr-status').textContent=spaceView.mode==='cookie'?'导入平台登录会话':'等待开始扫码';
+    spaceView.connect.hidden=spaceView.mode==='cookie';spaceView.drawer.classList.add('is-connected');
+    requestAnimationFrame(function(){drawSpaceLink();});
+  }
   function beginIntent(source, channel) {
     intent = {
       attempt: intent.attempt + 1,
@@ -186,7 +273,12 @@
   }
   /// 扫码走到终态就把 cookie 面板展开：文案在让用户「改用下方手动粘贴 cookie」，
   /// 面板却还折叠着，等于让他先找一个没见过的控件去哪了。
-  function openCookieFallback() { el('qr-cookie-panel').open = true; }
+  function openCookieFallback() {
+    if(spaceView){
+      var definition=loginSources.find(function(item){return item.id===intent.source;});
+      if(definition&&(definition.caps||[]).indexOf('cookie_login')>=0)selectSpaceSource(intent.source,'cookie');
+    }else el('qr-cookie-panel').open = true;
+  }
 
   function renderQr(start, mine) {
     if (!isCurrent(mine.attempt)) {
@@ -368,6 +460,12 @@
     var face = el('online-account-face');
     var dot = el('online-account-dot');
     var url = pick ? avatarUrlOf(pick) : null;
+    var spaceAccount = el('sp-account');
+    if (spaceAccount) {
+      spaceAccount.classList.toggle('has-avatar',!!url); applyBg(spaceAccount,url);
+      spaceAccount.title=pick ? (accountsById[pick].nickname || sourceLabel(pick)) : '登录音源';
+      spaceAccount.setAttribute('aria-label',spaceAccount.title);
+    }
     if (url) {
       face.classList.add('has-avatar');
       applyBg(face, url);
@@ -431,6 +529,10 @@
         };
       }
       box.appendChild(b);
+      if (spaceView) {
+        var port=document.createElement('span');port.className='qs-port qs-out';port.title='连接到 Hertz Studio';b.appendChild(port);
+        b.onclick=function(){selectSpaceSource(s.id,spaceView.mode);};
+      }
     });
   }
 
@@ -439,12 +541,14 @@
     Array.prototype.forEach.call(tabs, function (b) {
       b.classList.toggle('active', b.dataset.source === intent.source);
     });
+    if(spaceView)requestAnimationFrame(function(){drawSpaceLink();});
   }
 
   /// 打开统一登录弹窗。不指定 source 时：若只有一个已登录源默认进它，
   /// 否则默认选清单第一个源；已登录源直接展示账号信息，不再要求登录。
-  async function open(source) {
+  async function open(source, options) {
     T = window.VMusicTransport;
+    mountSpace(options);
     var prev = intent;
     var mine = beginIntent(source || null, 'qq');
     if (prev.ticket) cancelTicket(prev.source, prev.ticket);
@@ -485,7 +589,8 @@
       } else {
         pick = list[0].id;
       }
-      if (accountsById[pick]) enterLoggedIn(pick);
+      if (spaceView) selectSpaceSource(pick,'qr');
+      else if (accountsById[pick]) enterLoggedIn(pick);
       else await start(pick, 'qq');
     } catch (e) {
       if (!isCurrent(mine.attempt)) return;
@@ -631,8 +736,9 @@
       var cookiePanel = el('qr-cookie-panel');
       cookiePanel.hidden = caps.indexOf('cookie_login') < 0;
       cookiePanel.open = caps.indexOf('qr_login') < 0;
+      if(spaceView){cookiePanel.hidden=spaceView.mode!=='cookie';cookiePanel.open=spaceView.mode==='cookie';spaceView.connect.textContent='刷新二维码';}
       renderLoginGuide(definition);
-      if (caps.indexOf('qr_login') < 0) {
+      if (caps.indexOf('qr_login') < 0 || (spaceView && spaceView.mode==='cookie')) {
         box.hidden = true;
         el('qr-channels').hidden = true;
         el('qr-status').textContent = '此平台使用 cookie 登录，请填写下方表单';
@@ -646,6 +752,7 @@
       // 已经被新意图取代（切平台、关窗）：这次的失败不属于当前界面。
       if (!isCurrent(mine.attempt)) return;
       // 该源此刻取不到扫码（平台侧问题/能力闸门）：保留弹窗，引导走 cookie。
+      if(spaceView)openCookieFallback();
       el('qr-status').textContent =
         '暂取不到二维码：' + (e && e.message ? e.message : '该平台可能限制了扫码') +
         '；可展开下面的 cookie 登录';
@@ -670,6 +777,7 @@
     // 传真实票据让服务端立即删掉会话；票据可能为空（start 失败就关窗），
     // 后端对空票按幂等成功处理。
     cancelTicket(prev.source, prev.ticket);
+    unmountSpace();
   }
 
   el('qr-close').onclick = close;
@@ -769,5 +877,6 @@
     start: start,
     close: close,
     stopPolling: stopPolling,
+    isOpen: function(){return !el('qr-modal').hidden;},
   };
 })();

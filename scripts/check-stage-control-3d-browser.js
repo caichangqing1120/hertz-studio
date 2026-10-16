@@ -62,7 +62,7 @@ async function main() {
     assert.equal(await page.evaluate(() => Stage3D.preferences().sceneSource), 'zodiac',
       '真实点击切换舞台来源');
     assert.ok(await page.evaluate(() =>
-      !![...document.querySelectorAll('#sc-3d-body button')].find((b) => b.textContent === '星座连线')),
+      !![...document.querySelectorAll('#sc-3d-body button')].find((b) => b.textContent === '背景星云')),
       '来源专属重织出星座控件');
     pass('舱体在三维舞台之上可交互（没有被 inert 静音）');
 

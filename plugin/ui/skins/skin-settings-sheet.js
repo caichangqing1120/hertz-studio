@@ -301,7 +301,7 @@
     if (item && item.click) item.click();
   }
 
-  function closeSheet() {
+  function closeSheet(options) {
     if (!st.open || st.closing) return;
     st.closing = true;
     if (st.root) st.root.classList.add('is-closing');
@@ -311,7 +311,7 @@
     var viaView = st.openedViaView;
     st.openedViaView = false;
     if (viaView) restoreAppView();
-    st.closeTimer = setTimeout(function () {
+    function finishClose() {
       st.closeTimer = 0;
       st.closing = false;
       if (st.root) {
@@ -326,11 +326,14 @@
       // skset-modal-open 是底层隔离标记（CSS 给 .app/.bar/.topbar 关点击），
       // 必须在退场动画之后摘，动画期间隔离还得生效。
       document.body.classList.remove('skset-modal-open');
-      if (st.lastFocus && st.lastFocus.focus) {
-        try { st.lastFocus.focus({ preventScroll: true }); } catch (e) { st.lastFocus.focus(); }
+      var focus = options && options.focusTarget || st.lastFocus;
+      if (focus && focus.focus) {
+        try { focus.focus({ preventScroll: true }); } catch (e) { focus.focus(); }
       }
       st.lastFocus = null;
-    }, MODAL_EXIT_MS);
+    }
+    if (options && options.immediate) finishClose();
+    else st.closeTimer = setTimeout(finishClose, MODAL_EXIT_MS);
   }
 
   function onNavClick(e) {

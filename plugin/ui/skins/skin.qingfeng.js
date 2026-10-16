@@ -819,6 +819,16 @@
     var peekSub = make('span', '', peekCopy);
     peek.title = '当前队列';
 
+    var peekPlayer = make('button', 'qf-queue-peek-stage qf-queue-peek-player', peek);
+    peekPlayer.type = 'button';
+    peekPlayer.title = '展开播放页';
+    peekPlayer.setAttribute('aria-label', peekPlayer.title);
+    peekPlayer.innerHTML = icon('headphones');
+    peekPlayer.addEventListener('click', function (e) {
+      e.stopPropagation();
+      emit('open-player');
+    });
+
     // 浮条右端的舞台入口。墙开着时顶栏、胶囊导航都被 .qf-lattice-open 隐藏，
     // 迷你卡又正好被这条浮条压住 —— 墙上够得着的舞台入口一个都不剩，
     // 所以这颗必须**常驻可见**（不像那颗播放键 hover 才浮现）。

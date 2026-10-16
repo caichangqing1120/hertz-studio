@@ -26,6 +26,9 @@ ui_assets! {
     "/dialogs.js", JS => const DIALOGS_JS: &str = include_str!("../../../plugin/ui/dialogs.js");
     "/search-history.js", JS => const SEARCH_HISTORY_JS: &str = include_str!("../../../plugin/ui/search-history.js");
     "/app.js", JS => const APP_JS: &str = include_str!("../../../plugin/ui/app.js");
+    "/now-playing.js", JS => const NOW_PLAYING_JS: &str = include_str!("../../../plugin/ui/now-playing.js");
+    "/now-playing.css", CSS => const NOW_PLAYING_CSS: &str = include_str!("../../../plugin/ui/now-playing.css");
+    "/skins/skin.classic.css", CSS => const CLASSIC_CSS: &str = include_str!("../../../plugin/ui/skins/skin.classic.css");
     "/stage.js", JS => const STAGE_JS: &str = include_str!("../../../plugin/ui/stage.js");
     "/perf-probe.js", JS => const PERF_PROBE_JS: &str = include_str!("../../../plugin/ui/perf-probe.js");
     "/home-dashboard.js", JS => const HOME_DASHBOARD_JS: &str = include_str!("../../../plugin/ui/home-dashboard.js");
@@ -42,6 +45,7 @@ ui_assets! {
     "/pl-covers.js", JS => const PL_COVERS_JS: &str = include_str!("../../../plugin/ui/pl-covers.js");
     "/theme-studio.js", JS => const THEME_STUDIO_JS: &str = include_str!("../../../plugin/ui/theme-studio.js");
     "/skins/skins.js", JS => const SKINS_JS: &str = include_str!("../../../plugin/ui/skins/skins.js");
+    "/skins/skin.sheen.js", JS => const SHEEN_JS: &str = include_str!("../../../plugin/ui/skins/skin.sheen.js");
     "/creative-gl.js", JS => const CREATIVE_GL_JS: &str = include_str!("../../../plugin/ui/creative-gl.js");
     "/creative-anime.js", JS => const CREATIVE_ANIME_JS: &str = include_str!("../../../plugin/ui/creative-anime.js");
     "/creative-stage.js", JS => const CREATIVE_STAGE_JS: &str = include_str!("../../../plugin/ui/creative-stage.js");
@@ -63,6 +67,13 @@ ui_assets! {
     "/stage3d.js", JS => const STAGE3D_JS: &str = include_str!("../../../plugin/ui/stage3d.js");
     "/stage-anime-svg.js", JS => const STAGE_ANIME_SVG_JS: &str = include_str!("../../../plugin/ui/stage-anime-svg.js");
     "/stage-immersive.js", JS => const STAGE_IMMERSIVE_JS: &str = include_str!("../../../plugin/ui/stage-immersive.js");
+    "/space-camera.js", JS => const SPACE_CAMERA_JS: &str = include_str!("../../../plugin/ui/space-camera.js");
+    "/space3d.js", JS => const SPACE3D_JS: &str = include_str!("../../../plugin/ui/space3d.js");
+    "/space-home.js", JS => const SPACE_HOME_JS: &str = include_str!("../../../plugin/ui/space-home.js");
+    "/vendor/space-stage.js", JS => const SPACE_STAGE_JS: &str = include_str!("../../../plugin/ui/vendor/space-stage.js");
+    "/space-fields.js", JS => const SPACE_FIELDS_JS: &str = include_str!("../../../plugin/ui/space-fields.js");
+    "/space-post.js", JS => const SPACE_POST_JS: &str = include_str!("../../../plugin/ui/space-post.js");
+    "/space-layers.js", JS => const SPACE_LAYERS_JS: &str = include_str!("../../../plugin/ui/space-layers.js");
     "/stanza/stanza-util.js", JS => const STANZA_UTIL_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-util.js");
     "/stanza/stanza-theme.js", JS => const STANZA_THEME_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-theme.js");
     "/stanza/stanza-textlayout.js", JS => const STANZA_TEXTLAYOUT_JS: &str = include_str!("../../../plugin/ui/stanza/stanza-textlayout.js");
@@ -95,6 +106,9 @@ ui_assets! {
     "/creative.css", CSS => const CREATIVE_CSS: &str = include_str!("../../../plugin/ui/creative.css");
     "/creative-anime.css", CSS => const CREATIVE_ANIME_CSS: &str = include_str!("../../../plugin/ui/creative-anime.css");
     "/stage3d.css", CSS => const STAGE3D_CSS: &str = include_str!("../../../plugin/ui/stage3d.css");
+    "/space3d.css", CSS => const SPACE3D_CSS: &str = include_str!("../../../plugin/ui/space3d.css");
+    "/space-home.css", CSS => const SPACE_HOME_CSS: &str = include_str!("../../../plugin/ui/space-home.css");
+    "/space-layers.css", CSS => const SPACE_LAYERS_CSS: &str = include_str!("../../../plugin/ui/space-layers.css");
     "/stage-anime-svg.css", CSS => const STAGE_ANIME_SVG_CSS: &str = include_str!("../../../plugin/ui/stage-anime-svg.css");
     "/stanza/stanza.css", CSS => const STANZA_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza.css");
     "/stanza/stanza-starborn.css", CSS => const STANZA_STARBORN_CSS: &str = include_str!("../../../plugin/ui/stanza/stanza-starborn.css");
@@ -122,6 +136,8 @@ ui_assets! {
     "/skins/skin.qingfeng.js", JS => const SKIN_QINGFENG_JS: &str = include_str!("../../../plugin/ui/skins/skin.qingfeng.js");
     "/skins/skin.chaoxi.js", JS => const SKIN_CHAOXI_JS: &str = include_str!("../../../plugin/ui/skins/skin.chaoxi.js");
     "/skins/skin.heijiao.js", JS => const SKIN_HEIJIAO_JS: &str = include_str!("../../../plugin/ui/skins/skin.heijiao.js");
+    "/skins/skin.orbit.js", JS => const SKIN_ORBIT_JS: &str = include_str!("../../../plugin/ui/skins/skin.orbit.js");
+    "/skins/skin.orbit.css", CSS => const SKIN_ORBIT_CSS: &str = include_str!("../../../plugin/ui/skins/skin.orbit.css");
     "/stage-themes/starfall.css", CSS => const STAGE_THEME_STARFALL_CSS: &str = include_str!("../../../plugin/ui/stage-themes/starfall.css");
     "/stage-themes/ios.css", CSS => const STAGE_THEME_IOS_CSS: &str = include_str!("../../../plugin/ui/stage-themes/ios.css");
 }
