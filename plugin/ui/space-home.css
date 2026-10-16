@@ -252,7 +252,7 @@
 .sh-playlist { border: 1px solid transparent; padding: 8px; border-radius: 8px; transition: transform .25s var(--sp-ease),box-shadow .25s var(--sp-ease); }
 .sh-playlist:hover, .sh-playlist:focus-visible { background: var(--sh-surface); border-color: rgba(255,255,255,.2); box-shadow: var(--sh-shadow-raised); transform: translateY(-3px); }
 .sh-panel-body:has(> .sh-embedded-view) { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.sh-embedded-view { --text: var(--sp-text); --muted: var(--sp-muted); --panel-2: rgba(255,255,255,.035); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.24); --hover: rgba(255,255,255,.09); --accent: var(--sp-accent); box-sizing: border-box; color: var(--sp-text); }
+.sh-embedded-view { --text: var(--sp-text); --muted: var(--sp-muted); --panel-2: rgba(255,255,255,.035); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.24); --accent: var(--sp-accent); box-sizing: border-box; color: var(--sp-text); }
 #view-podcasts.sh-embedded-view { padding: 0; flex: 1; min-height: 0; animation: none; }
 .sh-embedded-view .col-head { display: none; }
 .sh-embedded-view .podcast-scroll { padding: 18px 20px 24px; }
