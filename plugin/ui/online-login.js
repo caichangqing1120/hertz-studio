@@ -209,7 +209,10 @@
     kugou: '酷狗音乐 App',
     qishui: '汽水音乐 App',
   };
-  function scanApp(source) { return SCAN_APP[source] || '对应平台的 App'; }
+  function scanApp(source, channel) {
+    if (source === 'qq' && channel === 'wx') return '微信';
+    return SCAN_APP[source] || '对应平台的 App';
+  }
 
   /// 「怎么弄到这份 cookie」按音源渲染。数据来自 /v1/online/sources 的 login 字段
   /// （官网地址 + 后端判登录态实际认的字段名），这里不按音源名特判——SourceInfo
@@ -330,7 +333,7 @@
     }
     if (!isCurrent(mine.attempt)) return;
     if (p.state === 'waiting') {
-      el('qr-status').textContent = '请用' + scanApp(mine.source) + '扫码登录';
+      el('qr-status').textContent = '请用' + scanApp(mine.source, mine.channel) + '扫码登录';
       schedulePoll(mine, ms);
     } else if (p.state === 'scanned') {
       el('qr-status').textContent = '已扫码，请在手机上确认登录';
@@ -520,11 +523,8 @@
           if (intent.source !== s.id) enterLoggedIn(s.id);
         };
       } else {
-        // 未登录：显示平台名，点击走登录取码。扫码链路没真机验收过的源照常
-        // 可点，只加标注（A9）——「没验过」不该被画成「不支持」，也不该被当成
-        // 「一定能用」。
+        // 未登录：显示平台名，点击走登录取码。
         b.textContent = s.label;
-        if (window.Online) window.Online.markUnverified(b, s, 'qr_login');
         b.onclick = function () {
           if (intent.source !== s.id) start(s.id, 'qq');
         };
@@ -760,7 +760,7 @@
       return;
     }
     renderQr(s, mine);
-    if (isCurrent(mine.attempt)) el('qr-status').textContent = '请用' + scanApp(source) + '扫码登录';
+    if (isCurrent(mine.attempt)) el('qr-status').textContent = '请用' + scanApp(mine.source, mine.channel) + '扫码登录';
   }
 
   function close() {

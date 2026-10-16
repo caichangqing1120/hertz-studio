@@ -127,7 +127,6 @@
         qr.type = 'button';
         qr.textContent = '扫码登录';
         qr.onclick = function () { window.OnlineLogin.start(s.id); };
-        if (window.Online) window.Online.markUnverified(qr, s, 'qr_login');
         card.appendChild(qr);
       }
       var cookie = document.createElement('button');
@@ -135,7 +134,6 @@
       cookie.type = 'button';
       cookie.textContent = 'cookie 登录';
       cookie.onclick = function () { window.OnlineLogin.start(s.id); };
-      if (window.Online) window.Online.markUnverified(cookie, s, 'cookie_login');
       card.appendChild(cookie);
 
       box.appendChild(card);

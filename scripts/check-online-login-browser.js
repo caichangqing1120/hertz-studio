@@ -68,6 +68,15 @@ async function main() {
         const calls = await page.evaluate(() => window.calls);
         assert.deepEqual(calls.filter(c => c.url.endsWith('/qr/start')).map(c => c.body.source), ['qq']);
         assert.ok(!calls.some(c => c.url.endsWith('/qr/cancel') && c.body.ticket === 'qq'));
+        if (stage === 'sources' && outcome === 'success') {
+          await page.locator('#qr-ch-wx').click();
+          await page.waitForFunction(() => document.getElementById('qr-status').textContent === '请用微信扫码登录');
+          assert.equal(await page.locator('#qr-ch-wx').evaluate(el => el.classList.contains('active')), true);
+          assert.equal(await page.evaluate(() => calls.filter(c => c.url.endsWith('/qr/start')).at(-1).body.channel), 'wx');
+          await page.locator('#qr-ch-qq').click();
+          await page.waitForFunction(() => document.getElementById('qr-status').textContent === '请用手机 QQ（不是 QQ 音乐 App）扫码登录');
+          assert.equal(await page.locator('#qr-ch-qq').evaluate(el => el.classList.contains('active')), true);
+        }
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#qr-modal').isVisible(), false);
         assert.deepEqual(errors, []);
@@ -209,7 +218,7 @@ async function main() {
     await dead.waitForTimeout(500);
     assert.equal(await dead.evaluate(() => window.polls), after, '上游拒绝后不再对同一枚死票轮询');
     await dead.close();
-    console.log('Login Chrome: delayed lifecycle responses, cookie-only login and text QR rendering passed.');
+    console.log('Login Chrome: channel-specific scan hints, delayed lifecycle responses, cookie-only login and text QR rendering passed.');
   } finally { await browser.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

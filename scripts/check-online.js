@@ -417,6 +417,20 @@ async function loginScenario(pollStates, opts) {
 }
 
 (async function main() {
+  section('QQ 登录提示跟随扫码渠道，取码与等待轮询保持一致');
+  {
+    const s = await loginScenario(['waiting']);
+    for (const channel of ['wx', 'qq', 'wx']) {
+      await s.env.sandbox.window.OnlineLogin.start('qq', channel);
+      const expected = channel === 'wx' ? '请用微信扫码登录' : '请用手机 QQ（不是 QQ 音乐 App）扫码登录';
+      eq(s.status.textContent, expected, channel + ' 取码后提示正确 App');
+      await s.clock.flushNext();
+      eq(s.status.textContent, expected, channel + ' waiting 轮询不覆盖渠道提示');
+      const starts = s.transport.calls.post.filter(call => call.url.endsWith('/qr/start'));
+      eq(starts[starts.length - 1].body.channel, channel, channel + ' 提示与请求渠道一致');
+    }
+    s.env.sandbox.window.OnlineLogin.close();
+  }
   // ---- 1.1 waiting → scanned → confirmed：轮询推进、确认后停表关窗 ----
   section('扫码状态机：waiting/scanned/confirmed');
   {
@@ -1591,15 +1605,8 @@ async function loginScenario(pollStates, opts) {
       '401 是授权断言：这时才允许翻回未登录');
   }
 
-  // ---- A9 能力第三档：登记了但没真机验收过 ≠ 不支持，也 ≠ 已支持 ------------
-  section('能力第三档：未验收的入口照常给，但标注要落在界面上');
+  section('登录入口只显示操作名称，不显示未验收标记');
   {
-    const bare = makeSandbox({ transport: makeTransport({ GET: [], POST: [] }) }).sandbox.window.Online;
-    ok(bare.isUnverified({ caps: ['qr_login'], unverified: ['qr_login'] }, 'qr_login'), '登记的未验收能力读得到');
-    ok(!bare.isUnverified({ caps: ['qr_login'] }, 'qr_login'), '没有 unverified 字段就不许凭空长出标注');
-    ok(!bare.isUnverified({ caps: ['qr_login'], unverified: ['qr_login'] }, 'like'), '只标登记的那一位');
-    ok(!bare.isUnverified(null, 'qr_login'), '源对象缺失不报错');
-
     const env = playlistSandbox({
       sources: [
         { id: 'kugou', label: '酷狗音乐', caps: ['cookie_login', 'qr_login'], unverified: ['qr_login'] },
@@ -1614,21 +1621,21 @@ async function loginScenario(pollStates, opts) {
     const ne = cards.children.find((c) => c.dataset.source === 'netease');
     const kQr = kugou.children.find((c) => textOf(c).indexOf('扫码登录') >= 0);
     const kCookie = kugou.children.find((c) => textOf(c).indexOf('cookie 登录') >= 0);
-    ok(kQr.classList.contains('is-unverified'), '未验收的扫码入口带上标注类');
-    ok(textOf(kQr).indexOf('未验收') >= 0, '标注是看得见的文字，不只是 tooltip');
-    ok(String(kQr.getAttribute('title')).indexOf('真机') >= 0, 'tooltip 说清是缺真机验收记录');
+    eq(textOf(kQr), '扫码登录', '扫码按钮只显示操作名称');
+    ok(!kQr.classList.contains('is-unverified'), '扫码入口不带验收标注类');
+    ok(!kQr.getAttribute('title'), '扫码按钮不显示验收 tooltip');
     ok(!kCookie.classList.contains('is-unverified'), '同源的 cookie 入口没被连带标上');
     ok(!ne.children.some((c) => c.classList.contains('is-unverified')), '没声明的源一个标注都不该有');
-    // 标注不许随重绘累积：同一个按钮被反复 render 时只应有一个「未验收」。
+    // 账号重新渲染后也不能重新加回标记。
     env.sandbox.window.OnlinePlaylists.init();
     await ticks(20);
     const kQr2 = env.doc.getElementById('op-accounts').children
       .find((c) => c.dataset.source === 'kugou')
       .children.find((c) => textOf(c).indexOf('扫码登录') >= 0);
-    ok(textOf(kQr2).indexOf('未验收') >= 0, '重绘后标注还在');
+    eq(textOf(kQr2), '扫码登录', '重绘后按钮仍只有操作名称');
   }
   {
-    // 登录弹窗里的源 tab 用同一份判据（两个入口不该各写一套标注规则）。
+    // 弹窗平台按钮也只显示平台名，即使服务端仍返回 unverified 元数据。
     const transport = makeTransport({
       GET: [
         {
@@ -1649,8 +1656,8 @@ async function loginScenario(pollStates, opts) {
     await env.sandbox.window.OnlineLogin.open();
     await ticks(20);
     const tab = env.doc.getElementById('qr-sources').children[0];
-    ok(tab.classList.contains('is-unverified'), '弹窗里的未验收源 tab 也带标注');
-    ok(textOf(tab).indexOf('未验收') >= 0, 'tab 上的标注同样看得见');
+    ok(!tab.classList.contains('is-unverified'), '弹窗平台按钮不带验收标注类');
+    eq(textOf(tab), '酷狗音乐', '弹窗平台按钮只显示平台名称');
   }
 
   section('详情整盘/随机播放走 Online.playAll');

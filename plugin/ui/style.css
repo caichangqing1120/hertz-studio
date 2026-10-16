@@ -3659,7 +3659,7 @@ button:focus-visible, [role="button"]:focus-visible,
    最小化时 body 挂 .is-capsule，除胶囊外的顶层节点全部隐藏。不逐个列容器名，
    是因为皮肤会改布局栅格的类名与层级，列名单必然漏；而胶囊是 position: fixed，
    与四套皮肤正交——皮肤管文档流里的栅格，胶囊浮在其上。
-   外形对齐参考：深色玻璃胶囊、圆角封面、三行文字（正在播放 / 标题 / 艺术家），
+   外形对齐参考：主题色胶囊、圆角封面、三行文字（正在播放 / 标题 / 艺术家），
    标题与艺术家是窄窗口 + 左右轮播（5 字 / 3 字宽），整块可拖可点。 */
 body.is-capsule > *:not(#capsule) { display: none !important; }
 
@@ -3671,7 +3671,7 @@ body.is-capsule > *:not(#capsule) { display: none !important; }
   padding: 5px 8px 5px 5px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);
-  background: rgba(20, 23, 27, 0.9);
+  background: var(--panel-solid);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--shadow);
@@ -3743,22 +3743,30 @@ body.is-playing .capsule-btn .ic-pause { display: block; }
    胶囊就是窗口的全部内容。于是要撤掉页内定位——position: fixed 的 right/bottom 偏移
    会把它推出这么小的窗口。宿主的浮窗不透明（要给用户拖的东西必须处处点得动），所以
    这里让页面背景与胶囊同色、整窗读作一张圆角卡片；阴影画不出窗口边界，去掉。 */
-body.is-floating-capsule { background: rgb(20 23 27) !important; }
+/* 浮窗只容纳胶囊。显式清掉皮肤给 body 的留白（如星轨窄屏的 8px），否则
+   setSize 量到的是胶囊自身，偏移后的右侧/底部却落在原生窗口之外。html 前缀让
+   这里的优先级高于后加载的 [data-skin] body，启动前后都使用同一布局。 */
+html body.is-floating-capsule,
+html.hertz-floating-preboot body {
+  padding: 0;
+  gap: 0;
+  background: var(--panel-solid) !important;
+}
 body.is-floating-capsule > *:not(#capsule) { display: none !important; }
 /* boot 前的第一帧（index.html 里按 URL 参数挂的类）：与 is-floating-capsule 同一套
    隐藏规则，只是挂在 html 上、早于任何 JS 生效，避免完整界面在小窗口里闪一帧。 */
-html.hertz-floating-preboot body { background: rgb(20 23 27) !important; }
 html.hertz-floating-preboot body > *:not(#capsule) { display: none !important; }
 body.is-floating-capsule #capsule {
   position: static;
   display: flex;
   align-self: flex-start;
+  flex: 0 0 auto;
   /* 保持内容宽度：窗口尺寸要按胶囊量出来（app.js 的 fitFloatingWindowToCapsule），
      写成 100% 会和自己循环——量出来的永远是窗口当前宽。页面与胶囊同色，整窗仍读作
      一张卡片。 */
   width: max-content;
   max-width: none;
-  background: rgb(20 23 27);
+  background: var(--panel-solid);
   border-radius: 12px;
   box-shadow: none;
   backdrop-filter: none;

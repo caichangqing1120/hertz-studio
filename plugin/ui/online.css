@@ -325,11 +325,6 @@ html.qr-modal-open .app{visibility:hidden}
 .op-account .btn{padding:5px 12px;font-size:12px}
 /* 探测没出结果（不是未登录）时挂在卡尾的一行状态：占满整行，别挤在按钮旁边 */
 .op-stale{flex:1 1 100%;font-size:12px;line-height:1.5;color:var(--muted)}
-/* 能力第三档（A9）：登记了但没真机验收过。入口照常给，标注要显眼到能改变预期。 */
-.op-trial{margin-left:5px;padding:1px 5px;border-radius:999px;
-  font-size:10px;line-height:1.5;color:var(--muted);
-  border:1px dashed var(--line-strong);vertical-align:middle}
-.btn.is-unverified{border-style:dashed}
 .op-account.is-in{justify-content:flex-start}
 .op-avatar{width:38px;height:38px;flex:none;border-radius:50%;overflow:hidden;
   background:color-mix(in srgb,var(--accent) 18%,var(--panel-2));

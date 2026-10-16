@@ -2091,33 +2091,12 @@
       if (code === 'capability_unsupported') return 'unsupported';
       return 'unknown';
     },
-    // —— 能力第三档（A9）——
-    // 后端 `caps` 说的是「放行吗」，`unverified` 说的是「这条链路有没有真机验收
-    // 记录」。两者必须分开画：「不支持」是不给入口，「没验过」是给入口但讲清楚。
-    // 缺字段按空表处理：旧服务端没有这条声明，不许凭空长出标注。
-    isUnverified: function (src, cap) {
-      return !!src && (src.unverified || []).indexOf(cap) >= 0;
-    },
     // 能力位查询（caps 是 UI 的唯一事实表）。导出给集合详情页用：整单播放
     // 按钮只对登记了 playlist_detail 的音源承诺「播放全部」。
     supports: sourceHasCap,
     /// 降档提示的去重闸门（同一首同一档只说一次）。导出是为了让契约检查真的
     /// 驱动它：这条规则只看得到一个 toast 有没有重复，不跑代码抓不住。
     qualityNoticeOnce: qualityNoticeOnce,
-    /// 给按能力位生成的控件补标注。只标一次：按节点 dataset 判重，不走
-    /// querySelector（宿主与契约检查的 DOM 桩对它的实现宽窄不一，靠它判重会失灵）。
-    markUnverified: function (node, src, cap) {
-      if (!node || !window.Online.isUnverified(src, cap)) return node;
-      if (node.dataset && node.dataset.trialMarked) return node;
-      if (node.dataset) node.dataset.trialMarked = '1';
-      node.classList.add('is-unverified');
-      node.setAttribute('title', '该平台这条链路还没有真机验收记录，可能不可用；失败会如实报错');
-      var tag = document.createElement('span');
-      tag.className = 'op-trial';
-      tag.textContent = '未验收';
-      node.appendChild(tag);
-      return node;
-    },
     refreshCookieUi: refreshCookieUi,
     reloadHistory: loadHistory,
     sources: function () { return onlineState.sources; },
