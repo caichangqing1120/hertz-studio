@@ -462,15 +462,16 @@ function checkSearchAndUndo() {
   eq(SC.values().cinema, snapshot.cinema, '撤销只回最后一步（开关）');
   eq(SC.values().intensity, 140, '没参与那一步的键保持不动');
 
-  // 键盘连按（同键、间隔在合并窗内）算一笔。两次都要是真实变化：
+  // 一次按住方向键的重复 keydown 算一笔，keyup 结束手势。两次都要是真实变化：
   // 把 100 调成 100 不该产出一条历史，那样这个断言会退化成空测。
   const snap2 = SC.values();
   const depthBeforeBurst = SC.historyDepth();
-  den.fire('keydown'); den.value = '110'; den.fire('input'); den.fire('change');
+  den.fire('keydown', { key: 'ArrowRight' }); den.value = '110'; den.fire('input'); den.fire('change');
   s.tick(200);
-  den.fire('keydown'); den.value = '115'; den.fire('input'); den.fire('change');
+  den.fire('keydown', { key: 'ArrowRight' }); den.value = '115'; den.fire('input'); den.fire('change');
+  den.fire('keyup', { key: 'ArrowRight' });
   const depthAfterBurst = SC.historyDepth();
-  eq(depthAfterBurst, depthBeforeBurst + 1, '合并窗内的同键连按只占一条历史');
+  eq(depthAfterBurst, depthBeforeBurst + 1, '一次按住方向键只占一条历史');
   SC.undo();
   eq(SC.values().density, snap2.density, '撤销一次回到整段之前（不是只退最后一下）');
 
@@ -478,13 +479,13 @@ function checkSearchAndUndo() {
   den.fire('keydown'); den.value = String(SC.values().density); den.fire('input'); den.fire('change');
   eq(SC.historyDepth(), dNoop, '把值调回原样不产出一条假历史');
 
-  // 超出合并窗的两次同键调整算两笔：不然撤一次会退得比用户预期的远。
+  // 两次独立手势算两笔：不然撤一次会退得比用户预期的远。
   const dBefore = SC.historyDepth();
   den.fire('keydown'); den.value = '120'; den.fire('input'); den.fire('change');
   const mid = SC.values().density;
   s.tick(1000);
   den.fire('keydown'); den.value = '130'; den.fire('input'); den.fire('change');
-  eq(SC.historyDepth(), dBefore + 2, '相隔超出合并窗的两次调整算两笔');
+  eq(SC.historyDepth(), dBefore + 2, '两次独立调整算两笔');
   SC.undo();
   eq(SC.values().density, mid, '撤销只退回上一笔，不是一路退到段首');
 
