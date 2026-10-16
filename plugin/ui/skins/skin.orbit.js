@@ -222,7 +222,18 @@
       depth.style.transform = 'translateZ(' + z + 'px)';
       depth.setAttribute('aria-hidden', 'true');
     }
-    moves.relocate(stage.querySelector('.disc-wrap'), refs.rig);
+    refs.recordToggle = make('button', 'orbit-record-toggle', refs.rig);
+    refs.recordToggle.id = 'orbit-record-toggle';
+    refs.recordToggle.type = 'button';
+    refs.recordToggle.title = '切换为中心封面';
+    refs.recordToggle.setAttribute('aria-label', '封面居中');
+    refs.recordToggle.setAttribute('aria-pressed', 'false');
+    listen(refs.recordToggle, 'click', function () {
+      var centered = refs.recordToggle.getAttribute('aria-pressed') !== 'true';
+      refs.recordToggle.setAttribute('aria-pressed', String(centered));
+      refs.recordToggle.title = centered ? '切换为外圈封面' : '切换为中心封面';
+    });
+    moves.relocate(stage.querySelector('.disc-wrap'), refs.recordToggle);
     var arm = make('div', 'orbit-tonearm', refs.rig);
     arm.setAttribute('aria-hidden', 'true');
     refs.next = button(refs.turntable, 'orbit-next', 'orbit-float orbit-next', '下一首', 'disc', function () {

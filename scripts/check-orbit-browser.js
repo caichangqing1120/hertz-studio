@@ -113,6 +113,21 @@ async function main() {
       'navigation toggle identifies its target and expanded state');
     check(await page.locator('.orbit-depth').count() === 14, 'vinyl retains the original fourteen physical depth layers');
     check(await page.locator('.orbit-ring').count() === 0, 'record is one solid vinyl without exterior decorative rings');
+    const recordToggle = page.locator('#orbit-record-toggle');
+    check(await recordToggle.getAttribute('aria-pressed') === 'false', 'record starts with the cover on the outer surface');
+    await recordToggle.click();
+    check(await recordToggle.getAttribute('aria-pressed') === 'true'
+      && await page.locator('#cover').evaluate(el => getComputedStyle(el).backgroundSize === '36% 36%'),
+      'clicking the record moves the cover into the black vinyl center');
+    await recordToggle.click();
+    check(await recordToggle.getAttribute('aria-pressed') === 'false'
+      && await page.locator('#cover').evaluate(el => getComputedStyle(el).backgroundSize === 'cover'),
+      'clicking the record again restores the outer cover');
+    await recordToggle.focus();
+    await page.keyboard.press('Enter');
+    check(await recordToggle.getAttribute('aria-pressed') === 'true', 'Enter switches the record style');
+    await page.keyboard.press('Space');
+    check(await recordToggle.getAttribute('aria-pressed') === 'false', 'Space switches the record style back');
     check(!await page.locator('#stage .stage-fx').isVisible(), 'original stage vignette does not frame the sculpted record');
     const rig = page.locator('.orbit-rig');
     await page.mouse.move(4, 4);
@@ -207,6 +222,11 @@ async function main() {
       check(layout.column.height >= 100, width + 'px leaves room for library content');
       if (layout.queue.visible) check(layout.queue.bottom <= layout.bar.y + 1, width + 'px sidebar stays above player');
       await page.screenshot({ path:path.join(output, width + 'x' + height + '.png') });
+      await recordToggle.click();
+      check(await recordToggle.getAttribute('aria-pressed') === 'true'
+        && await page.locator('#stage').evaluate(el => el.scrollLeft === 0),
+        width + 'px switches record style without shifting the stage');
+      await recordToggle.click();
       await navToggle.click();
       check(!await page.locator('#rail').isVisible() && await navToggle.getAttribute('aria-expanded') === 'false',
         width + 'px hides navigation while keeping the expand control available');
@@ -251,7 +271,7 @@ async function main() {
       const stageParent = stage.parentNode, columnParent = column.parentNode;
       for (const id of ['orbit','orbit','sheen','orbit','heijiao','orbit','liunian','orbit','qingfeng','orbit','classic']) Skins.apply(id);
       const clean = stage.parentNode === stageParent && column.parentNode === columnParent
-        && !document.querySelector('.orbit-main, .orbit-queue, .orbit-anchor');
+        && !document.querySelector('.orbit-main, .orbit-queue, .orbit-anchor, #orbit-record-toggle');
       const Observer = window.MutationObserver;
       window.MutationObserver = class { constructor() { window.MutationObserver = Observer; throw new Error('orbit mount probe'); } };
       let failed = false;

@@ -170,6 +170,11 @@
 [data-skin="orbit"] .orbit-ground-shadow { background: var(--orbit-shadow); transform: translateZ(-38px) scale(1.04); filter: blur(14px); }
 [data-skin="orbit"] .orbit-depth { background: var(--record-base); box-shadow: inset 0 0 0 1px var(--record-groove); }
 [data-skin="orbit"] .orbit-depth:nth-child(even) { background: var(--record-groove); }
+[data-skin="orbit"] .orbit-record-toggle {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block; padding: 0;
+  appearance: none; border: 0; border-radius: 50%; background: transparent; cursor: pointer;
+  transform-style: preserve-3d; touch-action: manipulation;
+}
 [data-skin="orbit"] .orbit-rig .disc-wrap { width: 100%; height: 100%; aspect-ratio: 1; margin: 0; transform-style: preserve-3d; transform: translateZ(14px); }
 [data-skin="orbit"] .orbit-rig .disc { background-size: cover; background-color: var(--record-base); border: 1px solid var(--record-base); box-shadow: inset 0 0 0 3px var(--record-base); animation: orbit-spin 5.5s linear infinite paused; }
 [data-skin="orbit"] .orbit-rig .disc.is-empty { background-image: none; }
@@ -180,6 +185,10 @@
   background: conic-gradient(from 20deg, transparent 8%, var(--record-glint) 14%, transparent 22% 55%, var(--record-glint) 64%, transparent 72%),
     repeating-radial-gradient(circle, var(--record-base) 0 2px, var(--record-groove) 2px 3px);
   mask: radial-gradient(circle closest-side, var(--record-base) 0 33%, transparent 34%); opacity: 1; pointer-events: none;
+}
+[data-skin="orbit"] .orbit-record-toggle[aria-pressed="true"] .disc { background-size: 36% 36%; }
+[data-skin="orbit"] .orbit-record-toggle[aria-pressed="true"] .disc::before {
+  mask: radial-gradient(circle closest-side, transparent 0 33%, var(--record-base) 34%);
 }
 [data-skin="orbit"] .orbit-rig .disc::after { width: 3.5%; height: 3.5%; background: var(--orbit-lo); box-shadow: inset 1px 1px 2px var(--orbit-shadow); }
 [data-skin="orbit"] .orbit-rig .disc-ring,
@@ -345,7 +354,7 @@
   [data-skin="orbit"] .top-right { grid-column: 1 / -1; grid-row: 2; width: 100%; gap: 4px; margin-left: 0; justify-content: flex-end; }
   [data-skin="orbit"] .top-right .conn { margin-right: auto; }
   [data-skin="orbit"] .top-right .iconbtn { width: 28px; height: 28px; }
-  [data-skin="orbit"] body .orbit-main > .stage { height: 190px; margin-top: 4px; grid-template-columns: minmax(0, 1fr) minmax(100px, .85fr); gap: 6px; overflow: hidden; }
+  [data-skin="orbit"] body .orbit-main > .stage { height: 190px; margin-top: 4px; grid-template-columns: minmax(0, 1fr) minmax(100px, .85fr); gap: 6px; overflow: clip; }
   [data-skin="orbit"] .orbit-info { padding-bottom: 0; }
   [data-skin="orbit"] .orbit-info .stage-head { margin-bottom: 8px; min-height: 14px; }
   [data-skin="orbit"] .orbit-info .stage-title { font-size: 22px; }
