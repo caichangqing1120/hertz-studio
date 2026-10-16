@@ -292,6 +292,7 @@ pub(super) const fn source_infos() -> [SourceInfo; PROVIDERS.len()] {
 
 // Registration order is the source-list, default-search and aggregation order.
 const PROVIDERS: &[Provider] = &[
+    #[cfg(feature = "full")]
     Provider {
         referer: Some("https://music.163.com"),
         quality: QualityProfile {
@@ -383,6 +384,7 @@ const PROVIDERS: &[Provider] = &[
             },
         )
     },
+    #[cfg(feature = "full")]
     Provider {
         referer: Some("https://y.qq.com/"),
         quality: QualityProfile {
@@ -466,6 +468,7 @@ const PROVIDERS: &[Provider] = &[
             },
         )
     },
+    #[cfg(feature = "full")]
     Provider {
         referer: Some("https://www.kugou.com/"),
         quality: QualityProfile {
@@ -538,6 +541,7 @@ const PROVIDERS: &[Provider] = &[
             },
         )
     },
+    #[cfg(feature = "full")]
     Provider {
         referer: Some("https://www.kuwo.cn/"),
         quality: QualityProfile {
@@ -619,6 +623,7 @@ const PROVIDERS: &[Provider] = &[
             },
         )
     },
+    #[cfg(feature = "full")]
     Provider {
         referer: Some("https://www.qishui.com/"),
         unverified: &[Capability::QrLogin],
@@ -656,6 +661,7 @@ const PROVIDERS: &[Provider] = &[
             },
         )
     },
+    #[cfg(feature = "full")]
     Provider {
         referer: Some("https://music.migu.cn/v5/"),
         unverified: &[Capability::CookieLogin],
@@ -799,6 +805,41 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "full"))]
+    #[tokio::test]
+    async fn standard_excludes_platforms_from_every_dispatch_path() {
+        let ctx = lazy_context();
+        for id in ["netease", "qq", "kugou", "kuwo", "qishui", "migu"] {
+            assert!(find(id).is_none());
+            let query = SearchQuery {
+                source: id.into(),
+                q: Some("test".into()),
+                cat: None,
+                offset: 0,
+                limit: 1,
+            };
+            assert_eq!(
+                search(&ctx, query).await.unwrap_err().code,
+                "capability_unsupported"
+            );
+            assert_eq!(
+                stream(&ctx, id, "1", None, Some(128_000))
+                    .await
+                    .unwrap_err()
+                    .code,
+                "capability_unsupported"
+            );
+            assert!(require(id).is_err());
+            assert_eq!(
+                qr_start(&ctx, id, None).await.unwrap_err().code,
+                "capability_unsupported"
+            );
+        }
+        for id in ["ccmixter", "jamendo", "podcast"] {
+            assert!(find(id).is_some());
+        }
+    }
+
     #[tokio::test]
     async fn podcast_provider_is_visible_but_separate_from_music() {
         let ctx = lazy_context();
@@ -809,7 +850,7 @@ mod tests {
             .expect("podcasts must use the shared playback provider");
         assert_eq!(podcast["kind"], "podcast");
         assert_eq!(
-            sources.iter().find(|s| s["id"] == "netease").unwrap()["kind"],
+            sources.iter().find(|s| s["id"] == "ccmixter").unwrap()["kind"],
             "music"
         );
         assert!(!daily_source_states(&ctx)
@@ -838,7 +879,20 @@ mod tests {
         assert_eq!(
             SOURCES.iter().map(|s| s.id).collect::<Vec<_>>(),
             [
-                "netease", "qq", "kugou", "kuwo", "ccmixter", "jamendo", "qishui", "migu",
+                #[cfg(feature = "full")]
+                "netease",
+                #[cfg(feature = "full")]
+                "qq",
+                #[cfg(feature = "full")]
+                "kugou",
+                #[cfg(feature = "full")]
+                "kuwo",
+                "ccmixter",
+                "jamendo",
+                #[cfg(feature = "full")]
+                "qishui",
+                #[cfg(feature = "full")]
+                "migu",
                 "podcast"
             ]
         );
@@ -853,11 +907,14 @@ mod tests {
             }
         }
         // These implementations remain bound while the real-machine gates stay closed.
-        let kugou = registry.require("kugou").unwrap();
-        assert!(kugou.playlist_write.is_some());
-        assert!(kugou.recommend_songs.is_some());
-        assert!(kugou.gate(Capability::PlaylistWrite).is_err());
-        assert!(kugou.gate(Capability::RecommendSongs).is_err());
+        #[cfg(feature = "full")]
+        {
+            let kugou = registry.require("kugou").unwrap();
+            assert!(kugou.playlist_write.is_some());
+            assert!(kugou.recommend_songs.is_some());
+            assert!(kugou.gate(Capability::PlaylistWrite).is_err());
+            assert!(kugou.gate(Capability::RecommendSongs).is_err());
+        }
     }
 
     #[tokio::test]

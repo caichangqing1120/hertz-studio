@@ -217,6 +217,7 @@ pub fn clamp_request(want: Quality, ceiling: Option<Quality>) -> Quality {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "full")]
     use serde_json::json;
 
     #[test]
@@ -250,6 +251,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "full")]
     fn defaults_and_allowed_tables() {
         assert_eq!(default_for("netease"), Quality::Hires);
         assert_eq!(default_for("qishui"), Quality::Standard);
@@ -265,6 +267,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "full")]
     fn prefs_round_trip_and_drop_garbage() {
         let v = json!({"netease":"lossless","qq":"bogus"});
         let prefs = from_value(Some(&v));

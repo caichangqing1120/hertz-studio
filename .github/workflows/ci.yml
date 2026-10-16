@@ -12,12 +12,15 @@ env:
 
 jobs:
   test:
-    name: fmt · clippy · test
+    name: ${{ matrix.edition }} · fmt · clippy · test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        edition: [standard, full]
+    env:
+      EDITION_FEATURES: ${{ matrix.edition == 'full' && 'hertz-studio/full,dbx-plugin-hertz/full' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -49,6 +52,9 @@ jobs:
         # 「哪一步在防什么失败」写在 scripts/check-frontend.js 的 why 字段里；本地
         # 全跑一遍是同一条命令，不用再从 YAML 里复制二十行。默认集合与拆分写法等价。
         run: node scripts/check-frontend.js
+
+      - name: Verify edition staging
+        run: node scripts/check-editions.js
 
       - name: Check formatting
         # 不用 --all：它会把 vendored 的 dbx-plugin-sdk 一起重排，而那份 src/lib.rs
@@ -83,7 +89,7 @@ jobs:
         continue-on-error: true
         env:
           CARGO_TERM_COLOR: never
-        run: cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee clippy.log
+        run: cargo clippy --workspace --all-targets --features "$EDITION_FEATURES" -- -D warnings 2>&1 | tee clippy.log
 
       # The audio tests run against the null backend so they do not need a
       # sound card on the runner.
@@ -99,7 +105,7 @@ jobs:
         env:
           VMUSIC_BACKEND: "null"
           CARGO_TERM_COLOR: never
-        run: cargo test --workspace 2>&1 | tee test.log
+        run: cargo test --workspace --features "$EDITION_FEATURES" 2>&1 | tee test.log
 
       - name: Surface failures as annotations
         if: steps.clippy.outcome == 'failure' || steps.test.outcome == 'failure'
@@ -183,6 +189,8 @@ jobs:
         run: |
           cargo build -p dbx-plugin-hertz
           node scripts/check-plugin-sidecar.js 2>&1 | tee sidecar.log
+          cargo build -p dbx-plugin-hertz --features full
+          HERTZ_EDITION=full node scripts/check-plugin-sidecar.js 2>&1 | tee -a sidecar.log
         env:
           VMUSIC_BACKEND: "null"
       # 临时诊断（定位完与 test job 那处一起撤）：这一步红时只有「exit code 1」，

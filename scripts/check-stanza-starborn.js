@@ -460,7 +460,7 @@ ok(/#stage3d\.s3d-starborn\.s3d-no-vignette \.s3d-starborn-grade::before \{ opac
   ok(starbornCss.includes('var(--sb-' + name + ','), '星诞电影 CSS 消费 --sb-' + name);
 });
 ok(/href="stanza\/stanza-starborn\.css"/.test(indexHtml), '页面加载独立星诞电影层 CSS');
-ok(/include_str!\("\.\.\/\.\.\/\.\.\/plugin\/ui\/stanza\/stanza-starborn\.css"\)/.test(mainRs)
+ok(/edition_ui!\("stanza\/stanza-starborn\.css"\)/.test(mainRs)
   && require('./ui-assets').hasAsset('/stanza/stanza-starborn.css'), '星诞 CSS 同时有后端内嵌与资源路由');
 ['s3d-starborn-grade', 's3d-starborn-transition'].forEach(name => {
   ok(indexHtml.includes('class="' + name + '"') && starbornCss.includes('.' + name), '电影层节点与 CSS 同名：' + name);
@@ -482,11 +482,11 @@ const handoffBody = (stage3d.match(/function handoffDuration\([\s\S]*?\n  \}/) |
 ok(/cinemaFrame\(\)/.test(handoffBody) && /transitionMs/.test(handoffBody),
   '宿主双实例交接与导演光擦使用同一个时长');
 
-ok(/include_str!\("\.\.\/\.\.\/\.\.\/plugin\/ui\/stanza\/stanza-songform\.js"\)/.test(mainRs),
-  '后端 include_str! 内嵌曲式层脚本');
+ok(/edition_ui!\("stanza\/stanza-songform\.js"\)/.test(mainRs),
+  '后端 edition_ui! 内嵌曲式层脚本');
 ok(require('./ui-assets').hasAsset('/stanza/stanza-songform.js'), '后端提供 /stanza/stanza-songform.js 路由');
-ok(/include_str!\("\.\.\/\.\.\/\.\.\/plugin\/ui\/stanza\/stanza-starborn\.js"\)/.test(mainRs),
-  '后端 include_str! 内嵌星诞脚本');
+ok(/edition_ui!\("stanza\/stanza-starborn\.js"\)/.test(mainRs),
+  '后端 edition_ui! 内嵌星诞脚本');
 ok(require('./ui-assets').hasAsset('/stanza/stanza-starborn.js'), '后端提供 /stanza/stanza-starborn.js 路由');
 ok(/<script[^>]*src="stanza\/stanza-songform\.js"><\/script>/.test(indexHtml), 'index.html 加载曲式层脚本');
 ok(/<script[^>]*src="stanza\/stanza-starborn\.js"><\/script>/.test(indexHtml), 'index.html 加载星诞脚本');

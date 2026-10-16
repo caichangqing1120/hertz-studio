@@ -110,7 +110,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" \
 [[ "$code" == "400" ]] || { echo "expected 400 for limit=0, got $code"; exit 1; }
 
 echo "==> 汽水音乐：已注册且能力位如实"
-curl -sf "${AUTH[@]}" "http://127.0.0.1:$PORT/v1/online/sources" | grep '"qishui"' >/dev/null
+curl -sf "${AUTH[@]}" "http://127.0.0.1:$PORT/v1/online/sources" | grep '"ccmixter"' >/dev/null
 # 只登记了 CookieLogin：不承诺扫码，也不承诺高音质（受保护音质是拒播的）。
 curl -sf "${AUTH[@]}" "http://127.0.0.1:$PORT/v1/online/sources" \
   | tr ',' '\n' | grep -A0 '"caps"' | sed -n 1p

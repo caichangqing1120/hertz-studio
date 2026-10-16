@@ -410,12 +410,14 @@
       </div>
     </div>
 
+    <!-- edition:full -->
     <button id="online-account-btn" class="iconbtn" title="登录音源" aria-label="登录在线音源账号" aria-haspopup="dialog">
       <span class="iconbtn-face" id="online-account-face">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg>
         <span id="online-account-dot" class="icon-dot" hidden></span>
       </span>
     </button>
+    <!-- edition:end -->
 
   </div>
 </header>
@@ -626,7 +628,7 @@
         <button id="lib-batch-fav" class="btn" type="button">收藏</button>
         <button id="lib-batch-edit" class="btn" type="button">批量编辑</button>
         <button id="lib-batch-complete" class="btn" type="button"
-                title="按标题/歌手在网易云匹配，列出候选由你逐首确认后再补齐缺失的封面、歌词与专辑（不覆盖已有信息）">联网补全</button>
+                title="按标题和歌手搜索，逐首确认后补齐缺失的封面、歌词与专辑">联网补全</button>
         <button id="lib-batch-clear" class="btn" type="button" aria-label="取消选择">取消</button>
       </div>
     </div>
@@ -708,7 +710,10 @@
         </div>
         <div class="col-tools">
           <select id="online-source" aria-label="音源">
+            <!-- edition:full -->
             <option value="netease">网易云音乐</option>
+            <!-- edition:end -->
+            <option value="ccmixter">ccMixter</option>
           </select>
           <select id="online-quality" class="online-quality" aria-label="音质档位" title="音质档位"></select>
         </div>
@@ -734,10 +739,11 @@
           <button class="chip" type="button" data-kind="artist">歌手</button>
           <button class="chip" type="button" data-kind="album">专辑</button>
         </div>
-        <input id="online-q" type="search" placeholder="搜索在线音源（网易云 / QQ / 酷狗 / 酷我 / 汽水 / ccmixter / 咪咕）…" autocomplete="off" aria-label="搜索在线曲库">
+        <input id="online-q" type="search" placeholder="搜索在线音乐…" autocomplete="off" aria-label="搜索在线曲库">
         <button id="online-go" class="btn primary">搜索</button>
       </div>
 
+      <!-- edition:full -->
       <section class="online-radio" aria-label="私人 FM">
         <div class="online-radio-copy">
           <strong>私人 FM <span>网易云音乐 · 连续推荐</span></strong>
@@ -751,6 +757,7 @@
           <button id="radio-stop" class="btn" type="button" hidden>退出 FM</button>
         </div>
       </section>
+      <!-- edition:end -->
 
       <div class="online-chips" id="online-chips" role="group" aria-label="分类">
         <button class="chip active" data-cat="hot">热门</button>
@@ -778,17 +785,26 @@
             <select id="op-history-source" class="op-history-source" aria-label="按来源筛选">
               <option value="">全部来源</option>
               <option value="local">本地</option>
+              <option value="ccmixter">ccMixter</option>
+              <option value="jamendo">Jamendo</option>
+              <option value="podcast">播客</option>
+              <!-- edition:full -->
               <option value="netease">网易云</option>
               <option value="qq">QQ</option>
               <option value="kugou">酷狗</option>
               <option value="qishui">汽水</option>
+              <option value="kuwo">酷我</option>
+              <option value="migu">咪咕</option>
+              <!-- edition:end -->
             </select>
             <button id="op-history-clear" class="op-history-clear" type="button">清空</button>
           </div>
           <div id="op-history-list" class="op-history-list"></div>
           <button id="op-history-more" class="btn op-history-more" type="button" hidden>加载更早</button>
         </div>
+        <!-- edition:full -->
         <div class="op-section-title">我的账号</div>
+        <!-- edition:end -->
         <div id="op-accounts" class="op-accounts"></div>
         <div id="op-grid-head" class="op-section-title" hidden>我的歌单</div>
         <div id="op-grid" class="op-grid"></div>
@@ -1045,11 +1061,13 @@
           <input id="set-auto-play" type="checkbox">
           <span class="hint">重启服务后自动接续上次会话（队列、曲目与进度）；不开则显示恢复的曲目、按播放键手动接续</span>
         </div>
+        <!-- edition:full -->
         <div class="set-row">
           <label for="set-scrobble">网易云听歌打卡</label>
           <input id="set-scrobble" type="checkbox" checked>
           <span class="hint">在线试听满 30 秒有效收听自动计入播放量（拖动进度不算）；需要已登录网易云</span>
         </div>
+        <!-- edition:end -->
         <div class="set-row">
           <label for="set-relay">曲源失效自动接力</label>
           <input id="set-relay" type="checkbox" checked>
@@ -1493,12 +1511,14 @@
           <span id="jamendo-portal"></span>
         </div>
         <div id="cookie-rows"></div>
+        <!-- edition:full -->
         <p class="hint set-note">
           这里填的是<b>你自己</b>在该站点的登录 cookie，服务端只会把它作为 Cookie 头
           发给那个站点自己的公开接口，和浏览器登录后的行为一致。填了之后退出再进也会
           保留；清空输入框并保存即可退出。本项目不解密受保护音频、不绕过付费内容，
           也不模拟任何站点的反爬签名或设备指纹。
         </p>
+        <!-- edition:end -->
       </div>
       <div class="set-group">
         <h2 class="set-title">快捷键</h2>
@@ -1946,6 +1966,7 @@
 
 <!-- 在线音源登录（online-login.js 驱动）。顶栏「账号」按钮随时可打开，
      弹窗内可切换音源；每个音源支持扫码（QQ 还能切 QQ/微信）或手动 cookie。 -->
+<!-- edition:full -->
 <div id="qr-modal" class="qr-modal" hidden>
   <div class="qr-card glass" role="dialog" aria-modal="true" aria-labelledby="qr-title">
     <button id="qr-close" class="qr-close" aria-label="关闭">×</button>
@@ -1972,6 +1993,7 @@
     </details>
   </div>
 </div>
+<!-- edition:end -->
 
 <!-- 播放控制弹窗：点击顶栏「正在播放」按钮弹出。
      内容为不透明实体卡片，保证进度 / 音量 / 播放暂停等控件清晰无模糊；
@@ -2309,8 +2331,10 @@
 <!-- 沉浸粒子场渲染器（第二批）：着色器全部经 Stage3D.shaderCatalog() 只读导出，
      这里只持有 GL 上下文与后处理链；与 stage3d.js 无加载期依赖，只被调用。 -->
 <script defer src="space-fields.js"></script>
+<!-- edition:full -->
 <script defer src="vendor/qrcode.js"></script>
 <script defer src="online-login.js"></script>
+<!-- edition:end -->
 <script defer src="online.js"></script>
 <script defer src="podcasts.js"></script>
 <script defer src="online-playlists.js"></script>

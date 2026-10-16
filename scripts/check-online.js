@@ -1233,6 +1233,27 @@ async function loginScenario(pollStates, opts) {
     eq(env2.spies.toasts.length, 0, '静默预取被跳过时不弹错误 toast');
   }
 
+  section('首屏预取等待音源清单后重新检查分类');
+  {
+    let resolveSources;
+    const pending = new Promise(resolve => { resolveSources = resolve; });
+    const transport = makeTransport({ GET: [
+      { match: '/v1/online/sources', returns: () => pending },
+      { match: '/v1/online/search?', throw: new Error('unexpected empty search') },
+    ] });
+    const env = makeSandbox({ transport });
+    const bound = bindOnline(env);
+    bound.ui.onlineSource = { value: 'ccmixter', replaceChildren() {} };
+    const online = env.sandbox.window.Online;
+    online.init();
+    online.onViewEnter();
+    resolveSources({ sources: [{ id: 'ccmixter', label: 'ccMixter', cats: [], caps: [] }] });
+    await ticks(20);
+    eq(online.state.cat, '', '首屏清单移除不存在的分类');
+    eq(transport.calls.get.filter(c => c.url.includes('/v1/online/search?')).length, 0,
+      '等待清单的预取不再发空搜索');
+  }
+
   section('单源搜索：行渲染、元数据缓存、失败诚实报错');
   {
     const transport = makeTransport({

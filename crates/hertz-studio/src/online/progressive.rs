@@ -1124,9 +1124,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-11-exhigh".into(),
+            "ccmixter-11-exhigh".into(),
             rungs(&[format!("http://{addr}/a"), format!("http://{addr}/b")]),
             None,
             index.clone(),
@@ -1178,9 +1178,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-12-hires".into(),
+            "ccmixter-12-hires".into(),
             rungs(&[format!("http://{addr}/a"), format!("http://{addr}/b")]),
             None,
             index.clone(),
@@ -1217,9 +1217,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-1-standard".into(),
+            "ccmixter-1-standard".into(),
             rungs(&[format!("http://{addr}/bad"), format!("http://{addr}/good")]),
             None,
             index.clone(),
@@ -1230,7 +1230,7 @@ mod tests {
         assert_eq!(path.extension().and_then(|e| e.to_str()), Some("mp3"));
         assert_eq!(tokio::fs::metadata(&path).await.unwrap().len(), 4096);
         assert_eq!(
-            index.find("netease", "1", "standard").await.as_deref(),
+            index.find("ccmixter", "1", "standard").await.as_deref(),
             Some(path.as_path())
         );
         // 目录里只该留下这一个正式文件：拒绝路径必须清掉 .part。
@@ -1239,7 +1239,7 @@ mod tests {
         while let Ok(Some(e)) = it.next_entry().await {
             left.push(e.file_name().to_string_lossy().into_owned());
         }
-        assert_eq!(left, vec!["netease-1-standard.mp3".to_string()]);
+        assert_eq!(left, vec!["ccmixter-1-standard.mp3".to_string()]);
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
@@ -1256,9 +1256,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-2-standard".into(),
+            "ccmixter-2-standard".into(),
             rungs(&[format!("http://{addr}/stub"), format!("http://{addr}/good")]),
             None,
             index.clone(),
@@ -1284,9 +1284,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-3-standard".into(),
+            "ccmixter-3-standard".into(),
             rungs(&[format!("http://{addr}/junk"), format!("http://{addr}/wav")]),
             None,
             index.clone(),
@@ -1299,16 +1299,16 @@ mod tests {
         let dir2 = tmp_cache_dir().await;
         let index2 = Arc::new(cache::CacheIndex::load(dir2.clone()).await);
         let dl2 = start(
-            "netease",
+            "ccmixter",
             dir2.clone(),
-            "netease-4-standard".into(),
+            "ccmixter-4-standard".into(),
             rungs(&[format!("http://{addr}/junk")]),
             None,
             index2.clone(),
         )
         .unwrap();
         assert!(dl2.join().await.is_err());
-        assert!(index2.find("netease", "4", "standard").await.is_none());
+        assert!(index2.find("ccmixter", "4", "standard").await.is_none());
         let mut left2 = tokio::fs::read_dir(&dir2).await.unwrap();
         assert!(
             left2.next_entry().await.unwrap().is_none(),
@@ -1339,9 +1339,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-6-lossless".into(),
+            "ccmixter-6-lossless".into(),
             vec![rung("/liar", 740_000), rung("/honest", 128_000)],
             Some(4_000),
             index.clone(),
@@ -1350,12 +1350,12 @@ mod tests {
         let path = dl.join().await.unwrap();
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
-            "netease-6-standard.mp3",
+            "ccmixter-6-standard.mp3",
             "降级拿到的文件不能继续挂无损的键"
         );
-        assert!(index.find("netease", "6", "lossless").await.is_none());
+        assert!(index.find("ccmixter", "6", "lossless").await.is_none());
         assert_eq!(
-            index.find("netease", "6", "standard").await.as_deref(),
+            index.find("ccmixter", "6", "standard").await.as_deref(),
             Some(path.as_path())
         );
         let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -1371,9 +1371,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-8-lossless".into(),
+            "ccmixter-8-lossless".into(),
             vec![Candidate {
                 url: format!("http://{addr}/flac"),
                 // 2s 的 80% 下限要 212200 字节，160000 在旧闸门里必死。
@@ -1388,10 +1388,10 @@ mod tests {
         let path = dl.join().await.unwrap();
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
-            "netease-8-lossless.flac",
+            "ccmixter-8-lossless.flac",
             "实测 640k 仍是无损档，键与容器都要照原样落盘"
         );
-        assert!(index.find("netease", "8", "lossless").await.is_some());
+        assert!(index.find("ccmixter", "8", "lossless").await.is_some());
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
@@ -1403,9 +1403,9 @@ mod tests {
         let dir = tmp_cache_dir().await;
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
-            "netease-7-lossless".into(),
+            "ccmixter-7-lossless".into(),
             vec![Candidate {
                 url: format!("http://{addr}/liar"),
                 bitrate: Some(740_000),
@@ -1419,7 +1419,7 @@ mod tests {
         let path = dl.join().await.unwrap();
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
-            "netease-7-lossless.mp3",
+            "ccmixter-7-lossless.mp3",
             "没有时长就没有实测档位，键保持原样"
         );
         let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -1472,7 +1472,7 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let index = Arc::new(cache::CacheIndex::load(dir.clone()).await);
         let dl = start(
-            "netease",
+            "ccmixter",
             dir.clone(),
             "qq-a1-standard".into(),
             rungs(&[format!("http://{addr}/audio")]),

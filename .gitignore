@@ -46,6 +46,7 @@ __pycache__/
 
 # 临时验证工作区（fixture 数据与一次性 token，不入库）
 output/
+.playwright-cli/
 # 隔离构建目录（不与运行中的实例抢 target/debug 锁）。写一条通配而不是逐个列：
 # 每起一台验收实例就换一个名字（target-qf / target-skins / target-p2 …），逐个
 # 登记的名单永远慢一步，漏掉的那个就是 git status 里几百 MB 的未跟踪目录，

@@ -44,23 +44,31 @@ mod ccmixter;
 pub(crate) mod cred;
 mod http;
 mod jamendo;
+#[cfg(feature = "full")]
 mod kugou;
+#[cfg(feature = "full")]
 mod kuwo;
 // 取流候选阶梯：Candidate 出现在 StreamInfo 与 progressive::start 的公开签名里，
 // 所以对外可见；阶梯的构造规则集中在该文件。
 pub mod ladder;
+#[cfg(feature = "full")]
 mod migu;
+#[cfg(feature = "full")]
 mod netease;
+#[cfg(feature = "full")]
 mod playlist_common;
 pub mod progressive;
 mod provider;
+#[cfg(feature = "full")]
 mod qishui;
+#[cfg(feature = "full")]
 mod qq;
 // state.rs 的 AppState 持有 qr::Registry，routes.rs 要校验 Session 来源，
 // 所以对子模块外暴露到 crate 内；平台协议细节仍关在 online 内部。
 pub(crate) mod qr;
 pub mod quality;
 mod quote;
+#[cfg(feature = "full")]
 mod sign;
 
 // 候选类型出现在 StreamInfo 与 progressive::start 的签名上，平台模块和上层都
@@ -85,6 +93,9 @@ use sqlx::SqlitePool;
 
 use crate::error::{bad_request, ApiError, ApiResult};
 
+#[cfg(not(feature = "full"))]
+const UA: &str = concat!("HertzStudio/", env!("CARGO_PKG_VERSION"));
+#[cfg(feature = "full")]
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                   (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
 /// 建连与单次读取的上限，而不是「整条请求的总时长」。
@@ -414,6 +425,7 @@ pub enum ProfileMembership {
 }
 
 impl ProfileMembership {
+    #[cfg(any(feature = "full", test))]
     fn from_level(level: Option<u64>) -> Self {
         match level.and_then(|n| u32::try_from(n).ok()) {
             Some(level) => Self::Reported { level },
@@ -605,6 +617,7 @@ pub struct Ctx {
 ///
 /// 页面本身跑在 http 上时混用 http 图片只是不美观，但一旦跑在 https 下，
 /// 浏览器会直接拦掉 http 子资源 —— 表现就是「封面怎么都不出来」。
+#[cfg(any(feature = "full", test))]
 fn https_url(url: &str) -> Option<String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -633,6 +646,7 @@ fn parse_clock_ms(text: &str) -> u64 {
 
 /// 标准 Base64 解码（QQ/酷狗歌词接口返回 base64 文本）。填空用的简易实现，
 /// 错误输入返回 None，不引外部 base64 crate。
+#[cfg(any(feature = "full", test))]
 pub(crate) fn base64_decode_std(input: &str) -> Option<Vec<u8>> {
     fn sextet(c: u8) -> Option<u8> {
         match c {
@@ -1288,6 +1302,7 @@ mod tests {
     /// 不需要伪造设备指纹或求解 JS 挑战，因此不触碰本项目「不规避平台风控」
     /// 的底线（依据见 qishui.rs 模块文档与 `qr_create`/`qr_check`）。
     #[test]
+    #[cfg(feature = "full")]
     fn qishui_only_claims_the_capabilities_it_can_honestly_deliver() {
         let caps = find("qishui").unwrap().caps;
         assert_eq!(caps, &[Capability::CookieLogin, Capability::QrLogin]);
@@ -1297,6 +1312,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "full")]
     fn qishui_downloads_carry_their_own_referer() {
         // CDN 校验来源页，缺了直接 403。
         assert_eq!(referer("qishui"), Some("https://www.qishui.com/"));
@@ -1377,6 +1393,7 @@ mod tests {
     #[test]
     fn each_download_gets_its_own_referer() {
         // CCmixter 对无 Referer 的直链回 403，网易云的 CDN 要求 music.163.com。
+        #[cfg(feature = "full")]
         assert_eq!(referer("netease"), Some("https://music.163.com"));
         assert!(referer("ccmixter")
             .unwrap()
@@ -1464,6 +1481,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "full")]
     fn platform_caps_match_real_machine_gate_decisions() {
         // 这组断言把 SP1 真机闸门（spec §4.3）的裁决钉死：能力位要随真机
         // 验收结论调整时，必须显式改测试，防止摘位/复位在重构中被悄悄还原。
@@ -1538,7 +1556,10 @@ mod tests {
     /// 酷我（表里有三档却在设置页不可达），又带上了汽水（取流压根不看 quality）。
     #[test]
     fn quality_settings_lists_only_sources_with_real_tiers() {
+        #[cfg(feature = "full")]
         assert_eq!(quality_sources(), vec!["netease", "qq", "kugou", "kuwo"]);
+        #[cfg(not(feature = "full"))]
+        assert!(quality_sources().is_empty());
         for id in quality_sources() {
             assert!(
                 quality::allowed_for(id).len() > 1,
@@ -1599,7 +1620,7 @@ mod tests {
             }
             assert_eq!(unverified_caps(id), *caps, "{id} 的注解读不回来");
         }
-        assert!(!annotations.is_empty(), "第三档空表＝能力真值表退回二值");
+        assert_eq!(!annotations.is_empty(), crate::edition::FULL);
         // 未知源与没登记的源一律空表：「我不知道」不许画成「没验过」。
         assert!(unverified_caps("ghost").is_empty());
         assert!(unverified_caps("netease").is_empty());
@@ -1608,6 +1629,7 @@ mod tests {
     /// `/v1/online/sources` 与 RPC 共用这份载荷，所以第三档必须真的出到线上——
     /// 前端读不到的标注等于没有标注。
     #[tokio::test]
+    #[cfg(feature = "full")]
     async fn sources_payload_carries_the_unverified_axis() {
         let dir = std::env::temp_dir().join(format!("vmusic-unverified-{}", uuid::Uuid::new_v4()));
         let db = vmusic_store::open(&dir).await.unwrap();
@@ -1650,6 +1672,7 @@ mod tests {
         let ctx = Ctx { db };
 
         // 酷狗转发臂已接线，但 PlaylistWrite 位未登记（真机闸门未过）→ 404。
+        #[cfg(feature = "full")]
         assert!(!find("kugou")
             .unwrap()
             .caps

@@ -578,6 +578,7 @@ input.opl-filter{flex:none;width:190px;height:30px;padding:0 10px;
 .online-radio-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .online-radio [hidden] { display:none; }
 .online-attribution { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:3px; font-size:11px; line-height:1.5; }
+.online-row:has(.online-attribution) { height:auto; min-height:72px; padding-top:8px; padding-bottom:8px; }
 .online-attribution a { color:var(--muted); text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere; }
 .online-attribution a:hover { color:var(--accent); }
 .set-row.jamendo-config { display:grid; grid-template-columns:96px minmax(140px,1fr) auto; margin-bottom:16px; }

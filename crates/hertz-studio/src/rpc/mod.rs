@@ -468,6 +468,7 @@ impl Rpc {
         json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
+            "edition": crate::edition::NAME,
             "protocol_version": PROTOCOL_VERSION,
             // 口径与 HTTP 版一致：报的是真正跑着的后端，不是 config 里的请求值。
             "backend": self.state.audio.backend_name(),

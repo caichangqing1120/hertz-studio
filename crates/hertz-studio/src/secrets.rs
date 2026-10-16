@@ -16,7 +16,7 @@ use std::sync::Mutex;
 /// OS 钥匙串的服务名。项目旧名是 `mmusic-studio`，条目还留在那个服务下；
 /// 远程源的凭据 key 是用户自己起的，没法枚举，所以读不到新条目时回读旧服务
 /// 并顺手搬过来——一次改名不该让用户重新登录一次。
-pub(crate) const KEYRING_SERVICE: &str = "hertz-studio";
+pub(crate) const KEYRING_SERVICE: &str = crate::edition::DATA_DIR;
 const KEYRING_SERVICE_LEGACY: &str = "mmusic-studio";
 
 /// 一个平台的全部秘密：CredPack JSON + 非密设备身份。设备身份本来就不是
@@ -87,6 +87,9 @@ fn read_entry(name: &str) -> Result<Option<String>, String> {
 }
 
 fn read_legacy_entry(name: &str) -> Result<Option<String>, String> {
+    if !crate::edition::FULL {
+        return Ok(None);
+    }
     let legacy = keyring::Entry::new(KEYRING_SERVICE_LEGACY, name)
         .map_err(|e| format!("cannot open legacy keyring entry: {e}"))?;
     let value = match legacy.get_password() {

@@ -37,6 +37,7 @@ fn cred_key(source: &str) -> String {
 fn legacy_cookie_key(source: &str) -> String {
     format!("{}{source}", super::COOKIE_PREFIX)
 }
+#[cfg(any(feature = "full", test))]
 fn device_key(source: &str) -> String {
     format!("{DEVICE_PREFIX}{source}")
 }
@@ -148,11 +149,13 @@ pub async fn put_cookie(db: &SqlitePool, source: &str, cookie: &str) -> Result<(
 
 /// 非密设备身份（QQ guid、酷狗 mid/dfid）随凭据一起进钥匙串，SQLite 只留
 /// 迁移失败时的旧值。
+#[cfg(feature = "full")]
 pub async fn get_device(db: &SqlitePool, source: &str) -> Result<Option<String>, StoreError> {
     let backend = crate::secrets::backend();
     get_device_with_backend(db, source, backend.as_ref()).await
 }
 
+#[cfg(any(feature = "full", test))]
 async fn get_device_with_backend(
     db: &SqlitePool,
     source: &str,
@@ -169,6 +172,7 @@ async fn get_device_with_backend(
         .and_then(|v| v.as_str().map(str::to_string)))
 }
 
+#[cfg(feature = "full")]
 pub async fn set_device(_db: &SqlitePool, source: &str, value: &str) -> Result<(), StoreError> {
     let backend = crate::secrets::backend();
     let mut entry = backend
@@ -281,6 +285,7 @@ pub async fn migrate_secrets_with(db: &SqlitePool, backend: &dyn crate::secrets:
 }
 
 /// 从 cookie 串取一个字段；用于 uin/MUSIC_U 等判态。
+#[cfg(feature = "full")]
 pub fn cookie_field<'a>(cookie: &'a str, name: &str) -> Option<&'a str> {
     cookie.split(';').find_map(|part| {
         let part = part.trim();
@@ -291,6 +296,7 @@ pub fn cookie_field<'a>(cookie: &'a str, name: &str) -> Option<&'a str> {
 
 /// QQ cookie 里的 uin 形如 `o0123456`；归一成纯数字串（去 `o` 前缀与
 /// 前导零），脏值/零值统一回 "0"。
+#[cfg(feature = "full")]
 pub(crate) fn normalize_qq_uin(raw: &str) -> String {
     let trimmed = raw.trim().trim_start_matches('o');
     let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -313,6 +319,7 @@ fn enrich_from_cookie(source: &str, pack: &mut CredPack) {
     }
 }
 
+#[cfg(feature = "full")]
 pub(super) fn enrich_kugou(pack: &mut CredPack) {
     if pack.token.is_empty() {
         pack.token = cookie_field(&pack.cookie, "token")
@@ -329,12 +336,14 @@ pub(super) fn enrich_kugou(pack: &mut CredPack) {
     }
 }
 
+#[cfg(feature = "full")]
 pub(super) fn enrich_kuwo(pack: &mut CredPack) {
     if pack.userid.is_empty() {
         pack.userid = cookie_field(&pack.cookie, "uid").unwrap_or("").to_string();
     }
 }
 
+#[cfg(feature = "full")]
 pub(super) fn enrich_qq(pack: &mut CredPack) {
     if pack.uin.is_empty() || pack.uin == "0" {
         if let Some(raw) = cookie_field(&pack.cookie, "uin") {
@@ -350,10 +359,12 @@ pub fn is_signed_in(source: &str, pack: &CredPack) -> bool {
         .is_some_and(|rules| (rules.signed_in)(pack))
 }
 
+#[cfg(feature = "full")]
 pub(super) fn signed_in_netease(pack: &CredPack) -> bool {
     cookie_field(&pack.cookie, "MUSIC_U").is_some_and(|v| !v.is_empty())
 }
 
+#[cfg(feature = "full")]
 pub(super) fn signed_in_qq(pack: &CredPack) -> bool {
     // musicu.fcg 认 qm_keyst；p_skey/wxuin 不能据此判登录。
     !pack.uin.is_empty()
@@ -361,14 +372,17 @@ pub(super) fn signed_in_qq(pack: &CredPack) -> bool {
         && cookie_field(&pack.cookie, "qm_keyst").is_some_and(|v| !v.is_empty())
 }
 
+#[cfg(feature = "full")]
 pub(super) fn signed_in_kugou(pack: &CredPack) -> bool {
     !pack.userid.is_empty() && pack.userid != "0" && !pack.token.is_empty()
 }
 
+#[cfg(feature = "full")]
 pub(super) fn signed_in_kuwo(pack: &CredPack) -> bool {
     !pack.userid.is_empty() && pack.userid != "0"
 }
 
+#[cfg(feature = "full")]
 pub(super) fn signed_in_qishui(pack: &CredPack) -> bool {
     SESSION_COOKIES
         .iter()
@@ -377,9 +391,10 @@ pub(super) fn signed_in_qishui(pack: &CredPack) -> bool {
 }
 
 /// 汽水音乐的会话 cookie 字段名（任一存在即视为已登录）。
+#[cfg(feature = "full")]
 const SESSION_COOKIES: &[&str] = &["sessionid", "sessionid_ss", "sid_guard", "sid_tt"];
 
-#[cfg(test)]
+#[cfg(all(test, feature = "full"))]
 mod tests {
     use super::*;
 

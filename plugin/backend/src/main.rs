@@ -38,7 +38,7 @@ use tokio::sync::broadcast;
 
 /// 必须与 `plugin/manifest.json` 的 `id` 一致：宿主按它过滤事件，不一致的话
 /// UI 一个事件都收不到。
-const PLUGIN_ID: &str = "io.github.oncemisery.hertz-studio";
+const PLUGIN_ID: &str = hertz_studio::edition::PLUGIN_ID;
 
 /// 服务端事件下发的方法名。UI 侧 `onEvent` 按它过滤后交给原来的 `handleEvent`，
 /// 载荷就是独立形态下 WS 推的那个 `WsEvent`，字段口径完全一致。
@@ -197,7 +197,12 @@ fn resolve_data_dir() -> PathBuf {
     // sidecar 的专属子目录挂在同一个数据根下，所以根目录的改名迁移要先发生。
     hertz_studio::config::migrate_legacy_data_dir();
     if let Some(dir) = std::env::var_os("DBX_PLUGIN_DATA_DIR").filter(|value| !value.is_empty()) {
-        return PathBuf::from(dir);
+        let dir = PathBuf::from(dir);
+        return if hertz_studio::edition::FULL {
+            dir
+        } else {
+            dir.join("standard")
+        };
     }
     tracing::warn!("DBX_PLUGIN_DATA_DIR 未设置，回落到独立数据目录之外的专属子目录");
     hertz_studio::config::default_data_dir().join("dbx-plugin")

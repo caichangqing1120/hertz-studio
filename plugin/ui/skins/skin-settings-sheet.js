@@ -77,7 +77,7 @@
       id: 'library',
       label: '数据与在线',
       items: [
-        ['source', '在线音源', '各音源的登录 cookie'],
+        ['source', '在线音源', '应用配置与音源连接'],
         ['remote', '远程来源（WebDAV）', '连自己的 WebDAV 目录'],
         ['cache', '在线缓存', '缓存占用与清理'],
         ['backup', '数据备份', '导入导出歌单与设置'],

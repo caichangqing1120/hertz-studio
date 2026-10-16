@@ -4610,6 +4610,7 @@ pub(crate) mod tests {
     /// 把同一首歌以另一个 id 再列一遍（重编码、翻唱条目）会被当成全新候选，
     /// 每轮白等数秒取流。
     #[test]
+    #[cfg(feature = "full")]
     fn relay_candidates_dedup_by_identity_per_source() {
         fn track(source: &str, id: &str, title: &str, artist: &str) -> crate::online::OnlineTrack {
             crate::online::OnlineTrack {
@@ -4891,6 +4892,7 @@ pub(crate) mod tests {
 
     /// B4 的验收：降一格、看得见、且不会又弹回高档。
     #[tokio::test]
+    #[cfg(feature = "full")]
     async fn quality_ceiling_drops_one_rung_and_never_bounces_back() {
         use crate::online::quality::Quality;
         let (state, _handle) = playback_state().await;
@@ -5010,6 +5012,7 @@ pub(crate) mod tests {
     /// 没动。按实测档位判「还能不能再退」就永远为真，同一首、同一份字节无限重投
     /// （实测 689 次 / 7 小时：既听不响，也跳不走）。
     #[tokio::test]
+    #[cfg(feature = "full")]
     async fn an_inflated_actual_tier_does_not_earn_a_replay() {
         use crate::online::quality::Quality;
         let (state, _handle) = playback_state().await;
@@ -5049,6 +5052,7 @@ pub(crate) mod tests {
     /// 上限表按曲目而不是按音源记：同一平台上无损对这首失败、对隔壁那首成功，
     /// 按源记会把好曲子一起拖低。
     #[tokio::test]
+    #[cfg(feature = "full")]
     async fn quality_ceiling_is_keyed_per_track() {
         use crate::online::quality::Quality;
         let (state, _handle) = playback_state().await;
@@ -5230,6 +5234,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "full")]
     async fn stream_retry_succeeds_at_the_lower_tier_in_the_same_attempt() {
         use crate::online::quality::Quality;
         let (state, handle) = playback_state().await;
@@ -5273,6 +5278,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "full")]
     async fn final_stream_failure_is_not_charged_as_an_unattempted_third_tier() {
         use crate::online::quality::Quality;
         let (state, handle) = playback_state().await;

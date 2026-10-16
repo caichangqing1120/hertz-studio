@@ -17,6 +17,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
+EDITION="${HERTZ_EDITION:-standard}"
+case "$EDITION" in standard|full) ;; *) echo "invalid HERTZ_EDITION" >&2; exit 1 ;; esac
+if [ "${PLUGIN_RELEASE:-0}" = "1" ] && [ "$EDITION" != "standard" ]; then
+  echo "Only Standard may enter the store candidate workflow" >&2
+  exit 1
+fi
 
 # sidecar 依赖 cpal（ALSA）与 ashpd（libdbus）。Linux runner 上这两个 -dev 包缺一个就编不过，
 # 而报错是 ld 层面的 "cannot find -lasound"，跟改名/协议都没关系，先补齐。
@@ -33,14 +39,23 @@ fi
 
 # 只清上一次的包，留着 dist/.build-rust-*：那是 CLI 给 sidecar 用的 cargo target 目录，
 # 整目录删掉会让每次本地打包都从冷缓存重编 sidecar。
-rm -f plugin/dist/*.dbxp plugin/dist/*.artifact.json
+DIST="$ROOT/plugin/dist/$EDITION"
+mkdir -p "$DIST"
+rm -f "$DIST"/*.dbxp "$DIST"/*.artifact.json
 
-cd plugin
-dbx-plugin package .
+node scripts/prepare-edition.js "$EDITION"
+export DBX_PLUGIN_SDK_ROOT="$ROOT/output/editions/$EDITION/plugin/sdk-root"
+dbx-plugin package "output/editions/$EDITION/plugin" --output-dir "$DIST"
 cd "$ROOT"
 
 # Windows runner 上常只有 `python`（Git Bash 里 `python3` 可能不存在），别赌。
-PY="$(command -v python3 || command -v python || true)"
+PY=""
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys' >/dev/null 2>&1; then
+    PY="$candidate"
+    break
+  fi
+done
 if [ -z "$PY" ]; then
   echo "找不到 python3/python，无法核对候选元数据" >&2
   exit 1
@@ -61,8 +76,10 @@ if release_mode and not (repo and tag):
     sys.exit(f"PLUGIN_RELEASE=1 但缺 GITHUB_REPOSITORY/GITHUB_REF_NAME（repo={repo!r} tag={tag!r}）")
 
 base = f"https://github.com/{repo}/releases/download/{tag}"
-packages = sorted(pathlib.Path("plugin/dist").glob("*.dbxp"))
-metas = sorted(pathlib.Path("plugin/dist").glob("*.artifact.json"))
+edition = os.environ.get("HERTZ_EDITION", "standard")
+dist = pathlib.Path("plugin/dist") / edition
+packages = sorted(dist.glob("*.dbxp"))
+metas = sorted(dist.glob("*.artifact.json"))
 if len(packages) != 1 or len(metas) != 1:
     sys.exit(f"期望恰好 1 个 .dbxp 与 1 个 .artifact.json，实际 {len(packages)}/{len(metas)}")
 
@@ -84,6 +101,20 @@ for meta_path in metas:
     if "signature.json" in names:
         sys.exit(f"{package.name}: 候选包必须未签名（含 signature.json）")
     manifest = json.loads(zipfile.ZipFile(package).read("manifest.json"))
+    expected_id = "io.github.oncemisery.hertz-studio" + (".full" if edition == "full" else "")
+    if manifest.get("id") != expected_id:
+        sys.exit(f"{package.name}: wrong edition identity")
+    if edition == "standard" and any("online-login.js" in n or "qrcode.js" in n or "platform-icons/" in n for n in names):
+        sys.exit(f"{package.name}: Full UI assets found in Standard")
+    if edition == "standard":
+        fingerprints = [b"0CoJUm6Qyw8W8jud", b"e82ckenh8dichen8", b"wx48db31d50e334801",
+                        b"https://u.y.qq.com/cgi-bin/musicu.fcg", b"https://wwwapi.kugou.com/play/songinfo"]
+        binaries = [n for n in names if n.startswith("bin/") and not n.endswith("/")]
+        if len(binaries) != 1:
+            sys.exit(f"{package.name}: expected one Standard sidecar")
+        binary = zipfile.ZipFile(package).read(binaries[0])
+        if any(value in binary for value in fingerprints):
+            sys.exit(f"{package.name}: Full platform protocol found in Standard sidecar")
     for field in ("id", "name", "publisher", "version"):
         if not manifest.get(field):
             sys.exit(f"{package.name}: manifest 缺 {field}")

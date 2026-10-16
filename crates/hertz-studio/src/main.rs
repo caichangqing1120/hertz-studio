@@ -18,11 +18,16 @@ use state::AppState;
 
 /// 内嵌的界面资源。
 ///
+macro_rules! edition_ui {
+    ($file:literal) => {
+        include_str!(concat!(env!("OUT_DIR"), "/ui/", $file))
+    };
+}
 mod assets;
 
 // The UI registry owns JavaScript/CSS; these pages have separate HTTP behavior.
-const INDEX_HTML: &str = include_str!("../../../plugin/ui/index.html");
-const OVERLAY_HTML: &str = include_str!("../../../plugin/ui/overlay.html");
+const INDEX_HTML: &str = edition_ui!("index.html");
+const OVERLAY_HTML: &str = edition_ui!("overlay.html");
 
 // 主题壁纸。与 JS/CSS 不同，这里是二进制资源，所以用 `include_bytes!`。
 //
@@ -93,6 +98,9 @@ const WALLPAPERS: &[(&str, &[u8])] = &[
 /// 在线音源平台徽标：官方 app 图标 PNG（256×256 统一规格），由前端
 /// online.js 的 SOURCE_BADGE 按音源 id 取用。与壁纸同为二进制资源，走
 /// `include_bytes!` 内嵌，单 exe 分发不依赖外部文件。
+#[cfg(not(feature = "full"))]
+const PLATFORM_ICONS: &[(&str, &[u8])] = &[];
+#[cfg(feature = "full")]
 const PLATFORM_ICONS: &[(&str, &[u8])] = &[
     (
         "netease.png",
@@ -123,7 +131,11 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     if args.version {
-        println!("hertz-studio {}", env!("CARGO_PKG_VERSION"));
+        println!(
+            "hertz-studio {} ({})",
+            env!("CARGO_PKG_VERSION"),
+            hertz_studio::edition::NAME
+        );
         return Ok(());
     }
     if args.help {
@@ -696,7 +708,7 @@ fn print_help() {
          Usage: hertz-studio [OPTIONS]\n\n\
          Options:\n  \
          --bind ADDR      Bind address (default 127.0.0.1)\n  \
-         --port PORT      Port, 0 for a random free port (default 7634)\n  \
+         --port PORT      Port, 0 for a random free port (Standard 7635, Full 7634)\n  \
          --data-dir DIR   Where the database, cache and token live\n  \
          --open           Open the UI in the default browser\n  \
          -h, --help       Show this help\n\n\

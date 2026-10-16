@@ -288,6 +288,9 @@ async function main() {
     const health = await client.send('v1/health', { op: 'GET' });
     eq(health.result && health.result.status, 200, 'v1/health 返回 200 信封');
     const healthBody = (health.result && health.result.body) || {};
+    const full = healthBody.edition === 'full';
+    eq(healthBody.edition, process.env.HERTZ_EDITION || 'standard', 'health reports expected edition');
+    eq(init.result?.plugin?.id, 'io.github.oncemisery.hertz-studio' + (full ? '.full' : ''), 'plugin identity matches edition');
     eq(healthBody.status, 'ok', 'health.status === ok');
     eq(healthBody.host, 'dbx', 'health.host 标出插件形态');
     ok(typeof healthBody.version === 'string' && healthBody.version.length > 0, 'health.version 有值');
@@ -1000,7 +1003,17 @@ async function main() {
     const olSources = await client.send('v1/online/sources', { op: 'GET' });
     eq(olSources.result && olSources.result.status, 200, 'GET v1/online/sources → 200');
     const olSourceList = (olSources.result || {}).body?.sources || [];
-    ok(olSourceList.length >= 4, '音源清单非空：' + olSourceList.length + ' 个');
+    ok(olSourceList.length >= 2, '音源清单非空：' + olSourceList.length + ' 个');
+    if (!full) {
+      ok(olSourceList.every(s => ['ccmixter', 'jamendo', 'podcast'].includes(s.id)), 'Standard source whitelist');
+      for (const source of ['netease', 'qq', 'kugou', 'kuwo', 'qishui', 'migu']) {
+        for (const method of ['search', 'stream', 'detail', 'qr/start']) {
+          const reply = await client.send('v1/online/' + method, { op: method === 'qr/start' ? 'POST' : 'GET',
+            query: { source, q: 'test', id: '1' }, body: { source } });
+          eq(reply.result?.body?.error?.code, 'capability_unsupported', 'Standard rejects ' + source + '/' + method);
+        }
+      }
+    }
     ok(
       olSourceList.every((s) => typeof s.id === 'string' && typeof s.label === 'string'),
       '每个音源都带 id 与 label（前端下拉框与分类 chips 全靠它生成）',
@@ -1020,10 +1033,12 @@ async function main() {
       '媒体种类由 Provider 注册表输出，DBX 与 HTTP 使用同一载荷',
     );
     eq(olSourceList.find((s) => s.id === 'podcast')?.kind, 'podcast', '播客进入共用播放源注册表');
+    if (full) {
     const miguSource = olSourceList.find((s) => s.id === 'migu');
     ok(miguSource?.supportsCookie && miguSource.caps.includes('cookie_login'), '咪咕 Cookie 登录入口可达');
     ok(miguSource?.caps.includes('playlist_detail') && !miguSource.caps.includes('qr_login'), '咪咕开放歌单详情且不宣称扫码能力');
     ok(miguSource?.unverified.includes('cookie_login'), '咪咕本人账号授权仍保留待验收标注');
+    }
 
     const podcastSubscriptions = await client.send('v1/podcasts/subscriptions', { op: 'GET' });
     eq(podcastSubscriptions.result?.status, 200, 'DBX 播客订阅列表路由可达');
@@ -1050,7 +1065,7 @@ async function main() {
     const olQuality = await client.send('v1/online/quality', { op: 'GET' });
     eq(olQuality.result && olQuality.result.status, 200, 'GET v1/online/quality → 200');
     const olPrefs = (olQuality.result || {}).body?.prefs || [];
-    ok(olPrefs.length > 0, '注册表提供可配置音质的音源');
+    eq(olPrefs.length > 0, full, '音质设置与发行版能力一致');
     eq(new Set(olPrefs.map((p) => p.source)).size, olPrefs.length, '音质偏好没有重复音源');
     ok(
       olPrefs.every((p) => olSourceList.some((s) => s.id === p.source)),
@@ -1065,6 +1080,7 @@ async function main() {
       body: { source: 'nope', quality: 'x' },
     });
     eq(olBadSource.result && olBadSource.result.status, 400, 'POST quality 不支持的音源 → 400');
+    if (full) {
     const olSetQuality = await client.send('v1/online/quality', {
       op: 'POST',
       body: { source: olPrefs[0].source, quality: olPrefs[0].options[0].value },
@@ -1075,6 +1091,7 @@ async function main() {
       olPrefs[0].options[0].value,
       '音质选择回读一致（内存偏好表热更新，不用重启）',
     );
+    }
 
     const olCache = await client.send('v1/online/cache', { op: 'GET' });
     eq(olCache.result && olCache.result.status, 200, 'GET v1/online/cache → 200');
@@ -1164,6 +1181,7 @@ async function main() {
     // 扫码：空票的 cancel 是幂等成功；未知票的 poll 要在打上游之前就被挡住，
     // 且回 expired 票态而不是 400——前端对错误的处理是「请求失败（3s 后重试）」，
     // 对一枚不存在的票无限重问就永远到不了那个能点击刷新的过期分支。
+    if (full) {
     const olQrCancel = await client.send('v1/online/qr/cancel', {
       op: 'POST',
       body: { source: 'netease', ticket: '' },
@@ -1179,6 +1197,7 @@ async function main() {
 
     const olRadio = await client.send('v1/online/radio', { op: 'GET' });
     eq(olRadio.result && olRadio.result.status, 200, 'GET v1/online/radio → 200（状态快照，不打上游）');
+    }
     const olRadioBad = await client.send('v1/online/radio', { op: 'POST', body: { action: 'nope' } });
     eq(olRadioBad.result && olRadioBad.result.status, 400, 'radio 未知 action → 400');
 

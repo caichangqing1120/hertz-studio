@@ -1751,12 +1751,12 @@ function checkWiring() {
   }
   // 只匹配文件名后缀、不写死相对深度：前端目录搬过位置（web/ → plugin/ui/），
   // 把深度写进断言只会让下一次搬迁假红一片。
-  ok(/include_str!\("[^"]*\/skins\/skins\.js"\)/.test(MAIN_RS), 'skins.js 编进二进制');
-  ok(/include_str!\("[^"]*\/skins\/skin\.liunian\.css"\)/.test(MAIN_RS),
+  ok(/edition_ui!\("skins\/skins\.js"\)/.test(MAIN_RS), 'skins.js 编进二进制');
+  ok(/edition_ui!\("skins\/skin\.liunian\.css"\)/.test(MAIN_RS),
     'skin.liunian.css 编进二进制');
-  ok(/include_str!\("[^"]*\/skins\/skin\.liunian\.js"\)/.test(MAIN_RS),
+  ok(/edition_ui!\("skins\/skin\.liunian\.js"\)/.test(MAIN_RS),
     'skin.liunian.js 编进二进制');
-  ok(/include_str!\("[^"]*\/skins\/skin\.ios\.css"\)/.test(MAIN_RS),
+  ok(/edition_ui!\("skins\/skin\.ios\.css"\)/.test(MAIN_RS),
     'skin.ios.css 编进二进制');
 
   section('接线：流年重编排 JS 的加载顺序与机制');
@@ -2736,9 +2736,9 @@ function checkQingfengWiring() {
   ok(qfJsAt < HTML.indexOf('src="app.js"'),
     'skin.qingfeng.js 排在 app.js 之前');
 
-  ok(/include_str!\("[^"]*\/skins\/skin\.qingfeng\.css"\)/.test(MAIN_RS),
+  ok(/edition_ui!\("skins\/skin\.qingfeng\.css"\)/.test(MAIN_RS),
     'skin.qingfeng.css 编进二进制');
-  ok(/include_str!\("[^"]*\/skins\/skin\.qingfeng\.js"\)/.test(MAIN_RS),
+  ok(/edition_ui!\("skins\/skin\.qingfeng\.js"\)/.test(MAIN_RS),
     'skin.qingfeng.js 编进二进制');
   ok(MAIN_RS.includes('/skins/skin.qingfeng.css'), 'main.rs 注册了 /skins/skin.qingfeng.css 路由');
   ok(MAIN_RS.includes('/skins/skin.qingfeng.js'), 'main.rs 注册了 /skins/skin.qingfeng.js 路由');

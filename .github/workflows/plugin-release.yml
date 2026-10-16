@@ -25,7 +25,7 @@ permissions:
   contents: write
 
 jobs:
-  # 只有「tag 名 == hertz-plugin-v + manifest 里的 version」才允许打候选。
+  # 只有「tag 名 == hertz-plugin-standard-v + manifest 里的 version」才允许打候选。
   # 为什么要精确等值而不是按前缀过滤：任何一次 release publish 都会触发本 workflow。
   # 2026-10-10 实测——为了挂截图另发一条 hertz-plugin-v0.1.0-screenshots，就把 0.1.0
   # 候选重编了一遍塞进去，而 windows-x64 与已提交那套差 5 字节（同一个钉住的 CLI、
@@ -39,7 +39,7 @@ jobs:
       - id: match
         run: |
           version="$(python3 -c 'import json;print(json.load(open("plugin/manifest.json"))["version"])')"
-          want="hertz-plugin-v${version}"
+          want="hertz-plugin-standard-v${version}"
           got="${{ github.event.release.tag_name }}"
           if [ "$got" = "$want" ]; then
             echo "tag=$got" >> "$GITHUB_OUTPUT"
@@ -57,12 +57,11 @@ jobs:
     uses: t8y2/dbx/.github/workflows/plugin-release-reusable.yml@069adbc5ab35a331a86d199b306bbd2963813ade
     with:
       release-tag: ${{ github.event.release.tag_name }}
-      # 脚本内部 cd 进 plugin/ 打包，所以这里保持仓库根为工作目录，
-      # 产物 glob 也按 plugin/dist 写（可复用 workflow 会把两者拼起来找文件）。
+      # 脚本从仓库根生成 Standard 暂存目录并打包，产物只取 Standard 子目录。
       working-directory: .
-      package-command: PLUGIN_RELEASE=1 bash scripts/ci-package-plugin.sh
-      package-path: plugin/dist/*.dbxp
-      metadata-path: plugin/dist/*.artifact.json
+      package-command: HERTZ_EDITION=standard PLUGIN_RELEASE=1 bash scripts/ci-package-plugin.sh
+      package-path: plugin/dist/standard/*.dbxp
+      metadata-path: plugin/dist/standard/*.artifact.json
       # 候选用的 CLI 版本必须钉死：不钉的话，上游发新版就会让我们同一个源码 tag
       # 打出字节不同的包，直接违反上面的不可变约束。
       plugin-cli-version: 0.1.2

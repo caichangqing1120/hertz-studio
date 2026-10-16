@@ -71,7 +71,14 @@ fn resolve_source(source: &Option<String>) -> String {
     source
         .clone()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "netease".to_string())
+        .unwrap_or_else(|| {
+            if crate::edition::FULL {
+                "netease"
+            } else {
+                "ccmixter"
+            }
+            .to_string()
+        })
 }
 
 /// 归一化比对：小写、去空白与标点。中文歌名里的全角括号/空格差异全消。

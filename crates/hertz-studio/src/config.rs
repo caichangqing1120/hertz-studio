@@ -71,7 +71,7 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 bind: "127.0.0.1".into(),
-                port: 7634,
+                port: if crate::edition::FULL { 7634 } else { 7635 },
                 expose_ui: true,
             },
             audio: AudioConfig {
@@ -159,7 +159,7 @@ pub fn default_data_dir() -> PathBuf {
     }
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("hertz-studio")
+        .join(crate::edition::DATA_DIR)
 }
 
 /// 项目原名 `mmusic-studio`（仓库旧名），数据目录也叫过这个。改名后旧目录里是
@@ -169,7 +169,7 @@ pub fn default_data_dir() -> PathBuf {
 /// 只在「新目录不存在且旧目录存在」时动一次 rename（原子、不复制不删）；两边都在
 /// 说明用户自己开过新目录，不碰。显式设了 `VMUSIC_DATA_DIR` 时同样不碰。
 pub fn migrate_legacy_data_dir() {
-    if std::env::var_os("VMUSIC_DATA_DIR").is_some() {
+    if !crate::edition::FULL || std::env::var_os("VMUSIC_DATA_DIR").is_some() {
         return;
     }
     let Some(base) = dirs::data_local_dir() else {

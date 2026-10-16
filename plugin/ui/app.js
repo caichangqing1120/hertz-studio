@@ -5785,6 +5785,7 @@ function initPalette() {
         } catch (e) { toast(errText('复制失败', e), 'error'); }
       },
     },
+    // edition:full
     {
       id: 'tool-scrobble-toggle', group: '工具', title: '切换网易云听歌打卡',
       keywords: 'scrobble 打卡 播放量',
@@ -5796,6 +5797,7 @@ function initPalette() {
         toast(next ? '听歌打卡已开启' : '听歌打卡已关闭');
       },
     },
+    // edition:end
     {
       id: 'tool-relay-toggle', group: '工具', title: '切换曲源自动接力',
       keywords: 'relay 接力 换源 失效 音源',
@@ -6143,7 +6145,7 @@ function onlineSourceItem(t, index, sourceKey) {
   return {
     id,
     sourceKey: sourceKey || 'online',
-    source: t.source || (Online ? Online.state.source : 'netease'),
+    source: t.source || (Online ? Online.state.source : 'ccmixter'),
     ref: t.ref || t.track_ref || {},
     // 整条原始记录留给播放侧 —— playAll 要 id/artist/album/duration/cover 全套，
     // 快照里只留海报要显示的字段。
@@ -6167,7 +6169,7 @@ function onlineSourceItem(t, index, sourceKey) {
 /// 钉住了这条表达式。
 function onlineItemId(t) {
   if (t.id && String(t.id).startsWith('online:')) return String(t.id);
-  const src = t.source || 'netease';
+  const src = t.source || 'ccmixter';
   const ref = t.ref || t.track_ref || t.id;
   const key = typeof ref === 'string' ? ref : (ref && (ref.id || ref.song_id)) || t.id;
   return 'online:' + src + ':' + key;

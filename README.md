@@ -8,6 +8,10 @@
 本地优先：播放、曲库、歌词、歌单、设置全部在你自己的机器上完成，断网也能用。
 在线曲库浏览是显式启用的附加能力，由本机服务代理解析，不上传你的曲库、收听记录或任何个人数据。
 
+从 **0.2.1** 起，同一主分支构建两个发行版并同步更新：默认 **Standard** 保留本地、WebDAV、
+Jamendo、ccMixter 和公开播客；显式开启 `full` feature 的 **Full** 额外包含六个平台音源。
+两版使用不同插件 ID 和默认数据目录，详见[双版本构建与发布](docs/editions.md)。
+
 ![曲库与正在播放](docs/images/ui-library.png)
 
 ---
@@ -138,7 +142,7 @@
 
 ```bash
 # 构建（需要 Rust 1.88+；下界由依赖图声明，见 workspace 的 rust-version）
-cargo build --release
+cargo build --release -p hertz-studio
 
 # 运行独立形态（Windows 下产物是 target\release\hertz-studio.exe）
 ./target/release/hertz-studio
@@ -147,7 +151,7 @@ cargo build --release
 cargo run --release -- --open
 ```
 
-启动后终端会打印界面入口（默认 `http://127.0.0.1:7634/`，后面跟着一张一次性入口票据）、
+启动后终端会打印界面入口（Standard 默认 `http://127.0.0.1:7635/`，Full 默认端口 `7634`，后面跟着一张一次性入口票据）、
 健康检查地址，以及服务发现文件的位置。
 
 在 UI 左侧填入音乐目录 → 点「扫描」→ 点击曲目即可播放。
@@ -157,7 +161,7 @@ cargo run --release -- --open
 | 参数               | 说明                             |
 | ---------------- | ------------------------------ |
 | `--bind ADDR`    | 监听地址，默认 `127.0.0.1`          |
-| `--port PORT`    | 端口，`0` 表示随机空闲端口，默认 `7634`  |
+| `--port PORT`    | 端口，`0` 表示随机空闲端口，Standard 默认 `7635`，Full 默认 `7634` |
 | `--data-dir DIR` | 数据库、封面缓存、令牌的存放位置       |
 | `--open`         | 启动后打开浏览器（走系统 `cmd`，只在 Windows 生效） |
 | `--version`      | 打印版本后退出                        |
@@ -176,7 +180,8 @@ cargo run --release -- --open
   （资源 URL 补全、opaque origin 下的 localStorage 替身），其余前端代码不感知自己跑在哪个宿主
 - `plugin/manifest.json` 声明 workbench + command + 菜单项；`plugin/dbx-plugin.toml` 是打包配置
   （只带 `assets` 与 `ui`，没有 npm 步骤）
-- 打包用上游 dbx 仓库的 `dbx-plugin` CLI（未随本仓库分发），产物落在 `plugin/dist/`
+- 使用 `HERTZ_EDITION=standard bash scripts/ci-package-plugin.sh` 打包，Full 则设为 `full`；
+  脚本生成对应界面和 manifest，再调用固定版本 DBX CLI，产物落在 `plugin/dist/<edition>/`
 
 sidecar 只做传输：把宿主的调用转成与 HTTP 响应同构的返回值，服务端事件经同一条广播总线下发，
 两种形态的事件口径一致，业务实现只有一份。
@@ -241,9 +246,11 @@ REST 路由清单不写在 README 里，见 [docs/api-routes.md](docs/api-routes
 
 ## 在线音源的边界
 
-接入网易云音乐、QQ 音乐、酷狗音乐、酷我音乐、汽水音乐、咪咕音乐，以及 CCmixter 与 Jamendo
-两个 CC 授权开放曲库（Jamendo 需在 devportal 免费注册一个 client_id，在「设置 → 在线音源」保存才启用，
-未配置时这个音源自动隐藏）。对接用的是两类东西：
+Standard 接入 ccMixter、Jamendo 两个开放曲库及公开 RSS 播客。Jamendo 需在 devportal 免费注册
+client_id，在「设置 → 在线音源」保存后才启用，未配置时自动隐藏。
+
+Full 额外接入网易云音乐、QQ 音乐、酷狗音乐、酷我音乐、汽水音乐和咪咕音乐。以下平台协议与
+账号能力仅编译进 Full，Standard 不包含相应协议实现、请求签名、平台登录脚本和图标。Full 对接使用：
 平台**网页端 / 自家客户端公开使用的端点**（含这些端点要求的请求签名，如酷狗的 MD5 签名、
 QQ 的搜索签名与取流凭据、酷我移动端的变形 DES 载荷），和**用户自己账号的凭据**
 （cookie 或扫码登录）。平台客户端签名算法是项目所有者明确授权实现的（设计决策 D7）：
@@ -280,7 +287,7 @@ Jamendo 与 ccMixter 的搜索结果保留逐曲许可证及作品页链接，�
 ```toml
 [server]
 bind = "127.0.0.1"
-port = 7634
+port = 7635 # Full defaults to 7634
 
 [audio]
 backend = "cpal"        # 或 "null"（不出声，用于测试）
@@ -301,8 +308,9 @@ format = "pretty"       # pretty | json
 
 （生成的文件里还有一个 `server.expose_ui`，目前没有任何代码读它，属于预留键。）
 
-数据目录默认位置：Windows `%LOCALAPPDATA%\hertz-studio`，
-macOS `~/Library/Application Support/hertz-studio`，Linux `~/.local/share/hertz-studio`。
+Standard 数据目录默认位置：Windows `%LOCALAPPDATA%\hertz-studio-standard`，
+macOS `~/Library/Application Support/hertz-studio-standard`，Linux `~/.local/share/hertz-studio-standard`。
+Full 继续使用对应平台下原来的 `hertz-studio` 目录。
 其中含 `vmusic.db`（曲库）、`cache/covers/`（封面）、`cache/online/`（在线音频缓存）、
 `token` 与 `overlay-key`（两份彼此独立的凭据，后者只读）、`vmusicd.json`（服务发现文件，
 宿主据此拿到端口与令牌）。开启播放诊断日志后还有 `logs/playback.log`

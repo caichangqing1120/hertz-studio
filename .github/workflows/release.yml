@@ -37,11 +37,13 @@ jobs:
   # 独立形态：单二进制
   # -------------------------------------------------------------------------
   build:
-    name: binary ${{ matrix.target }}
+    name: binary ${{ matrix.edition }} ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        edition: [standard, full]
+        os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -72,7 +74,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends libasound2-dev libdbus-1-dev pkg-config
 
       - name: Build (release)
-        run: cargo build --release --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          features=()
+          if [ "${{ matrix.edition }}" = full ]; then features=(--features full); fi
+          cargo build --locked --release -p hertz-studio --target ${{ matrix.target }} "${features[@]}"
 
       - name: Package
         shell: bash
@@ -80,7 +86,7 @@ jobs:
           # 按名字取版本，别用 packages[0]：workspace 成员的顺序不是契约，
           # 加一个排在 hertz-studio 前面的成员就会静默地把版本号取错。
           VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c "import json,sys;print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='hertz-studio'))")"
-          NAME="hertz-studio-${VERSION}-${{ matrix.target }}"
+          NAME="hertz-studio-${{ matrix.edition }}-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/${NAME}"
           # 只拷可执行文件本体：MSVC 下 hertz-studio* 会把 .pdb 调试符号一并带进包。
           BIN="target/${{ matrix.target }}/release/hertz-studio"
@@ -100,7 +106,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.target }}
+          name: dist-${{ matrix.edition }}-${{ matrix.target }}
           path: |
             dist/*.zip
             dist/*.tar.gz
@@ -110,12 +116,13 @@ jobs:
   # 插件形态：.dbxp
   # -------------------------------------------------------------------------
   plugin:
-    name: plugin ${{ matrix.os }}
+    name: plugin ${{ matrix.edition }} ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
+        edition: [standard, full]
     steps:
       - uses: actions/checkout@v4
 
@@ -138,6 +145,8 @@ jobs:
 
       - name: Package .dbxp
         shell: bash
+        env:
+          HERTZ_EDITION: ${{ matrix.edition }}
         # 与发布链路共用一个脚本：Linux 依赖、打包、元数据核对都在里面。
         # 不设 PLUGIN_RELEASE ⇒ 元数据里的 url 留裸文件名（这条链路不发布，只检视）。
         run: bash scripts/ci-package-plugin.sh
@@ -145,10 +154,10 @@ jobs:
       - name: Upload plugin package
         uses: actions/upload-artifact@v4
         with:
-          name: dbxp-${{ matrix.os }}
+          name: dbxp-${{ matrix.edition }}-${{ matrix.os }}
           path: |
-            plugin/dist/*.dbxp
-            plugin/dist/*.artifact.json
+            plugin/dist/${{ matrix.edition }}/*.dbxp
+            plugin/dist/${{ matrix.edition }}/*.artifact.json
           if-no-files-found: error
 
   # -------------------------------------------------------------------------

@@ -344,7 +344,7 @@
     var source = o.searchSource ? o.searchSource(kind, true) : o.state.source;
     if (source === 'all') {
       var first = (o.sources() || [])[0];
-      source = first ? first.id : 'netease';
+      source = first ? first.id : 'ccmixter';
     }
     var endpoint = kind === 'song' ? '/v1/online/search'
       : kind === 'playlist' ? '/v1/online/playlists/search'

@@ -453,6 +453,7 @@ async fn get_overlay_key(State(state): State<Arc<AppState>>) -> ApiResult<Json<s
 #[derive(Serialize)]
 struct Health {
     status: &'static str,
+    edition: &'static str,
     version: String,
     protocol_version: u32,
     backend: String,
@@ -461,6 +462,7 @@ struct Health {
 async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
     Json(Health {
         status: "ok",
+        edition: crate::edition::NAME,
         version: env!("CARGO_PKG_VERSION").to_string(),
         protocol_version: PROTOCOL_VERSION,
         // 取真正跑着的那个后端（actor 在 init 握手时送回）。config 里的

@@ -21,6 +21,7 @@ pub mod complete;
 pub mod config;
 pub mod daily;
 pub mod diag;
+pub mod edition;
 pub mod error;
 pub mod history;
 pub mod online;

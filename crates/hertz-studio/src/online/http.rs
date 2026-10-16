@@ -2,6 +2,9 @@
 
 //! 平台 HTTP 客户端公共件：UA、带 cookie 的请求构造、JSON 容错解析。
 
+// The generic transport API is shared; Full uses additional verbs and cookie helpers.
+#![cfg_attr(not(feature = "full"), allow(dead_code))]
+
 use std::collections::BTreeMap;
 
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE};

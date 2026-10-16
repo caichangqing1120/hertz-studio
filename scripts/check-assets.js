@@ -61,7 +61,7 @@ ok(/\.merge\(ui_asset_router\(\)\)/.test(mainRs), '主路由挂载资源目录')
 ok(/for entry in assets::UI_ASSETS/.test(mainRs), '路由遍历实际目录');
 ok(/router\.route\(entry\.path, get\(move \|\| asset\(entry\.mime, entry\.body\)\)\)/.test(mainRs), '资源路径、类型和内容来自同一条目');
 ok(/hash_inputs\(assets::ASSET_FINGERPRINT_INPUTS\)/.test(mainRs), '缓存使用目录派生指纹');
-ok(/ASSET_FINGERPRINT_INPUTS[^=]*= &\[\$\(\$name,\)\+\]/.test(manifest), '宏从相同条目派生全部指纹输入');
+ok(/ASSET_FINGERPRINT_INPUTS[^=]*= &\[\$\(\$\(#\[\$attr\]\)\* \$name,\)\+\]/.test(manifest), '宏从相同条目派生全部指纹输入');
 
 // ---------------------------------------------------------------------------
 // 3. index.html —— 引用与路由一一对应，且脚本顺序满足依赖

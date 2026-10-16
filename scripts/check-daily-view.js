@@ -603,7 +603,7 @@ function checkWiring() {
   ok(/src="daily-view\.js"/.test(HTML), '页面引入了 daily-view.js');
   ok(require('./ui-assets').hasAsset('/daily-view.js'), 'main.rs 注册了 /daily-view.js 路由');
   // 只匹配文件名后缀，不写死相对深度：前端目录搬过位置（web/ → plugin/ui/）。
-  ok(/include_str!\("[^"]*\/daily-view\.js"\)/.test(MAIN_RS), '脚本被 include 进二进制');
+  ok(/edition_ui!\("daily-view\.js"\)/.test(MAIN_RS), '脚本被 include 进二进制');
 
   ok(APP.includes("daily: $('view-daily')"), 'app.js 把 daily 注册成一个视图');
   ok(APP.includes("window.DailyView.onViewEnter()"), '进入该视图时才拉数据');

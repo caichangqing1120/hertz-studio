@@ -25,8 +25,12 @@
   // 本文件内没有全局 $；个人区新增元素直接按 id 取，不经 H.ui。
   function $(id) { return document.getElementById(id); }
 
+  var DEFAULT_SOURCE = 'ccmixter';
+  // edition:full
+  DEFAULT_SOURCE = 'netease';
+  // edition:end
   var onlineState = {
-    source: 'netease',
+    source: DEFAULT_SOURCE,
     q: '',
     cat: 'hot',
     tracks: [],
@@ -120,6 +124,7 @@
   // 继续走 index.html 的 sprite 字形（id 以 i- 开头）。酷我此前整条缺席，
   // 一直降级成通用地球图标，这里补齐。
   var SOURCE_BADGE = {
+    // edition:full
     netease: ['网易云音乐', '#e60026', '/platform-icons/netease.png'],
     qq: ['QQ 音乐', '#12b7f5', '/platform-icons/qq.png'],
     kugou: ['酷狗音乐', '#2ca5f0', '/platform-icons/kugou.png'],
@@ -129,6 +134,7 @@
     // 与 main.rs 白名单），沿用通用 sprite 字形；品牌名照挂 title/aria-label，
     // 不占用平台品牌色（与 local 同款处理）。
     migu: ['咪咕音乐', null, 'i-app-generic'],
+    // edition:end
     podcast: ['播客', null, 'i-headphones'],
     // 本地曲库也走同一套徽标：唱片图标 + 主题色（不占任何平台品牌色）。
     local: ['本地曲库', null, 'i-app-local'],
@@ -239,9 +245,12 @@
   // 真需要分辨率的地方（舞台封面会铺满视口）。
   function rowCoverUrl(url, px) {
     if (!url) return null;
+    // edition:full
     if (url.indexOf('.music.126.net/') < 0 || url.indexOf('?') >= 0) return url;
     var n = px || 90;
     return url + '?param=' + n + 'y' + n;
+    // edition:end
+    return url;
   }
 
   // 大图展示位（舞台盘面）用的封面地址，与 rowCoverUrl 反向：服务端给的是列表
@@ -252,15 +261,18 @@
   //   R1200x1200 → 200 (576KB)  而 R200/R400/R480/R600/R640/R700/R720/R1000 全部 404
   // 所以必须按档位表挑一档，不能按需要的像素直接拼 —— 拼出 R540x540 的结果是
   // "想要更清晰，结果没封面"。上限压到 800：再高一档翻一倍多字节，盘面用不上。
+  // edition:full
   var QQ_LADDER = [300, 500, 800];
   var QQ_COVER_RE = /^https:\/\/y\.qq\.com\/music\/photo_new\/T002R(\d+)x\1(?=M000)/;
   // 460 = 舞台封面框的最大 CSS 边长（stage.css 的 --stage-w）。黑胶的圆盘只有
   // 360，取大的是为了让同一个地址在两种布局下都不欠像素。
   var STAGE_COVER_CSS_PX = 460;
+  // edition:end
 
   function bigCoverUrl(url) {
     if (!url) return null;
     var s = String(url);
+    // edition:full
     if (!QQ_COVER_RE.test(s)) return s;      // 网易云给的就是原图，其余音源也原样返回
     var need = STAGE_COVER_CSS_PX * (window.devicePixelRatio || 1);
     var want = QQ_LADDER[QQ_LADDER.length - 1];
@@ -268,6 +280,8 @@
       if (QQ_LADDER[i] >= need) { want = QQ_LADDER[i]; break; }
     }
     return s.replace(QQ_COVER_RE, 'https://y.qq.com/music/photo_new/T002R' + want + 'x' + want);
+    // edition:end
+    return s;
   }
 
   // 直接复用曲库行的 .track 栅格与子元素类名，在线结果因此和本地曲库长得一样。
@@ -446,7 +460,7 @@
     }
     var fallback = current === automaticSearchSource || current === 'all' ? available[0]
       : available.find(function (s) { return s.id === current; }) || available[0];
-    return fallback ? fallback.id : current === 'all' ? 'netease' : current;
+    return fallback ? fallback.id : current === 'all' ? DEFAULT_SOURCE : current;
   }
 
   function prepareSearchSource(kind) {
@@ -724,6 +738,8 @@
     var epoch = searchEpoch;
     await whenSearchReady();
     if (epoch !== searchEpoch) return;
+    // The source list may remove the initial category while prefetch is waiting.
+    if (opts && opts.silent && !onlineState.q.trim() && !onlineState.cat) return;
     if (onlineState.q.trim()) prepareSearchSource(onlineState.kind);
     // 在线搜索只要真的执行就算一次「提交」：按钮、Enter、切类型后的重查都记给
     // 同一个 owner（search-history.js）。逐字输入不记 —— oninput 那条只取消在途
