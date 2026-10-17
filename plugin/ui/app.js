@@ -1027,6 +1027,10 @@ async function chooseTransport() {
 let toastTimer = 0;
 
 function toast(message, kind = 'info') {
+  if (window.HertzCapsuleOnly) {
+    if (message) noticeCapsule(message, kind); else clearCapsuleNotice();
+    return;
+  }
   clearTimeout(toastTimer);
   const hide = () => {
     ui.toast.classList.remove('show');
@@ -1103,6 +1107,10 @@ async function openSocket() {
 // ---------------------------------------------------------------------------
 
 function handleEvent(msg) {
+  if (window.HertzCapsuleOnly) {
+    if (['spectrum', 'scan', 'library_changed', 'beatmap_ready'].includes(msg.type)) return;
+    if (msg.type === 'error') { noticeCapsule(msg.message || '播放失败，请重试', 'error'); return; }
+  }
   switch (msg.type) {
     case 'state': applySnapshot(msg); break;
     case 'spectrum':
@@ -1143,8 +1151,9 @@ function handleEvent(msg) {
     case 'buffering': {
       // 在线曲边下边播：播放键转 loading 态，title 提示缓冲进度；收口时清空。
       const active = !!msg.active;
-      ui.playpause.classList.toggle('is-loading', active);
-      ui.playpause.title = active
+      const button = window.HertzCapsuleOnly ? ui.capsulePlay : ui.playpause;
+      button.classList.toggle('is-loading', active);
+      button.title = active
         ? (msg.pct != null ? `缓冲中 ${msg.pct}%` : '缓冲中…')
         : '';
       break;
@@ -1178,6 +1187,11 @@ function handleEvent(msg) {
         if (state.byId) state.byId.set(msg.track_id, moved);
         if (state.current && state.current.id === msg.from_track_id) {
           state.current = moved;
+          if (window.HertzCapsuleOnly) {
+            syncCapsule(moved, moved.cover);
+            updateMediaSessionMetadata(moved, moved.cover);
+            break;
+          }
           window.Online.paintNowPlaying(moved, moved.cover);
           if (Stage) Stage.setTrack(moved, moved.cover);
           syncNpTrack(moved, moved.cover);
@@ -1697,7 +1711,7 @@ async function restoreQueue() {
         && state.queueIndex >= 0 ? state.queue[state.queueIndex] : null;
       if (restoredId) {
         loadNowPlaying(restoredId);
-        syncQueuePlaying({ track_id: restoredId, playing: false }, true);
+        if (!window.HertzCapsuleOnly) syncQueuePlaying({ track_id: restoredId, playing: false }, true);
         if (bootAutoPlayArmed) {
           bootAutoPlayArmed = false;
           // 设置与队列并行加载，这里再取一次设置才有可靠值；只发生一次。
@@ -1734,6 +1748,7 @@ function staleCommand(snap) {
 // 状态帧约 50fps，这些字符串一秒之内基本不变，逐帧赋值纯属浪费。
 let documentTitleCache = '';
 let progressLabelCache = '';
+let capsuleMediaKey = '';
 
 function applySnapshot(snap) {
   const previous = state.snapshot.track_id;
@@ -1744,6 +1759,19 @@ function applySnapshot(snap) {
   else if (state.commandAt && !state.commandPending) state.commandAt = 0;
   if (volumeTarget !== null) snap = { ...snap, volume: volumeTarget };
   state.snapshot = snap;
+  if (window.HertzCapsuleOnly) {
+    const label = snap.playing ? '正在播放' : '已暂停';
+    if (ui.capsuleLabel.textContent !== label) ui.capsuleLabel.textContent = label;
+    if (document.body.classList.contains('is-playing') !== !!snap.playing) {
+      document.body.classList.toggle('is-playing', !!snap.playing);
+      ui.capsulePlay.setAttribute('aria-label', snap.playing ? '暂停' : '播放');
+    }
+    if (snap.track_id && snap.track_id !== previous) loadNowPlaying(snap.track_id);
+    // Position updates are useful to OS controls once per second; play/pause is immediate.
+    const mediaKey = [snap.track_id, snap.playing, state.stopped, snap.duration_ms, Math.floor((snap.position_ms || 0) / 1000)].join(':');
+    if (mediaKey !== capsuleMediaKey) { capsuleMediaKey = mediaKey; syncMediaSession(); }
+    return;
+  }
   if (typeof HomeDashboard !== 'undefined') HomeDashboard.update();
   ui.playpause.classList.toggle('is-playing', snap.playing);
   ui.playpause.setAttribute('aria-label', snap.playing ? '暂停' : '播放');
@@ -1853,11 +1881,14 @@ function updateRowActiveState(snap) {
 }
 
 async function loadNowPlaying(id) {
-  setBarFavoriteTrack(null);
-  const isCurrent = () => state.snapshot.track_id === id;
+  if (!window.HertzCapsuleOnly) setBarFavoriteTrack(null);
+  const epoch = loadNowPlaying.epoch = (loadNowPlaying.epoch || 0) + 1;
+  const isCurrent = () => epoch === loadNowPlaying.epoch
+    && (state.snapshot.track_id || state.queue[state.queueIndex]) === id;
   // 在线试听的虚拟 id 在本地库里查不到，先回落到搜索时缓存下来的元数据
   //（缓存归 online.js 所有，通过 window.Online 访问）。
   let track = state.byId.get(id) || window.Online.getMeta(id);
+  let detailRequest = null;
   // 收藏全部播放/歌单整单等路径写入 byId 的条目可能缺 source/onlineId
   //（只有 id 本身带身份协议）。在这里统一从 id 补齐，否则 refreshLyrics
   // 会把在线曲当本地曲请求 /v1/tracks/online:.../lyrics 而 404。
@@ -1894,7 +1925,7 @@ async function loadNowPlaying(id) {
       track = base;
       window.Online.meta.set(id, base);
       state.byId.set(id, base);
-      transport
+      detailRequest = transport
         .get(`/v1/online/detail?source=${encodeURIComponent(base.source)}&id=${encodeURIComponent(base.onlineId)}`)
         .then((d) => {
           if (!d) return;
@@ -1909,6 +1940,7 @@ async function loadNowPlaying(id) {
           if (window.Online && window.Online.remember) window.Online.remember(id, base);
           // 只在这首仍是当前曲目时重绘，避免切歌后把界面改错
           if (isCurrent() && state.current && state.current.id === id) {
+            if (window.HertzCapsuleOnly) return;
             window.Online.paintNowPlaying(base, base.cover);
             if (Stage) Stage.setTrack(base, base.cover);
             syncNpTrack(base, base.cover);
@@ -1922,6 +1954,7 @@ async function loadNowPlaying(id) {
         .catch(() => {
           if (isCurrent() && state.current && state.current.id === id) {
             base.artist = '在线试听';
+            if (window.HertzCapsuleOnly) { syncCapsule(base, null); return; }
             window.Online.paintNowPlaying(base, null);
             pushStageQueue();
           }
@@ -1931,24 +1964,33 @@ async function loadNowPlaying(id) {
   if (!isCurrent()) return;
   const prevTrack = state.current;
   state.current = track;
-  if (typeof HomeDashboard !== 'undefined') HomeDashboard.update();
-  // 换了曲，那一行答的却是上一首的处境——比不刷新更糟。曲目身份真的变了才补读数
-  // （这条路径每个播放状态更新都会走）。
-  if (!prevTrack || !track || prevTrack.id !== track.id) loadBeatStatus();
-  setBarFavoriteTrack(track);
-  if (!track) return;
+  if (!window.HertzCapsuleOnly) {
+    if (typeof HomeDashboard !== 'undefined') HomeDashboard.update();
+    if (!prevTrack || !track || prevTrack.id !== track.id) loadBeatStatus();
+    setBarFavoriteTrack(track);
+  }
+  if (!track) { if (window.HertzCapsuleOnly) syncCapsule(null, null); return; }
 
-  ui.nowTitle.textContent = track.title;
-  ui.nowArtist.textContent = [track.artist, track.album].filter(Boolean).join(' · ');
-  ui.barTitle.textContent = track.title;
-  ui.barSub.textContent = [track.artist, track.album].filter(Boolean).join(' · ');
-
-  const tech = [];
-  if (track.sample_rate) tech.push(`${(track.sample_rate / 1000).toFixed(1)} kHz`);
-  if (track.channels) tech.push(track.channels >= 2 ? '立体声' : '单声道');
-  if (track.bitrate) tech.push(`${track.bitrate} kbps`);
-  ui.nowTech.textContent = tech.join(' · ');
-  ui.nowTech.hidden = tech.length === 0;
+  if (window.HertzCapsuleOnly) {
+    syncCapsule(track, null);
+    // Share the detail request with cover hydration; do not fetch it twice.
+    if (detailRequest) {
+      await detailRequest;
+      if (!isCurrent()) return;
+      syncCapsule(track, null);
+    }
+  } else {
+    ui.nowTitle.textContent = track.title;
+    ui.nowArtist.textContent = [track.artist, track.album].filter(Boolean).join(' · ');
+    ui.barTitle.textContent = track.title;
+    ui.barSub.textContent = [track.artist, track.album].filter(Boolean).join(' · ');
+    const tech = [];
+    if (track.sample_rate) tech.push(`${(track.sample_rate / 1000).toFixed(1)} kHz`);
+    if (track.channels) tech.push(track.channels >= 2 ? '立体声' : '单声道');
+    if (track.bitrate) tech.push(`${track.bitrate} kbps`);
+    ui.nowTech.textContent = tech.join(' · ');
+    ui.nowTech.hidden = tech.length === 0;
+  }
 
   // 本地曲目走 /v1/tracks/<id>/cover；在线曲目用音源给的远程封面地址。
   // 刷新页面后在线缓存是空的，由 online.js 补拉一次详情把封面找回来。
@@ -1958,7 +2000,7 @@ async function loadNowPlaying(id) {
     // 插件形态下封面要经 invoke 取回 base64，所以这里必须等一手。
     url = (await transport.ensureCover(id)) || transport.coverUrl(id);
   } else if (track.source && track.onlineId) {
-    url = window.Online.safeCoverUrl(track.cover) || await window.Online.fetchCover(track);
+    url = window.Online.safeCoverUrl(track.cover) || (detailRequest ? null : await window.Online.fetchCover(track));
   } else {
     url = window.Online.safeCoverUrl(track.cover);
   }
@@ -1966,7 +2008,7 @@ async function loadNowPlaying(id) {
   // 0.55 倍密度，看着就是糊的。只给舞台这一路升档，列表行不动 —— 一屏 30 行从
   // 30×24KB 变 30×245KB 不叫"更清晰"，叫"封面等半天出不来"。
   const canonical = url;
-  const big = window.Online && isRemoteCoverUrl(canonical) ? window.Online.bigCoverUrl(canonical) : canonical;
+  const big = !window.HertzCapsuleOnly && window.Online && isRemoteCoverUrl(canonical) ? window.Online.bigCoverUrl(canonical) : canonical;
   // 插件形态下远程封面必须先换成 data URL：一则沙箱 CSP 画不出 https 图，二则
   // 下面的 probeImage 探的是最终要画的那份——探远程地址在插件形态必然失败，封面
   // 会被当成坏图撤掉，表现正是「正在播放没有封面」。
@@ -1985,7 +2027,14 @@ async function loadNowPlaying(id) {
   // pushStageQueue 重推时歌单架当前卡才能拿到封面，不用等下一次换曲。
   // 回写远程原址而不是 data URL：base64 塞进元数据会把内存与持久化一起撑爆。
   if (remote && url && !track.cover && track.source && track.onlineId) track.cover = remote;
-  if (!isCurrent()) return;
+  if (!isCurrent() || state.current !== track) return;
+  if (window.HertzCapsuleOnly) {
+    syncCapsule(track, url);
+    document.title = track.title + ' · hertz-studio';
+    updateMediaSessionMetadata(track, url);
+    syncMediaSession();
+    return;
+  }
   // 封面（含旋转）与取色背景交给舞台，app.js 不再直接碰 #cover。
   if (Stage) Stage.setTrack(track, url);
   if ($('bar-art')) applyCoverBg($('bar-art'), url);
@@ -2634,6 +2683,7 @@ async function resolveQueueMissingMeta() {
 }
 
 function renderQueue() {
+  if (window.HertzCapsuleOnly) return;
   if (typeof HomeDashboard !== 'undefined') HomeDashboard.update();
   pushStageQueue();
   const list = state.queue;
@@ -4111,6 +4161,7 @@ async function loadSettings() {
   document.body.dataset.density = ui.setDensity.value;
   document.body.classList.toggle('reduce-motion', ui.setMotion.checked);
   if (Stage) Stage.setReducedMotion(ui.setMotion.checked);
+  refreshCapsuleMarquee();
   // 下面两项是舞台上的即时开关。这条 GET 在飞期间用户动过它们的话，响应里是
   // 旧值——回填等于把刚点下的状态反杀，所以那一次以界面现状为准（库里已经由
   // 用户那次操作写对了），只回填确实没被动过的项。
@@ -4571,6 +4622,7 @@ function setView(name, options) {
 }
 
 function refreshAll() {
+  if (window.HertzCapsuleOnly) return refreshFloatingCapsule();
   loadTracks(true);
   loadPlaylists();
   loadSettings();
@@ -5224,8 +5276,10 @@ async function seekTo(ms) {
     await transport.post('/v1/player/seek', { position_ms: position });
     if (epoch !== seekRequestEpoch || !PlaybackIntent.current(intent) || state.snapshot.track_id !== trackId) return;
     state.snapshot = { ...state.snapshot, position_ms: position };
-    if (Stage) Stage.setSnapshot(state.snapshot, { seek: true });
-    renderPlaybackProgress(state.snapshot);
+    if (!window.HertzCapsuleOnly) {
+      if (Stage) Stage.setSnapshot(state.snapshot, { seek: true });
+      renderPlaybackProgress(state.snapshot);
+    }
     syncMediaSession();
   } catch (error) {
     if (epoch === seekRequestEpoch && PlaybackIntent.current(intent)) toast(errText('跳转播放位置失败', error), 'error');
@@ -5233,7 +5287,7 @@ async function seekTo(ms) {
 }
 
 async function seekRelative(deltaSec) {
-  const base = Stage ? Stage.position() : state.snapshot.position_ms || 0;
+  const base = !window.HertzCapsuleOnly && Stage ? Stage.position() : state.snapshot.position_ms || 0;
   await seekTo(base + deltaSec * 1000);
 }
 
@@ -5340,7 +5394,7 @@ function cancelSeek() {
   seekEpoch += 1;
   seekGesture = null;
   state.seeking = false;
-  renderPlaybackProgress(state.snapshot);
+  if (!window.HertzCapsuleOnly) renderPlaybackProgress(state.snapshot);
 }
 
 function bindSeekRange(range) {
@@ -6735,7 +6789,12 @@ function fitFloatingWindowToCapsule() {
   const r = ui.capsule.getBoundingClientRect();
   if (r.width <= 0 || r.height <= 0) return;
   // 改不了窗口尺寸不提示：这是纯观感补偿（窗口里留白多一点），不影响功能。
-  floating.setSize(Math.ceil(r.width), Math.ceil(r.height)).catch(() => {});
+  const size = Math.ceil(r.width) + ',' + Math.ceil(r.height);
+  if (fitFloatingWindowToCapsule.lastSize === size) return;
+  fitFloatingWindowToCapsule.lastSize = size;
+  Promise.resolve().then(() => floating.setSize(Math.ceil(r.width), Math.ceil(r.height))).catch(() => {
+    if (fitFloatingWindowToCapsule.lastSize === size) fitFloatingWindowToCapsule.lastSize = null;
+  });
 }
 
 /// 最小化 / 展开。隐藏整界面靠 body.is-capsule 一把罩（见 style.css），不逐个
@@ -6745,6 +6804,7 @@ function setCapsuleMinimized(min) {
   state.capsuleMin = !!min;
   document.body.classList.toggle('is-capsule', !!min);
   ui.capsule.hidden = !min;
+  if (!min) refreshCapsuleMarquee();
   try { localStorage.setItem(CAPSULE_KEY, min ? '1' : ''); } catch (err) { /* 偏好丢一次无所谓 */ }
   if (min) {
     restoreCapsulePos();
@@ -6772,6 +6832,7 @@ function noticeCapsule(message, kind) {
   // 比整页 toast 留得久一点：窗口只有 5em 宽，长句子要滚一轮才看得完。
   capsuleNoticeTimer = setTimeout(clearCapsuleNotice, capsuleNoticeKind === 'error' ? 6000 : 3500);
   paintCapsuleNotice();
+  refreshCapsuleMarquee();
 }
 
 function clearCapsuleNotice() {
@@ -6804,70 +6865,85 @@ function syncCapsule(track, coverUrl) {
   if (!track) {
     ui.capsuleTitle.textContent = '—';
     ui.capsuleArtist.textContent = '';
-    ui.capsuleArt.style.backgroundImage = '';
+    applyCoverBg(ui.capsuleArt, null);
   } else {
     ui.capsuleTitle.textContent = track.title || '未命名';
     ui.capsuleArtist.textContent = [track.artist, track.album].filter(Boolean).join(' · ');
-    const apply = (u) => { ui.capsuleArt.style.backgroundImage = u ? `url("${u}")` : ''; };
-    const resolved = remoteCover(coverUrl);
-    if (resolved === null) {
-      apply(null);
-      remoteCoverSlot(coverUrl, apply);
-    } else {
-      apply(resolved);
-    }
+    applyCoverBg(ui.capsuleArt, coverUrl);
   }
   // 提示压过曲名：状态重绘不能把刚说出来的话擦掉。
   paintCapsuleNotice();
+  refreshCapsuleMarquee();
   // 浮动实例：文字换了尺寸就可能变，窗口跟着收一次（页内最小化态没有窗口可收）。
   if (window.HertzCapsuleOnly) fitFloatingWindowToCapsule();
 }
 
-/// 胶囊文字轮播。歌名 / 演唱人的窗口只有 5 / 3 字宽，文字更长时**一个字一个字**
-/// 往左滚：每字停一拍，滚到端点多停一会再往回返，比省略号能读全，胶囊也因此
-/// 保持窄。格子之间的位移交给 CSS transition 抹成一格一格的滑动；共用一个 rAF，
-/// 且只在格子变化时才写 transform。胶囊不可见或减少动效时归位不跑。
-const CAPSULE_MARQUEE_STEP_MS = 400;   // 每个字停多久
-const CAPSULE_MARQUEE_HOLD_MS = 1200;  // 滚到端点后的停顿
+// Measure only when content, font or geometry changes. CSS interpolates each step.
+const CAPSULE_MARQUEE_STEP_MS = 400;
+const CAPSULE_MARQUEE_HOLD_MS = 1200;
+let capsuleMarqueeTimer = 0;
+let capsuleMarqueeItems = [];
+function capsuleMarqueeActive() {
+  return !document.hidden && !ui.capsule.hidden && !prefersReducedMotion();
+}
 function stepCapsuleMarquee(el, now) {
-  const win = el && el.parentNode;
-  if (!win || win.clientWidth <= 0) return;
-  // 内层是 inline-block：offsetWidth 是未加 transform 的排版宽，正好与窗口比。
-  const over = el.offsetWidth - win.clientWidth;
-  if (over <= 1) {
-    if (el.style.transform) el.style.transform = '';
-    el._mqIdx = -1;
-    return;
-  }
-  // 一字宽 ≈ 窗口的字号（CJK 一字一个 em）。只在溢出量变化时重读样式。
-  if (el._mqOver !== over) {
-    el._mqOver = over;
-    el._mqCharW = parseFloat(getComputedStyle(win).fontSize) || 12;
-  }
+  const over = el._mqOver;
   const charW = el._mqCharW;
   const steps = Math.max(1, Math.ceil(over / charW));
   const sweep = steps * CAPSULE_MARQUEE_STEP_MS;
   const period = (sweep + CAPSULE_MARQUEE_HOLD_MS) * 2;
   const t = now % period;
-  let idx;
-  if (t < sweep + CAPSULE_MARQUEE_HOLD_MS) idx = Math.min(steps, Math.floor(t / CAPSULE_MARQUEE_STEP_MS));
-  else idx = Math.max(0, steps - Math.floor((t - sweep - CAPSULE_MARQUEE_HOLD_MS) / CAPSULE_MARQUEE_STEP_MS));
+  const idx = t < sweep + CAPSULE_MARQUEE_HOLD_MS
+    ? Math.min(steps, Math.floor(t / CAPSULE_MARQUEE_STEP_MS))
+    : Math.max(0, steps - Math.floor((t - sweep - CAPSULE_MARQUEE_HOLD_MS) / CAPSULE_MARQUEE_STEP_MS));
   if (idx === el._mqIdx) return;
   el._mqIdx = idx;
   el.style.transform = 'translateX(' + (-Math.min(over, idx * charW)).toFixed(1) + 'px)';
 }
 function tickCapsuleMarquee() {
-  if (ui.capsule.hidden || prefersReducedMotion()) {
-    if (ui.capsuleTitle.style.transform) ui.capsuleTitle.style.transform = '';
-    if (ui.capsuleArtist.style.transform) ui.capsuleArtist.style.transform = '';
-    ui.capsuleTitle._mqIdx = -1;
-    ui.capsuleArtist._mqIdx = -1;
-  } else {
-    const now = performance.now();
-    stepCapsuleMarquee(ui.capsuleTitle, now);
-    stepCapsuleMarquee(ui.capsuleArtist, now);
+  capsuleMarqueeTimer = 0;
+  if (!capsuleMarqueeActive()) { refreshCapsuleMarquee(); return; }
+  const now = performance.now();
+  capsuleMarqueeItems.forEach(el => stepCapsuleMarquee(el, now));
+  if (capsuleMarqueeItems.length) capsuleMarqueeTimer = setTimeout(tickCapsuleMarquee, CAPSULE_MARQUEE_STEP_MS);
+}
+function refreshCapsuleMarquee() {
+  clearTimeout(capsuleMarqueeTimer);
+  capsuleMarqueeTimer = 0;
+  capsuleMarqueeItems = [];
+  const active = capsuleMarqueeActive();
+  for (const el of [ui.capsuleTitle, ui.capsuleArtist]) {
+    if (el.style.transform) el.style.transform = '';
+    el._mqIdx = -1;
+    if (!active) continue;
+    const win = el.parentNode;
+    const width = win.clientWidth;
+    const over = el.offsetWidth - width;
+    if (width <= 0 || over <= 1) continue;
+    el._mqOver = over;
+    el._mqCharW = parseFloat(getComputedStyle(win).fontSize) || 12;
+    capsuleMarqueeItems.push(el);
   }
-  requestAnimationFrame(tickCapsuleMarquee);
+  if (capsuleMarqueeItems.length) tickCapsuleMarquee();
+}
+function initCapsuleMarquee() {
+  document.addEventListener('visibilitychange', refreshCapsuleMarquee);
+  window.addEventListener('resize', refreshCapsuleMarquee);
+  const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (motion.addEventListener) motion.addEventListener('change', refreshCapsuleMarquee);
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => {
+      refreshCapsuleMarquee();
+      if (window.HertzCapsuleOnly) fitFloatingWindowToCapsule();
+    });
+    [ui.capsule, ui.capsuleTitle, ui.capsuleArtist,
+      ui.capsuleTitle.parentNode, ui.capsuleArtist.parentNode].forEach(el => observer.observe(el));
+  }
+  if (document.fonts) {
+    document.fonts.ready.then(refreshCapsuleMarquee);
+    document.fonts.addEventListener('loadingdone', refreshCapsuleMarquee);
+  }
+  refreshCapsuleMarquee();
 }
 
 // 曲目信息 → 弹窗（标题 / 艺术家 / 封面）
@@ -6999,6 +7075,192 @@ function initNowPlayingModal() {
 // 启动
 // ---------------------------------------------------------------------------
 
+function initCapsuleControls() {
+  // 胶囊播放器：顶栏按钮收进去；胶囊上直接给传输三键与展开，不展开也能操作。
+  // 页内最小化态整块可拖、靠边吸附、位置记进 localStorage；浮动实例改由宿主窗口
+  // 承担移动与吸附（见下面的 pointerdown）。
+  /// 宿主是否给了浮动窗口能力。capabilities 是 init 消息里的广告位：Web 宿主没有
+  /// 窗口，老版本 dbx 也没有这个 surface，两种情况都得退回页内最小化。
+  function floatingApi() {
+    const bridge = window.dbxPlugin;
+    return bridge && bridge.capabilities && bridge.capabilities.floating && bridge.floating ? bridge.floating : null;
+  }
+  /// 开浮动胶囊窗口。尺寸先给估值：浮窗实例量出自己的胶囊之后会再 setSize 修正
+  /// （见 fitFloatingWindowToCapsule）。整窗不透明、与胶囊同色，读作一张圆角卡片
+  /// （见 style.css 的 is-floating-capsule）：宿主的浮窗本来就不透明，一个要给用户
+  /// 拖的东西必须处处点得动。
+  function openFloatingCapsule() {
+    const floating = floatingApi();
+    if (!floating) return Promise.resolve(null);
+    return floating
+      .open({ contributionId: PLAYER_WORKBENCH, title: '正在播放', width: 268, height: 55 })
+      .catch((err) => {
+        console.warn('[hertz] 打开浮动胶囊失败：', err);
+        return null;
+      });
+  }
+  /// 展开：tab 实例解除最小化；浮动实例跳回主工作台 tab 并关掉自己。
+  function expandCapsule() {
+    if (window.HertzCapsuleOnly) {
+      // 先清偏好再开 tab：两个 surface 共用宿主 storage 的键空间，新 tab 启动时
+      // 若读到 '1' 会把自己又最小化成一页空白。
+      try { localStorage.setItem(CAPSULE_KEY, ''); } catch (err) { /* 偏好丢一次无所谓 */ }
+      // 跳回主工作台 tab：浮窗里没有标签栏，宿主会把这次导航转发给主窗口并把它带到
+      // 前台。同时借 sidecar 广播让还活着的 tab 实例解除最小化——两个 iframe 是
+      // opaque origin，浏览器侧没有直达通道，只能绕服务端这条事件管道。
+      // 必须等转发落地再关自己：窗口一销毁，还在路上的那次转发就没人送了，用户点了
+      // 展开却什么也没开出来。
+      Promise.allSettled([
+        window.dbxPlugin.openWorkbench(PLAYER_WORKBENCH, {}, { target: 'tab' }),
+        transport.post('/v1/ui/notice', { action: 'expand-capsule' }),
+      ]).then(() => {
+        const floating = floatingApi();
+        // 关窗失败也无所谓：主界面已经开出来了，浮动窗是旧壳子。
+        if (floating) floating.close().catch(() => {});
+      });
+      return;
+    }
+    setCapsuleMinimized(false);
+  }
+  // 最小化到胶囊。抽成函数是因为入口有两处：顶栏的胶囊按钮，以及设置里
+  // 「窗口与舞台」分组的新按钮（清风皮肤把控制入口统一收进左上角设置，
+  // 顶栏那几个图标对它是冗余的，隐藏前必须在这里补一个可发现的入口）。
+  const enterCapsule = () => {
+    if (floatingApi()) {
+      // dbx：最小化 = 浮动胶囊窗口接管 + 关掉这个 tab。留一个空白 tab 在 dbx 里读作
+      // 「页面坏了」，而浮窗那份本来就是「切到哪个应用都还在」的胶囊。不写 minimized
+      // 偏好：tab 已关，之后任何一次打开都该是完整界面。浮窗叫不出来时退回页内最小化，
+      // 不能把用户关在门外。
+      openFloatingCapsule().then((r) => {
+        if (!r) {
+          setCapsuleMinimized(true);
+          return;
+        }
+        if (window.dbxPlugin.closeWorkbench) window.dbxPlugin.closeWorkbench();
+      });
+      return;
+    }
+    setCapsuleMinimized(true);
+  };
+  ui.capsuleEntry.addEventListener('click', enterCapsule);
+  const setCapsuleBtn = $('set-capsule-btn');
+  if (setCapsuleBtn) setCapsuleBtn.addEventListener('click', enterCapsule);
+  // 传输三键：与底部播放条同一批调用。stopPropagation 免得冒到胶囊的展开/拖拽上。
+  ui.capsulePrev.addEventListener('click', (e) => { e.stopPropagation(); post('/v1/player/previous'); });
+  ui.capsuleNext.addEventListener('click', (e) => { e.stopPropagation(); post('/v1/player/next'); });
+  ui.capsulePlay.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+  ui.capsuleExpand.addEventListener('click', (e) => { e.stopPropagation(); expandCapsule(); });
+  // 拖拽：整块是把手，按钮除外。位移过阈值才算拖；没超过阈值的那次 pointerup 之后的
+  // click 仍走展开，靠 capsuleJustDragged 挡一下。两种形态移动的东西不同：
+  //   page —— 页内最小化态，移动 DOM，松手吸附到视口边缘并落盘；
+  //   host —— 浮动实例：过阈值时把窗口交给宿主（beginDrag），之后宿主自己轮询原生
+  //           光标移动窗口，插件不逐帧上报；松手时 endDrag，宿主吸附到屏幕工作区并
+  //           落盘，宿主自己也有「光标停顿即结束」的兜底。
+  let capsuleJustDragged = false;
+  ui.capsule.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.closest('.capsule-btn')) return;
+    const startX = e.clientX, startY = e.clientY;
+    const box = ui.capsule.getBoundingClientRect();
+    const offX = startX - box.left, offY = startY - box.top;
+    const floating = window.HertzCapsuleOnly ? floatingApi() : null;
+    let dragging = false;
+    let dragMode = floating ? 'pending' : 'page';
+    const move = (ev) => {
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < CAPSULE_DRAG_PX) return;
+        dragging = true;
+        capsuleJustDragged = true;
+        ui.capsule.classList.add('is-dragging');
+        // 抓住指针：拖出 iframe 之外事件也还回这里，不然一过边界就丢拖拽。
+        try { ui.capsule.setPointerCapture(e.pointerId); } catch (err) { /* 拿不到就算了 */ }
+        if (floating) {
+          dragMode = 'host';
+          floating.beginDrag().catch((err) => { console.warn('[hertz] 浮窗拖动起手失败：', err); dragMode = 'off'; });
+        }
+      }
+      // host 形态下移动由操作系统接管，这里什么都不做；pending/off 也不动页内 DOM。
+      if (dragMode === 'page') placeCapsule(ev.clientX - offX, ev.clientY - offY);
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancelled);
+      ui.capsule.classList.remove('is-dragging');
+      setTimeout(() => { capsuleJustDragged = false; }, 0);
+    };
+    const up = () => {
+      cleanup();
+      if (!dragging) return;
+      if (dragMode === 'host') {
+        // 拖拽结束通知宿主失败不回滚位置：位置本来就只是为了让窗口跟着卡片走。
+        floating.endDrag().catch(() => {});
+      } else if (dragMode === 'page') {
+        const r = ui.capsule.getBoundingClientRect();
+        saveCapsulePos(snapCapsule(r.left, r.top));
+      }
+    };
+    // pointercancel 不代表「拖动结束」：真机上 pointerup 会正常到达，但捕获一旦被
+    // 系统收走就只剩 cancel。所以这里只清监听，收尾留给宿主的「光标静止即结束」兜底
+    // （FLOATING_DRAG_IDLE_MS）；pointerup 真到了就提前收尾。
+    const cancelled = () => {
+      cleanup();
+      if (dragging && dragMode === 'page') {
+        const r = ui.capsule.getBoundingClientRect();
+        saveCapsulePos(snapCapsule(r.left, r.top));
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancelled);
+  });
+  ui.capsule.addEventListener('click', (e) => {
+    if (capsuleJustDragged) return;
+    if (e.target.closest('.capsule-btn')) return;
+    expandCapsule();
+  });
+  // 宿主改窗口尺寸后把越界的位置夹回来。浮动实例没有页内坐标可夹（胶囊就是窗口
+  // 的全部内容，位置归宿主窗口管），直接跳过。
+  window.addEventListener('resize', () => {
+    if (window.HertzCapsuleOnly) return;
+    if (!ui.capsule.style.left || ui.capsule.hidden) return;
+    const r = ui.capsule.getBoundingClientRect();
+    placeCapsule(r.left, r.top);
+  });
+  initCapsuleMarquee();
+  let capsuleMin = false;
+  try { capsuleMin = localStorage.getItem(CAPSULE_KEY) === '1'; } catch (err) { capsuleMin = false; }
+  // 浮动实例的形态由 surface 决定，不读 tab 那份偏好：两个 surface 共用宿主 storage
+  // 的同一个键空间，互相读会把对方的初始态改错（还会顺手写脏偏好）。
+  if (capsuleMin && !window.HertzCapsuleOnly) setCapsuleMinimized(true);
+}
+
+// Floating windows share transport, commands and metadata with the full player.
+// Only presentation dependencies are initialized here.
+async function startFloatingCapsule() {
+  window.Online.bind({ ui, state, toast, errText });
+  if (window.Theme) window.Theme.init();
+  if (window.ThemeStudio) window.ThemeStudio.initPalette();
+  initCapsuleControls();
+  bindMediaSession();
+  await refreshFloatingCapsule();
+  openSocket();
+}
+
+async function refreshFloatingCapsule() {
+  const settings = transport.get('/v1/settings').then(s => {
+    state.settings = s || {};
+    document.body.classList.toggle('reduce-motion', state.settings.reduce_motion === true);
+    refreshCapsuleMarquee();
+  }).catch(() => {});
+  const snapshot = transport.get('/v1/state').then(applySnapshot).catch(() => {});
+  await Promise.all([settings, snapshot]);
+  if (state.settings.play_mode && state.settings.play_mode !== state.snapshot.mode) {
+    transport.post('/v1/player/mode', { mode: state.settings.play_mode }).catch(() => {});
+  }
+  await restoreQueue();
+}
+
 async function startApp() {
   // 插件形态下 localStorage 是替身，得先把宿主里存的界面偏好读回内存，否则下面
   // 这一串 init() 拿到的全是默认值（症状：刷新后主题、皮肤、舞台参数集体丢失）。
@@ -7007,6 +7269,7 @@ async function startApp() {
   // 落盘的在线元数据先喂回内存：队列行第一帧就能显示真名字，不用等补取。
   if (window.Online && window.Online.seedFromStore) window.Online.seedFromStore();
   transport = await chooseTransport();
+  if (window.HertzCapsuleOnly) return startFloatingCapsule();
   if (transport.kind === 'demo') {
     ui.demoBadge.hidden = false;
     toast('未连接本地服务，已进入演示模式', 'info');
@@ -7891,6 +8154,7 @@ async function startApp() {
     state.settings.reduce_motion = ui.setMotion.checked;
     document.body.classList.toggle('reduce-motion', ui.setMotion.checked);
     if (Stage) Stage.setReducedMotion(ui.setMotion.checked);
+    refreshCapsuleMarquee();
     persistSettings({ reduce_motion: ui.setMotion.checked });
   };
   // 首页名言三个开关。名言模块自己管渲染，这里只转发意图：
@@ -8035,163 +8299,7 @@ async function startApp() {
   // 播放控制弹窗（np）：绑定开/关、音量与跳转。此前只定义未调用，
   // 弹窗在界面上不可达。
   initNowPlayingModal();
-  // 胶囊播放器：顶栏按钮收进去；胶囊上直接给传输三键与展开，不展开也能操作。
-  // 页内最小化态整块可拖、靠边吸附、位置记进 localStorage；浮动实例改由宿主窗口
-  // 承担移动与吸附（见下面的 pointerdown）。
-  /// 宿主是否给了浮动窗口能力。capabilities 是 init 消息里的广告位：Web 宿主没有
-  /// 窗口，老版本 dbx 也没有这个 surface，两种情况都得退回页内最小化。
-  function floatingApi() {
-    const bridge = window.dbxPlugin;
-    return bridge && bridge.capabilities && bridge.capabilities.floating && bridge.floating ? bridge.floating : null;
-  }
-  /// 开浮动胶囊窗口。尺寸先给估值：浮窗实例量出自己的胶囊之后会再 setSize 修正
-  /// （见 fitFloatingWindowToCapsule）。整窗不透明、与胶囊同色，读作一张圆角卡片
-  /// （见 style.css 的 is-floating-capsule）：宿主的浮窗本来就不透明，一个要给用户
-  /// 拖的东西必须处处点得动。
-  function openFloatingCapsule() {
-    const floating = floatingApi();
-    if (!floating) return Promise.resolve(null);
-    return floating
-      .open({ contributionId: PLAYER_WORKBENCH, title: '正在播放', width: 268, height: 55 })
-      .catch((err) => {
-        console.warn('[hertz] 打开浮动胶囊失败：', err);
-        return null;
-      });
-  }
-  /// 展开：tab 实例解除最小化；浮动实例跳回主工作台 tab 并关掉自己。
-  function expandCapsule() {
-    if (window.HertzCapsuleOnly) {
-      // 先清偏好再开 tab：两个 surface 共用宿主 storage 的键空间，新 tab 启动时
-      // 若读到 '1' 会把自己又最小化成一页空白。
-      try { localStorage.setItem(CAPSULE_KEY, ''); } catch (err) { /* 偏好丢一次无所谓 */ }
-      // 跳回主工作台 tab：浮窗里没有标签栏，宿主会把这次导航转发给主窗口并把它带到
-      // 前台。同时借 sidecar 广播让还活着的 tab 实例解除最小化——两个 iframe 是
-      // opaque origin，浏览器侧没有直达通道，只能绕服务端这条事件管道。
-      // 必须等转发落地再关自己：窗口一销毁，还在路上的那次转发就没人送了，用户点了
-      // 展开却什么也没开出来。
-      Promise.allSettled([
-        window.dbxPlugin.openWorkbench(PLAYER_WORKBENCH, {}, { target: 'tab' }),
-        transport.post('/v1/ui/notice', { action: 'expand-capsule' }),
-      ]).then(() => {
-        const floating = floatingApi();
-        // 关窗失败也无所谓：主界面已经开出来了，浮动窗是旧壳子。
-        if (floating) floating.close().catch(() => {});
-      });
-      return;
-    }
-    setCapsuleMinimized(false);
-  }
-  // 最小化到胶囊。抽成函数是因为入口有两处：顶栏的胶囊按钮，以及设置里
-  // 「窗口与舞台」分组的新按钮（清风皮肤把控制入口统一收进左上角设置，
-  // 顶栏那几个图标对它是冗余的，隐藏前必须在这里补一个可发现的入口）。
-  const enterCapsule = () => {
-    if (floatingApi()) {
-      // dbx：最小化 = 浮动胶囊窗口接管 + 关掉这个 tab。留一个空白 tab 在 dbx 里读作
-      // 「页面坏了」，而浮窗那份本来就是「切到哪个应用都还在」的胶囊。不写 minimized
-      // 偏好：tab 已关，之后任何一次打开都该是完整界面。浮窗叫不出来时退回页内最小化，
-      // 不能把用户关在门外。
-      openFloatingCapsule().then((r) => {
-        if (!r) {
-          setCapsuleMinimized(true);
-          return;
-        }
-        if (window.dbxPlugin.closeWorkbench) window.dbxPlugin.closeWorkbench();
-      });
-      return;
-    }
-    setCapsuleMinimized(true);
-  };
-  ui.capsuleEntry.addEventListener('click', enterCapsule);
-  const setCapsuleBtn = $('set-capsule-btn');
-  if (setCapsuleBtn) setCapsuleBtn.addEventListener('click', enterCapsule);
-  // 传输三键：与底部播放条同一批调用。stopPropagation 免得冒到胶囊的展开/拖拽上。
-  ui.capsulePrev.addEventListener('click', (e) => { e.stopPropagation(); post('/v1/player/previous'); });
-  ui.capsuleNext.addEventListener('click', (e) => { e.stopPropagation(); post('/v1/player/next'); });
-  ui.capsulePlay.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
-  ui.capsuleExpand.addEventListener('click', (e) => { e.stopPropagation(); expandCapsule(); });
-  // 拖拽：整块是把手，按钮除外。位移过阈值才算拖；没超过阈值的那次 pointerup 之后的
-  // click 仍走展开，靠 capsuleJustDragged 挡一下。两种形态移动的东西不同：
-  //   page —— 页内最小化态，移动 DOM，松手吸附到视口边缘并落盘；
-  //   host —— 浮动实例：过阈值时把窗口交给宿主（beginDrag），之后宿主自己轮询原生
-  //           光标移动窗口，插件不逐帧上报；松手时 endDrag，宿主吸附到屏幕工作区并
-  //           落盘，宿主自己也有「光标停顿即结束」的兜底。
-  let capsuleJustDragged = false;
-  ui.capsule.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.capsule-btn')) return;
-    const startX = e.clientX, startY = e.clientY;
-    const box = ui.capsule.getBoundingClientRect();
-    const offX = startX - box.left, offY = startY - box.top;
-    const floating = window.HertzCapsuleOnly ? floatingApi() : null;
-    let dragging = false;
-    let dragMode = floating ? 'pending' : 'page';
-    const move = (ev) => {
-      if (!dragging) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < CAPSULE_DRAG_PX) return;
-        dragging = true;
-        capsuleJustDragged = true;
-        ui.capsule.classList.add('is-dragging');
-        // 抓住指针：拖出 iframe 之外事件也还回这里，不然一过边界就丢拖拽。
-        try { ui.capsule.setPointerCapture(e.pointerId); } catch (err) { /* 拿不到就算了 */ }
-        if (floating) {
-          dragMode = 'host';
-          floating.beginDrag().catch((err) => { console.warn('[hertz] 浮窗拖动起手失败：', err); dragMode = 'off'; });
-        }
-      }
-      // host 形态下移动由操作系统接管，这里什么都不做；pending/off 也不动页内 DOM。
-      if (dragMode === 'page') placeCapsule(ev.clientX - offX, ev.clientY - offY);
-    };
-    const cleanup = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancelled);
-      ui.capsule.classList.remove('is-dragging');
-      setTimeout(() => { capsuleJustDragged = false; }, 0);
-    };
-    const up = () => {
-      cleanup();
-      if (!dragging) return;
-      if (dragMode === 'host') {
-        // 拖拽结束通知宿主失败不回滚位置：位置本来就只是为了让窗口跟着卡片走。
-        floating.endDrag().catch(() => {});
-      } else if (dragMode === 'page') {
-        const r = ui.capsule.getBoundingClientRect();
-        saveCapsulePos(snapCapsule(r.left, r.top));
-      }
-    };
-    // pointercancel 不代表「拖动结束」：真机上 pointerup 会正常到达，但捕获一旦被
-    // 系统收走就只剩 cancel。所以这里只清监听，收尾留给宿主的「光标静止即结束」兜底
-    // （FLOATING_DRAG_IDLE_MS）；pointerup 真到了就提前收尾。
-    const cancelled = () => {
-      cleanup();
-      if (dragging && dragMode === 'page') {
-        const r = ui.capsule.getBoundingClientRect();
-        saveCapsulePos(snapCapsule(r.left, r.top));
-      }
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancelled);
-  });
-  ui.capsule.addEventListener('click', (e) => {
-    if (capsuleJustDragged) return;
-    if (e.target.closest('.capsule-btn')) return;
-    expandCapsule();
-  });
-  // 宿主改窗口尺寸后把越界的位置夹回来。浮动实例没有页内坐标可夹（胶囊就是窗口
-  // 的全部内容，位置归宿主窗口管），直接跳过。
-  window.addEventListener('resize', () => {
-    if (window.HertzCapsuleOnly) return;
-    if (!ui.capsule.style.left || ui.capsule.hidden) return;
-    const r = ui.capsule.getBoundingClientRect();
-    placeCapsule(r.left, r.top);
-  });
-  requestAnimationFrame(tickCapsuleMarquee);
-  let capsuleMin = false;
-  try { capsuleMin = localStorage.getItem(CAPSULE_KEY) === '1'; } catch (err) { capsuleMin = false; }
-  // 浮动实例的形态由 surface 决定，不读 tab 那份偏好：两个 surface 共用宿主 storage
-  // 的同一个键空间，互相读会把对方的初始态改错（还会顺手写脏偏好）。
-  if (capsuleMin && !window.HertzCapsuleOnly) setCapsuleMinimized(true);
+  initCapsuleControls();
   // 在线面板（web/online.js）：先注入宿主依赖，再拉音源清单、绑事件。
   window.Online.bind({
     onNowPlaying: setBarFavoriteTrack,

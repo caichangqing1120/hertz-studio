@@ -17,7 +17,7 @@ async function run() {
   const requests = [];
   const state = { snapshot: { track_id: 'one', duration_ms: 100000, position_ms: 0 }, settings: {} };
   const range = { value: '20', setAttribute() {} };
-  const box = vm.createContext({ Promise, DOMException, Date, state,
+  const box = vm.createContext({ Promise, DOMException, Date, state, window: {},
     ui: { volume: range, setCoverFollow: {} }, np: {}, Stage: null,
     request(url, options) {
       const pending = deferred();

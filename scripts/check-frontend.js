@@ -44,6 +44,8 @@ const SYNTAX_SKIP = new Set(['vendor']);
 // why 字段就是原来贴在 ci.yml 里的判断依据：它解释的是「这条失败意味着什么」，
 // 挪到脚本里才不会和 workflow 的 YAML 缩进互相拖累。
 const STEPS = [
+  { script: 'check-capsule-performance.js', stage: 'behavior',
+    why: '小窗口按需滚动、隐藏状态消费、曲目/封面竞态、恢复队列与精简重连。' },
   { script: 'check-home-dashboard.js', stage: 'behavior',
     why: '继续播放卡必须只读快照、明确主动作，并拦住迟到历史与封面回填。' },
   { script: 'check-creative-share-code.js', stage: 'behavior',

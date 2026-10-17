@@ -607,5 +607,9 @@
   // 刻意不等 readyState：本脚本是 defer 的，执行时 readyState 已经是 'interactive'，
   // 但挂 VMusicTransport 的 app.js 还排在后面。走「已经解析完就立刻跑」那条快捷分支，
   // 第一发请求就会因为传输层 undefined 抛错并被吞掉，整个模块静默空转。
-  document.addEventListener('DOMContentLoaded', function () { bindStatic(); loadSources(); });
+  document.addEventListener('DOMContentLoaded', function () {
+    // URL preboot is synchronous; bridge.ready may resolve after DOMContentLoaded.
+    if (document.documentElement && document.documentElement.classList.contains('hertz-floating-preboot')) return;
+    bindStatic(); loadSources();
+  });
 })();

@@ -1057,6 +1057,12 @@
     return 'url("' + wallUrl(w.id) + '")';
   }
 
+  // Floating player needs saved palettes, without wallpaper, gallery or controls.
+  function initPalette() {
+    restore();
+    registerAnimeThemes();
+  }
+
   function init() {
     // 订阅必须排在 restore 之前：restore 会把存过的自定义配色重新登记，而登记
     // 一个"存储里正等着被兑现"的主题会当场触发 Theme.apply。订阅晚一步，这次
@@ -1098,6 +1104,7 @@
   window.ThemeStudio = {
     bind: function (host) { H = host; },
     init: init,
+    initPalette: initPalette,
     // 壁纸与主题的对外动作：app.js 与将来的其它视图（如封面占位）都用这几个。
     setWallpaper: setWallpaper,
     setOptions: setOptions,
