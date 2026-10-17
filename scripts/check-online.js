@@ -1309,14 +1309,31 @@ async function loginScenario(pollStates, opts) {
 
   function playlistSandbox(opts) {
     const bySource = opts.playlistsBySource || null;
-    const playlistGet = bySource
+    const byScope = opts.playlistsByScope || null;
+    const playlistGet = byScope
+      ? opts.sources.reduce((routes, source) => routes.concat(
+        Object.keys(byScope[source.id] || {}).map((scope) => ({
+          match(url) {
+            return url.indexOf('/v1/online/playlists') >= 0
+              && url.indexOf('source=' + source.id) >= 0
+              && url.indexOf('scope=' + scope) >= 0;
+          },
+          returns: byScope[source.id][scope],
+        }))
+      ), [])
+      : bySource
       ? // 按 URL 里的 source= 分流，顺序无关（匹配函数各自唯一）。
         opts.sources.map((s) => ({
           match(url) {
             return url.indexOf('/v1/online/playlists') >= 0
               && url.indexOf('source=' + s.id) >= 0;
           },
-          returns: bySource[s.id] || [],
+          returns(url) {
+            const lists = bySource[s.id] || [];
+            if (s.id !== 'qq') return lists;
+            const scope = /[?&]scope=([^&]+)/.exec(url);
+            return scope ? lists.filter((playlist) => playlist.kind === scope[1]) : lists;
+          },
         }))
       : [{ match: '/v1/online/playlists', ...(opts.playlistsThrow
           ? { throw: opts.playlistsThrow }
@@ -1428,6 +1445,33 @@ async function loginScenario(pollStates, opts) {
     await ticks(20);
     const vip = findByClass(env.doc.getElementById('op-accounts'), 'op-vip')[0];
     eq(vip && vip.textContent, '会员信息暂不可用', '未知资料有独立状态，不断言无会员');
+  }
+
+  section('QQ 账号歌单：组合 created 与 liked，包含我喜欢');
+  {
+    const env = playlistSandbox({
+      sources: [{ id: 'qq', label: 'QQ音乐', caps: ['cookie_login', 'user_playlists'] }],
+      playlistsByScope: {
+        qq: {
+          created: [{ source: 'qq', id: 'q-created', name: '自建歌单', track_count: 2, kind: 'created' }],
+          liked: [{ source: 'qq', id: 'q-liked', name: '我喜欢', track_count: 4, kind: 'liked' }],
+        },
+      },
+    });
+    await env.doc.fireDCL();
+    await ticks(20);
+    const requests = env.sandbox.VMusicTransport.calls.get
+      .filter((call) => call.url.indexOf('/v1/online/playlists') >= 0);
+    eq(requests.length, 2, 'QQ 账号分别请求 created 与 liked');
+    ok(requests.some((call) => call.url.indexOf('scope=created') >= 0)
+      && requests.some((call) => call.url.indexOf('scope=liked') >= 0),
+    'QQ 账号只使用后端白名单中的 scope');
+    const cards = env.doc.getElementById('op-grid').children;
+    eq(cards.length, 2, '创建歌单和我喜欢都显示');
+    const names = cards.reduce((out, card) => out.concat(
+      findByClass(card, 'op-pl-name').map((name) => name.textContent)
+    ), []);
+    ok(names.includes('♥ 我喜欢'), 'liked 类型歌单进入 QQ 歌单网格');
   }
 
   section('caps：无写能力详情不出移除按钮');
