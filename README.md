@@ -109,8 +109,8 @@ Jamendo、ccMixter 和公开播客；显式开启 `full` feature 的 **Full** �
 
 **外观**
 
-- 布局皮肤（界面可选七套）：经典 classic（默认）/ 浮光 sheen / 流年 liunian /
-  清风 qingfeng / 潮汐 chaoxi / 黑胶 heijiao / 星轨 orbit。星轨提供单张立体黑胶、鼠标透视跟随、
+- 布局皮肤（界面可选七套）：星轨 orbit（默认）/ 经典 classic / 浮光 sheen / 流年 liunian /
+  清风 qingfeng / 潮汐 chaoxi / 黑胶 heijiao。星轨提供单张立体黑胶、鼠标透视跟随、
   浮雕列表与常驻队列，配套「星轨雾白」主题还原参考界面。皮肤只管布局，配色一律跟当前主题走，
   所以换皮肤不会把主题色带跑，换主题也不破坏布局。工作台 workbench 与 OS 风 ios
   暂不开放（OS 风与经典是同一套读法）：目录里保留定义，界面上（设置页 / 顶栏弹层 /

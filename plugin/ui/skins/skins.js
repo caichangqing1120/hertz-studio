@@ -19,7 +19,8 @@
 
   var ATTR = 'data-skin';
   var KEY = 'vmusic.skin';
-  var DEFAULT_ID = 'classic';
+  var DEFAULT_ID = 'orbit';
+  var BASE_ID = 'classic';
   var EVENT = 'skin:changed';
   // 顶栏弹层互斥广播，与 app.js 的 broadcastTopbarPopup 同一条约定：谁开谁喊
   // 一声，其余弹层（主题色 / 更多工具）听见不是自己开的就收起。按钮 onclick
@@ -236,10 +237,10 @@
       id = DEFAULT_ID;
     }
     // classic 没有 CSS 文件是设计如此；其它皮肤缺 CSS 就是漏了文件。
-    if (id !== DEFAULT_ID && !hasCss(id)) {
+    if (id !== BASE_ID && !hasCss(id)) {
       if (window.console && console.warn) console.warn('[skins] 缺少 ' + id + ' 的 CSS，回落到 classic');
-      id = DEFAULT_ID;
-      def = byId(DEFAULT_ID);
+      id = BASE_ID;
+      def = byId(BASE_ID);
     }
 
     transition(def);
@@ -265,13 +266,13 @@
     var saved = null;
     try { saved = localStorage.getItem(KEY); } catch (e) { saved = null; }
     var def = saved ? byId(saved) : null;
-    // 存过但不认识（比如皮肤被删了）回落 classic；存的是**已隐藏**的皮肤同样
+    // 存过但不认识（比如皮肤被删了）回落默认皮肤；存的是**已隐藏**的皮肤同样
     // 回落——界面上已经没有它的入口，继续停在里面等于把用户锁在一套换不回来
     // 的布局里。
     var start = def && !def.hidden ? saved : DEFAULT_ID;
     apply(start, { silent: true });
-    if (def && def.hidden) {
-      // init 走 silent 不写盘，这里补一次：否则下次开页又读回那个没有入口的皮肤。
+    if (saved && (!def || def.hidden)) {
+      // init 走 silent 不写盘，这里补一次，避免下次继续读取无效偏好。
       try { localStorage.setItem(KEY, start); } catch (e) { /* 隐私模式 */ }
     }
     bindEntry();

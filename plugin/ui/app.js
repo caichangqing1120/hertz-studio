@@ -472,8 +472,8 @@ const DBX_SUBSCRIBE_METHOD = 'studio/events/subscribe';
 /// （典型场景：搜索词变了，作废上一批响应），所以让 signal 与 invoke 竞速：本地立刻
 /// 按 AbortError 拒绝，后端那次调用会跑完但结果被丢弃。对调用方与 HTTP 版的 abort
 /// 等价，代价是白跑一次后端。
-function dbxInvoke(method, params, signal) {
-  const call = window.dbxPlugin.invoke(method, params, { timeoutMs: REQUEST_TIMEOUT });
+function dbxInvoke(method, params, signal, timeoutMs) {
+  const call = window.dbxPlugin.invoke(method, params, { timeoutMs });
   if (!signal) return call;
   if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
   return new Promise((resolve, reject) => {
@@ -500,6 +500,8 @@ async function blobToBase64(blob) {
 async function dbxRequest(path, options = {}, attempt = 0) {
   const { method, query } = splitPath(path);
   const op = (options.method || 'GET').toUpperCase();
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs : REQUEST_TIMEOUT;
   const params = { op, query };
   if (options.rawBody !== undefined) {
     // 二进制上传（封面替换）：HTTP 版是裸 body + Content-Type，这里换成信封里的 base64。
@@ -510,7 +512,7 @@ async function dbxRequest(path, options = {}, attempt = 0) {
   }
 
   try {
-    const envelope = await dbxInvoke(method, params, options.signal);
+    const envelope = await dbxInvoke(method, params, options.signal, timeoutMs);
     if (!envelope || typeof envelope.status !== 'number') {
       throw new Error('sidecar 返回了不认识的结果');
     }
@@ -802,13 +804,16 @@ const REQUEST_TIMEOUT = 15000;
 
 async function request(path, options = {}, attempt = 0) {
   const method = (options.method || 'GET').toUpperCase();
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs : REQUEST_TIMEOUT;
+  const { timeoutMs: _timeoutOverride, ...fetchOptions } = options;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const cancel = () => controller && controller.abort();
   if (options.signal) {
     if (options.signal.aborted) cancel();
     else options.signal.addEventListener('abort', cancel, { once: true });
   }
-  const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT) : 0;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : 0;
   try {
     // rawBody：封面替换这类二进制上传走这里，不包 JSON、不改 Content-Type。
     const body = options.rawBody !== undefined
@@ -816,7 +821,7 @@ async function request(path, options = {}, attempt = 0) {
       : (options.body !== undefined && typeof options.body !== 'string'
         ? JSON.stringify(options.body) : options.body);
     const res = await fetch(path, {
-      ...options,
+      ...fetchOptions,
       body,
       signal: controller ? controller.signal : options.signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}`, ...(options.headers || {}) },
@@ -4594,7 +4599,10 @@ function setView(name, options) {
     ui.settingsEntry.setAttribute('aria-pressed', String(name === 'settings'));
   }
   document.body.classList.remove('column-open');
-  if (name === 'online' && window.Online && !(options && options.historyOnly)) window.Online.onViewEnter();
+  if (name === 'online') {
+    if (window.TopSearch && window.TopSearch.onOnlineViewEnter) window.TopSearch.onOnlineViewEnter();
+    if (!(options && options.historyOnly) && window.Online) window.Online.onViewEnter();
+  }
   if (name === 'podcasts' && window.Podcasts) window.Podcasts.onViewEnter();
   // 设置页里的诊断日志大小是「现在有多少内容」：不进页面就不刷新，用户开着
   // 日志录了一晚上，这里还停在「还没有内容」，等于把功能自己的状态说错了。

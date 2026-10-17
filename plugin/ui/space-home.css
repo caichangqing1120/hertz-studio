@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 /* Copyright (c) 2026 hertz-studio contributors */
-.space-home { position: absolute; inset: 0; z-index: 3; overflow: auto; overflow-x: hidden; scrollbar-width: none; overscroll-behavior: contain; background: color-mix(in srgb,var(--bg) 22%,transparent); color: var(--sp-text); letter-spacing: 0; transition: opacity .4s var(--sp-ease),transform .5s var(--sp-ease); }
+.space-home { position: absolute; inset: 0; z-index: 3; overflow: auto; overflow-x: hidden; scrollbar-width: none; overscroll-behavior: contain; background: color-mix(in srgb,var(--bg) 42%,transparent); color: var(--sp-text); letter-spacing: 0; transition: opacity .4s var(--sp-ease),transform .5s var(--sp-ease); }
 .space-home::-webkit-scrollbar { display: none; }
 .space-home[hidden], .space-home [hidden] { display: none !important; }
-.sh-shell { box-sizing: border-box; width: min(1800px, 100%); min-height: 100%; margin: 0 auto; padding: 130px 32px 152px; display: grid; grid-template-columns: minmax(280px,.82fr) minmax(0,1.78fr); align-items: start; gap: 24px; }
+.sh-shell { box-sizing: border-box; width: min(1800px, 100%); min-height: 100%; margin: 0 auto; padding: 130px 32px 152px; display: grid; grid-template-columns: minmax(280px,.82fr) minmax(0,1.78fr); align-items: start; gap: 24px; perspective: 1600px; transform-style: preserve-3d; }
 .sh-header { position: absolute; z-index: 15; top: 22px; left: 50%; transform: translateX(-50%); width: min(520px,40%); color: var(--sp-text); }
 .sh-eyebrow { display: block; font-size: 10px; font-weight: 600; color: var(--muted, var(--sp-muted)); letter-spacing: 0; }
 .sh-search { display: flex; align-items: center; box-sizing: border-box; width: 100%; height: 58px; padding: 0 14px; border: 1px solid var(--sp-line); border-radius: 22px; background: var(--sp-glass-strong); backdrop-filter: blur(24px); box-shadow: 0 10px 30px rgba(0,0,0,.12); transition: border-color .2s,transform .2s; }
@@ -217,15 +217,15 @@
 
 /* Light surfaces lift above the scene when approached. */
 .space-home, .sh-panel-layer {
-  --sh-surface: color-mix(in srgb,var(--bg,#141618) 16%,transparent);
-  --sh-raised: rgba(255,255,255,.075);
-  --sh-shadow: 0 4px 16px rgba(0,0,0,.08);
-  --sh-shadow-raised: 0 18px 30px rgba(0,0,0,.18);
+  --sh-surface: color-mix(in srgb,var(--bg,#141618) 70%,transparent);
+  --sh-raised: color-mix(in srgb,var(--bg,#141618) 74%,white 26%);
+  --sh-shadow: 0 10px 26px rgba(0,0,0,.18);
+  --sh-shadow-raised: 0 22px 38px rgba(0,0,0,.28);
 }
-.sh-daily-review { background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; text-shadow: 0 2px 12px rgba(0,0,0,.35); }
+.sh-daily-review:not(.has-video) { background: var(--sh-surface); border-color: var(--sp-line); box-shadow: var(--sh-shadow); backdrop-filter: blur(20px) saturate(1.12); text-shadow: none; transform: translateZ(12px); }
 .sh-time { font-weight: 650; }
-.sh-action { background: var(--sh-surface); border-color: transparent; box-shadow: none; backdrop-filter: blur(12px) saturate(1.1); transition: transform .4s var(--sp-ease),box-shadow .4s var(--sp-ease),border-color .25s,background .25s; }
-.sh-action:hover, .sh-action:focus-visible, .sh-action.is-active { background: var(--sh-raised); border-color: rgba(255,255,255,.16); box-shadow: var(--sh-shadow-raised); transform: perspective(1000px) translate3d(0,-7px,12px) rotateX(var(--sp-tilt-x,0deg)) rotateY(var(--sp-tilt-y,0deg)); }
+.sh-action { background: var(--sh-surface); border-color: var(--sp-line); box-shadow: var(--sh-shadow); backdrop-filter: blur(18px) saturate(1.12); transform: perspective(1200px) translateZ(10px); transform-style: preserve-3d; transition: transform .4s var(--sp-ease),box-shadow .4s var(--sp-ease),border-color .25s,background .25s; }
+.sh-action:hover, .sh-action:focus-visible, .sh-action.is-active { background: var(--sh-raised); border-color: color-mix(in srgb,var(--sp-line) 60%,white 40%); box-shadow: var(--sh-shadow-raised); transform: perspective(1000px) translate3d(0,-7px,26px) rotateX(var(--sp-tilt-x,0deg)) rotateY(var(--sp-tilt-y,0deg)); }
 .sh-action.is-active { border-bottom-color: var(--sp-accent,var(--accent)); }
 .sh-action:active { transform: perspective(900px) translate3d(0,-1px,3px); }
 .sh-action-cover { color: var(--sp-text); background: transparent; box-shadow: none; transition: transform .4s var(--sp-ease); }
@@ -245,7 +245,9 @@
 .sh-next-up { border-top-color: transparent; border-radius: 8px; transition: transform .4s var(--sp-ease),box-shadow .4s var(--sp-ease),background .25s; }
 .sh-next-up:hover, .sh-next-up:focus-visible { background: rgba(255,255,255,.045); box-shadow: 0 14px 26px rgba(0,0,0,.12); transform: perspective(1000px) translate3d(0,-6px,10px) rotateX(var(--sp-tilt-x,0deg)) rotateY(var(--sp-tilt-y,0deg)); }
 .sh-track { transition: transform .28s var(--sp-ease),background .28s,border-color .28s,box-shadow .28s var(--sp-ease); }
-.sh-track:hover, .sh-track:focus-within, .sh-track.is-current { background: var(--sp-track-surface); border-color: var(--sp-track-edge); box-shadow: var(--sp-track-shadow); transform: var(--sp-track-lift); }
+.sh-track { transform: translateZ(3px); }
+.sh-track:hover, .sh-track:focus-within, .sh-track.is-current { background: var(--sp-track-surface); border-color: var(--sp-track-edge); box-shadow: var(--sp-track-shadow); transform: translate3d(0,-2px,10px); }
+.sh-action-detail, .sh-track-meta { color: color-mix(in srgb,var(--sp-text) 78%,transparent); }
 .sh-panel-controls:empty { display: none; }
 .sh-panel .sh-track { padding: 7px 8px; }
 .sh-tabs button.is-selected { color: var(--sp-text); background: var(--sh-raised); box-shadow: inset 0 1px 2px rgba(255,255,255,.25),0 3px 8px rgba(0,0,0,.2); }
@@ -284,6 +286,6 @@
 @media (max-width:520px) { .sh-action { min-height: 128px; } .sh-embedded-view .podcast-scroll { padding: 14px; } .sh-embedded-view.online-radio { padding: 22px 18px; } }
 @media (prefers-reduced-motion:reduce) {
   .sh-action, .sh-action-cover, .sh-track, .sh-next-up, .sh-search, .sh-panel, .sh-playlist, .sh-embedded-view .podcast-show { transition: none; }
-  .sh-action:hover, .sh-action:focus-visible, .sh-action.is-active, .sh-action:active, .sh-action-continue .sh-action-cover, .sh-action:hover .sh-action-cover, .sh-action.is-active .sh-action-cover, .sh-track:hover, .sh-track:focus-within, .sh-track.is-current, .sh-next-up:hover, .sh-next-up:focus-visible, .sh-search:hover, .sh-search:focus-within, .sh-playlist:hover, .sh-playlist:focus-visible, .sh-embedded-view .podcast-show:hover { transform: none; }
+  .sh-action, .sh-daily-review:not(.has-video), .sh-track, .sh-action:hover, .sh-action:focus-visible, .sh-action.is-active, .sh-action:active, .sh-action-continue .sh-action-cover, .sh-action:hover .sh-action-cover, .sh-action.is-active .sh-action-cover, .sh-track:hover, .sh-track:focus-within, .sh-track.is-current, .sh-next-up:hover, .sh-next-up:focus-visible, .sh-search:hover, .sh-search:focus-within, .sh-playlist:hover, .sh-playlist:focus-visible, .sh-embedded-view .podcast-show:hover { transform: none; }
   .sh-panel:hover, .sh-panel:focus-within { translate: none; }
 }
