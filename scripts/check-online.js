@@ -2087,6 +2087,7 @@ async function loginScenario(pollStates, opts) {
   section('曲源接力后的出处身份（F3：出处与供音分开存）');
   {
     const env = makeSandbox({});
+    bindOnline(env);
     const O = env.sandbox.window.Online;
     ok(typeof O.relayMeta === 'function', 'Online.relayMeta 有导出');
 
@@ -2134,6 +2135,20 @@ async function loginScenario(pollStates, opts) {
     eq(cold.title, '冷启动那首', '没有旧元数据时按事件带的字段建一条');
     eq(cold.origin && cold.origin.source, 'netease', '这种时候出处取服务端给的字段');
     ok(O.relayMeta(null) === null && O.relayMeta({}) === null, '脏事件安静地不迁');
+
+    const categoryTrack = T({ source: 'netease', id: 'category-hot-1', title: '分类热门曲目' });
+    O.state.tracks = [categoryTrack];
+    O.remember('online:netease:category-hot-1', {
+      id: 'online:netease:category-hot-1', source: 'netease', onlineId: 'category-hot-1',
+      title: categoryTrack.title,
+    });
+    O.relayMeta({
+      track_id: 'online:qq:category-hot-1', from_track_id: 'online:netease:category-hot-1',
+      to_source: 'qq', title: categoryTrack.title, origin_source: 'netease', origin_id: 'category-hot-1',
+    });
+    const rerendered = O.row(categoryTrack, function () {});
+    eq(rerendered.querySelector('.t-quality').children[0].title, 'QQ 音乐',
+      '热门分类行重绘后显示接力到的实际供音音源');
   }
 
   // -------------------------------------------------------------------------
